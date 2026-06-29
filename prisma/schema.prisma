@@ -1,0 +1,389 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  PROCUREMENT_MANAGER
+  PRODUCTION_MANAGER
+  BRANCH_MANAGER
+  VIEWER
+}
+
+enum PRStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CONVERTED_TO_PO
+}
+
+enum POStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+  CANCELLED
+}
+
+enum RRStatus {
+  DRAFT
+  CONFIRMED
+  DISCREPANCY_FLAGGED
+}
+
+enum ProductionStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER
+  WASTE
+}
+
+// ─── USERS ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  approvals        Approval[]
+  purchaseRequests PurchaseRequest[]
+  productionOrders ProductionOrder[]
+}
+
+// ─── BRANCHES ────────────────────────────────────────────────────────────────
+
+model Branch {
+  id       String  @id @default(cuid())
+  name     String
+  address  String?
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  users             User[]
+  inventoryLevels   InventoryLevel[]
+  stockTransfersOut StockTransfer[]  @relation("TransferFrom")
+  stockTransfersIn  StockTransfer[]  @relation("TransferTo")
+  productionOrders  ProductionOrder[]
+}
+
+// ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  type      String   // 'RAW_MATERIAL' | 'FINISHED_GOOD' | 'PACKAGING'
+  createdAt DateTime @default(now())
+
+  materials    Material[]
+  finishedGoods FinishedGood[]
+}
+
+model Unit {
+  id           String @id @default(cuid())
+  name         String @unique
+  abbreviation String @unique
+
+  materials Material[]
+  finishedGoods FinishedGood[]
+  bomItems  BOMItem[]
+}
+
+// ─── MATERIALS ────────────────────────────────────────────────────────────────
+
+model Material {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  description  String?
+  categoryId   String
+  category     Category @relation(fields: [categoryId], references: [id])
+  unitId       String
+  unit         Unit     @relation(fields: [unitId], references: [id])
+  reorderPoint Decimal  @default(0)
+  standardCost Decimal  @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  inventoryLevels      InventoryLevel[]
+  stockMovements       StockMovement[]
+  purchaseRequestItems PurchaseRequestItem[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  receivingItems       ReceivingReportItem[]
+  bomItems             BOMItem[]
+  stockTransferItems   StockTransferItem[]
+}
+
+// ─── FINISHED GOODS ───────────────────────────────────────────────────────────
+
+model FinishedGood {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  description  String?
+  categoryId   String
+  category     Category @relation(fields: [categoryId], references: [id])
+  unitId       String
+  unit         Unit     @relation(fields: [unitId], references: [id])
+  sellingPrice Decimal  @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  boms              BOM[]
+  productionOrders  ProductionOrder[]
+  conversionSources Conversion[] @relation("ConversionSource")
+  conversionOutputs Conversion[] @relation("ConversionOutput")
+}
+
+// ─── BOM ─────────────────────────────────────────────────────────────────────
+
+model BOM {
+  id             String       @id @default(cuid())
+  finishedGoodId String
+  finishedGood   FinishedGood @relation(fields: [finishedGoodId], references: [id])
+  version        Int          @default(1)
+  isActive       Boolean      @default(true)
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  items            BOMItem[]
+  productionOrders ProductionOrder[]
+}
+
+model BOMItem {
+  id         String   @id @default(cuid())
+  bomId      String
+  bom        BOM      @relation(fields: [bomId], references: [id])
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id])
+  quantity   Decimal
+  unitId     String
+  unit       Unit     @relation(fields: [unitId], references: [id])
+  notes      String?
+}
+
+// ─── SUPPLIERS ───────────────────────────────────────────────────────────────
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  taxId       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+}
+
+// ─── PURCHASE REQUESTS ────────────────────────────────────────────────────────
+
+model PurchaseRequest {
+  id            String    @id @default(cuid())
+  prNumber      String    @unique
+  requestedById String
+  requester     User      @relation(fields: [requestedById], references: [id])
+  status        PRStatus  @default(DRAFT)
+  notes         String?
+  neededBy      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  items          PurchaseRequestItem[]
+  approvals      Approval[]
+  purchaseOrders PurchaseOrder[]
+}
+
+model PurchaseRequestItem {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  materialId        String
+  material          Material        @relation(fields: [materialId], references: [id])
+  quantity          Decimal
+  estimatedUnitCost Decimal?
+  notes             String?
+}
+
+// ─── PURCHASE ORDERS ──────────────────────────────────────────────────────────
+
+model PurchaseOrder {
+  id                String           @id @default(cuid())
+  poNumber          String           @unique
+  purchaseRequestId String?
+  purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
+  supplierId        String
+  supplier          Supplier         @relation(fields: [supplierId], references: [id])
+  status            POStatus         @default(DRAFT)
+  totalAmount       Decimal          @default(0)
+  expectedDelivery  DateTime?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  items            PurchaseOrderItem[]
+  receivingReports ReceivingReport[]
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  materialId      String
+  material        Material      @relation(fields: [materialId], references: [id])
+  quantity        Decimal
+  unitCost        Decimal
+  totalCost       Decimal
+}
+
+// ─── RECEIVING REPORTS ────────────────────────────────────────────────────────
+
+model ReceivingReport {
+  id              String        @id @default(cuid())
+  rrNumber        String        @unique
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  status          RRStatus      @default(DRAFT)
+  receivedAt      DateTime      @default(now())
+  notes           String?
+  createdAt       DateTime      @default(now())
+
+  items ReceivingReportItem[]
+}
+
+model ReceivingReportItem {
+  id                String          @id @default(cuid())
+  receivingReportId String
+  receivingReport   ReceivingReport @relation(fields: [receivingReportId], references: [id])
+  materialId        String
+  material          Material        @relation(fields: [materialId], references: [id])
+  orderedQuantity   Decimal
+  receivedQuantity  Decimal
+  rejectedQuantity  Decimal         @default(0)
+  unitCost          Decimal
+  notes             String?
+}
+
+// ─── INVENTORY ───────────────────────────────────────────────────────────────
+
+model InventoryLevel {
+  id         String   @id @default(cuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id])
+  branchId   String
+  branch     Branch   @relation(fields: [branchId], references: [id])
+  quantity   Decimal  @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([materialId, branchId])
+}
+
+model StockMovement {
+  id            String       @id @default(cuid())
+  materialId    String
+  material      Material     @relation(fields: [materialId], references: [id])
+  type          MovementType
+  quantity      Decimal
+  referenceId   String?
+  referenceType String?
+  notes         String?
+  createdAt     DateTime     @default(now())
+}
+
+model StockTransfer {
+  id           String   @id @default(cuid())
+  fromBranchId String
+  fromBranch   Branch   @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranchId   String
+  toBranch     Branch   @relation("TransferTo", fields: [toBranchId], references: [id])
+  transferredAt DateTime @default(now())
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  items StockTransferItem[]
+}
+
+model StockTransferItem {
+  id              String        @id @default(cuid())
+  stockTransferId String
+  stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id])
+  materialId      String
+  material        Material      @relation(fields: [materialId], references: [id])
+  quantity        Decimal
+}
+
+// ─── PRODUCTION ───────────────────────────────────────────────────────────────
+
+model ProductionOrder {
+  id             String           @id @default(cuid())
+  orderNumber    String           @unique
+  finishedGoodId String
+  finishedGood   FinishedGood     @relation(fields: [finishedGoodId], references: [id])
+  bomId          String
+  bom            BOM              @relation(fields: [bomId], references: [id])
+  branchId       String
+  branch         Branch           @relation(fields: [branchId], references: [id])
+  requestedById  String
+  requestedBy    User             @relation(fields: [requestedById], references: [id])
+  status         ProductionStatus @default(PLANNED)
+  plannedQty     Decimal
+  actualQty      Decimal?
+  plannedDate    DateTime
+  completedAt    DateTime?
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
+// ─── CONVERSIONS ─────────────────────────────────────────────────────────────
+
+model Conversion {
+  id           String       @id @default(cuid())
+  sourceGoodId String
+  sourceGood   FinishedGood @relation("ConversionSource", fields: [sourceGoodId], references: [id])
+  sourceQty    Decimal
+  outputGoodId String
+  outputGood   FinishedGood @relation("ConversionOutput", fields: [outputGoodId], references: [id])
+  outputQty    Decimal
+  notes        String?
+  convertedAt  DateTime     @default(now())
+}
+
+// ─── APPROVALS ───────────────────────────────────────────────────────────────
+
+model Approval {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
+  approverId        String
+  approver          User            @relation(fields: [approverId], references: [id])
+  decision          String          // 'APPROVED' | 'REJECTED'
+  remarks           String?
+  decidedAt         DateTime        @default(now())
+}
