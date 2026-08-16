@@ -9,11 +9,14 @@ const PUBLIC_PATHS = [
   '/api/auth/register',
 ]
 
-// Paths that require a specific role
+// Paths that require a specific role.
+// Kept in sync with the role restrictions in lib/navigation.ts — the sidebar
+// hides links a role can't use, but this is what actually blocks the URL.
 const ROLE_GUARDS: { path: string; roles: Role[] }[] = [
-  { path: '/dashboard/procurement', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
-  { path: '/dashboard/production',  roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
-  { path: '/dashboard/branches',    roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  { path: '/procurement',         roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
+  { path: '/production',          roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/inventory/transfers', roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  { path: '/admin',               roles: ['ADMIN'] },
 ]
 
 export async function middleware(req: NextRequest) {

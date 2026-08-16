@@ -16,9 +16,17 @@ Legend: `[x]` done · `[~]` partial (see note) · `[ ]` not started
 - [x] GitHub repo + GitHub Actions CI pipeline
 - [~] Auth with 5 roles — implemented as `ADMIN, PROCUREMENT_MANAGER, PRODUCTION_MANAGER, BRANCH_MANAGER, VIEWER` (renamed from the plan's Admin/Accounting Approver/Warehouse Staff/Kitchen Supervisor/Branch Manager — intentional naming, matches `docs/overview.md`)
 - [x] Login page + protected route middleware per role
+- [x] Logout (topbar button, `components/dashboard/Topbar.tsx`)
 - [x] Seed script (`prisma/seed.ts`)
 
-**Deliverable status:** met — login, role-based middleware, and full 22-table schema are in place.
+**Deliverable status:** met — login, logout, role-based middleware, and full 22-table schema are in place.
+
+**Note (2026-07-11):** `middleware.ts` `ROLE_GUARDS` still referenced the pre-flattening
+dashboard URLs (`/dashboard/procurement` etc.) after the routes moved to `/procurement/*`,
+`/production/*`, etc. — the guards were silently dead, so a VIEWER typing a restricted URL
+directly wasn't blocked at the middleware level (only hidden from the sidebar). Fixed to guard
+the current flat paths; added `app/unauthorized/page.tsx` since the redirect target didn't
+exist yet either.
 
 **Note:** the original plan called for a separate Fastify API server; this was intentionally
 dropped in favor of Next.js API routes only (see `docs/overview.md`).

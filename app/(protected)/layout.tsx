@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { UserRepository } from '@/repositories/user.repository'
 import { Sidebar } from '@/components/dashboard/Sidebar'
+import { Topbar } from '@/components/dashboard/Topbar'
 
 export default async function ProtectedLayout({
   children,
@@ -25,7 +26,7 @@ export default async function ProtectedLayout({
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       <Sidebar name={user.name} role={user.role} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Topbar comes next step */}
+        <Topbar name={user.name} email={user.email} role={user.role} />
         <main className="flex-1 overflow-y-auto p-6">
           {children}
         </main>

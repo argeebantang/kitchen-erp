@@ -3,6 +3,18 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+// Dev-only quick login. Matches prisma/seed.ts — every seeded account shares
+// this password. Never rendered outside development (see isDev below).
+const DEV_PASSWORD = 'password123'
+const DEV_USERS = [
+  { email: 'admin@kitchen.com',       label: 'Admin' },
+  { email: 'procurement@kitchen.com', label: 'Procurement Manager' },
+  { email: 'production@kitchen.com',  label: 'Production Manager' },
+  { email: 'branch@kitchen.com',      label: 'Branch Manager' },
+  { email: 'viewer@kitchen.com',      label: 'Viewer' },
+]
+const isDev = process.env.NODE_ENV === 'development'
+
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail]       = useState('')
@@ -10,14 +22,14 @@ export default function LoginPage() {
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
 
-  async function handleLogin() {
+  async function handleLogin(overrides?: { email: string; password: string }) {
     setLoading(true)
     setError('')
 
     const res = await fetch('/api/auth/login', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ email, password }),
+      body:    JSON.stringify(overrides ?? { email, password }),
     })
 
     const data = await res.json()
@@ -29,6 +41,12 @@ export default function LoginPage() {
     }
 
     router.push('/dashboard')
+  }
+
+  function handleQuickLogin(devEmail: string) {
+    setEmail(devEmail)
+    setPassword(DEV_PASSWORD)
+    handleLogin({ email: devEmail, password: DEV_PASSWORD })
   }
 
   return (
@@ -83,13 +101,34 @@ export default function LoginPage() {
           </div>
 
           <button
-            onClick={handleLogin}
+            onClick={() => handleLogin()}
             disabled={loading}
             className="w-full bg-orange-500 text-white py-2.5 rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors text-sm"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </div>
+
+        {isDev && (
+          <div className="mt-6 pt-6 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-400 mb-2">
+              Dev quick login (seeded accounts)
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {DEV_USERS.map(u => (
+                <button
+                  key={u.email}
+                  type="button"
+                  onClick={() => handleQuickLogin(u.email)}
+                  disabled={loading}
+                  className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  {u.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

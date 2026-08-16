@@ -21,7 +21,7 @@ Server Components under `app/(protected)/` call repositories/services directly f
 1. **`middleware.ts`** runs on every request (matcher excludes static assets). It is the single point where auth is enforced:
    - Public paths (`/login`, `/api/auth/login`, `/api/auth/register`) pass through.
    - All other paths require a valid `kitchen-token` JWT cookie (HS256, 8h expiry, signed with `JWT_SECRET`, verified via `jose`). Missing/invalid tokens redirect to `/login`.
-   - `ROLE_GUARDS` in the same file maps path prefixes (`/dashboard/procurement`, `/dashboard/production`, `/dashboard/branches`) to allowed `Role`s; a mismatch redirects to `/unauthorized`.
+   - `ROLE_GUARDS` in the same file maps path prefixes (`/procurement`, `/production`, `/inventory/transfers`, `/admin`) to allowed `Role`s, matching the restrictions in `lib/navigation.ts`; a mismatch redirects to `/unauthorized`. This is what actually blocks a role from a URL — the sidebar only hides the link.
    - On success, middleware injects `x-user-id`, `x-user-role`, `x-user-email` headers onto the forwarded request, so downstream route handlers (e.g. `app/api/auth/me/route.ts`) trust these headers instead of re-verifying the JWT.
 2. **Server Components** (e.g. the protected layout) don't see those injected headers directly — they call `getSession()` (`lib/session.ts`), which re-reads and re-verifies the cookie via `verifyToken`, then re-fetch the user from the DB. This is intentional: it also catches users deleted after the token was issued.
 3. **Login/Register/Logout** go through `AuthService` (`services/auth.service.ts`), which hashes/verifies passwords with bcrypt (12 rounds, constant-time-ish via a dummy hash comparison to avoid user-enumeration timing attacks) and issues/clears the `kitchen-token` cookie (httpOnly, `secure` in production, `sameSite=lax`).
@@ -33,7 +33,7 @@ Server Components under `app/(protected)/` call repositories/services directly f
 - **Repositories** (`repositories/`): the only layer allowed to import `lib/prisma`. Each repository is scoped to one Prisma model/domain concept (e.g. `UserRepository`) and defines safe projections (e.g. `safeUserSelect` excludes `passwordHash`) so secrets never leak past this layer.
 - **`lib/`**: cross-cutting singletons and helpers — `prisma.ts` (Prisma client singleton, reused across hot-reloads in dev), `config.ts` (fails fast on missing required env vars), `auth.ts` (JWT sign/verify, password hashing), `session.ts` (server-only cookie → session helper), `navigation.ts` (sidebar/nav config).
 - **`hooks/`**: client-side React hooks, e.g. `useUser.ts` for consuming the current session in client components.
-- **`components/`**: shared UI, currently `components/dashboard/Sidebar.tsx`, rendered from the protected layout with the current user's name/role.
+- **`components/`**: shared UI — `components/dashboard/Sidebar.tsx` (current user's name/role, role-filtered nav) and `components/dashboard/Topbar.tsx` (greeting + a user menu — avatar, name, role, and a dropdown showing email and a logout button that calls `POST /api/auth/logout` then redirects to `/login`), both rendered from the protected layout.
 
 This is a conventional layered/n-tier architecture rather than DDD or hexagonal — there are no domain entities or ports/adapters abstractions; repositories wrap Prisma calls fairly directly, and business rules live in services as procedural functions.
 
