@@ -3,6 +3,15 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * The app is a light-only design: every surface is hard-coded (bg-gray-50
+   * shell, bg-white cards, text-gray-800 copy). Declaring the scheme stops the
+   * browser rendering native control chrome — date-picker icons, select arrows,
+   * scrollbars — in its dark UA theme, which is otherwise unreadable against
+   * these light surfaces.
+   */
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,12 +21,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/*
+ * The create-next-app `@media (prefers-color-scheme: dark)` override was
+ * removed deliberately.
+ *
+ * It flipped --foreground to #ededed, and since `body` sets `color:
+ * var(--foreground)`, every element that did NOT declare its own colour
+ * inherited near-white text. Almost all of this app's markup sets an explicit
+ * text-* class, so the only things that inherited were form controls — making
+ * typed text invisible on their white backgrounds for anyone with their OS in
+ * dark mode.
+ *
+ * Restoring it means building a real dark theme for every hard-coded surface,
+ * not just re-adding these two variables.
+ */
 
 body {
   background: var(--background);
