@@ -1,41 +1,17 @@
-import { SignJWT, jwtVerify } from 'jose'
 import bcrypt from 'bcryptjs'
-import { config } from './config'
+
+/**
+ * Node-runtime auth helpers. bcryptjs cannot run in the Edge runtime, so this
+ * module must never be imported from middleware.ts — see lib/jwt.ts, which
+ * holds the Edge-safe JWT half and is what middleware imports.
+ *
+ * The JWT helpers are re-exported here so Node-side callers (services, server
+ * components) can keep importing everything auth-related from one place.
+ */
+export { COOKIE_NAME, signToken, verifyToken } from './jwt'
+export type { JWTPayload } from './jwt'
 
 const BCRYPT_ROUNDS = 12
-const JWT_ALGORITHM = 'HS256'
-const JWT_EXPIRY = '8h'
-const COOKIE_NAME = 'kitchen-token'
-
-// TextEncoder converts the string secret into bytes that jose requires
-const secret = new TextEncoder().encode(config.jwtSecret)
-
-export { COOKIE_NAME }
-
-export type JWTPayload = {
-  userId: string
-  email: string
-  role: string
-  branchId?: string | null
-}
-
-export async function signToken(payload: JWTPayload): Promise<string> {
-  return new SignJWT({ ...payload })
-    .setProtectedHeader({ alg: JWT_ALGORITHM })
-    .setIssuedAt()
-    .setExpirationTime(JWT_EXPIRY)
-    .sign(secret)
-}
-
-export async function verifyToken(token: string): Promise<JWTPayload | null> {
-  try {
-    const { payload } = await jwtVerify(token, secret)
-    return payload as unknown as JWTPayload
-  } catch {
-    // Token expired, tampered with, or invalid — all treated the same way
-    return null
-  }
-}
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, BCRYPT_ROUNDS)

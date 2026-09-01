@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyToken, COOKIE_NAME } from '@/lib/auth'
-import { Role } from '@prisma/client'
+// Imported from lib/jwt, NOT lib/auth: lib/auth pulls in bcryptjs, which the
+// Edge runtime cannot execute. See the note in lib/jwt.ts.
+import { verifyToken, COOKIE_NAME } from '@/lib/jwt'
+// Type-only import — erased at compile time, so the Prisma client never enters
+// the Edge bundle either.
+import type { Role } from '@prisma/client'
 
 // Paths that never require a token
 const PUBLIC_PATHS = [

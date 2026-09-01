@@ -1,7 +1,6 @@
 import { Role } from '@prisma/client'
 import { hashPassword, verifyPassword, signToken, COOKIE_NAME } from '@/lib/auth'
 import { UserRepository, SafeUser } from '@/repositories/user.repository'
-import { NextResponse } from 'next/server'
 
 export type RegisterInput = {
   email: string
