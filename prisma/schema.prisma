@@ -108,6 +108,7 @@ model Unit {
   materials Material[]
   finishedGoods FinishedGood[]
   bomItems  BOMItem[]
+  boms      BOM[]
 }
 
 // ─── MATERIALS ────────────────────────────────────────────────────────────────
@@ -122,6 +123,8 @@ model Material {
   unitId       String
   unit         Unit     @relation(fields: [unitId], references: [id])
   reorderPoint Decimal  @default(0)
+  /// Deprecated — superseded by ItemPrice, which carries effective-dated history.
+  /// Kept only so the change is additive; nothing reads it. Drop in a later change.
   standardCost Decimal  @default(0)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -134,6 +137,40 @@ model Material {
   receivingItems       ReceivingReportItem[]
   bomItems             BOMItem[]
   stockTransferItems   StockTransferItem[]
+  itemPrices           ItemPrice[]
+
+  @@index([categoryId])
+}
+
+// ─── ITEM PRICES ──────────────────────────────────────────────────────────────
+
+/// Effective-dated purchase price history for a Material.
+///
+/// Rows are open-ended: there is no endDate. The price in force on a given date
+/// is the newest row whose effectiveDate is on or before it. "Current" is always
+/// derived, never stored, so it cannot drift out of sync the way a validFrom/
+/// validTo pair can when only one of the two writes lands.
+///
+/// supplierId is nullable and the null case is meaningful:
+///   - null     → the organisation-wide reference price for the material
+///   - non-null → that supplier's quoted price
+/// Lookups for a specific supplier prefer that supplier's row and fall back to
+/// the reference row. See ItemPriceRepository.findPriceAsOf.
+model ItemPrice {
+  id            String    @id @default(cuid())
+  materialId    String
+  material      Material  @relation(fields: [materialId], references: [id])
+  supplierId    String?
+  supplier      Supplier? @relation(fields: [supplierId], references: [id])
+  unitPrice     Decimal
+  effectiveDate DateTime
+  note          String?
+  createdAt     DateTime  @default(now())
+
+  // Reference-price lookups: newest row <= asOf for a material.
+  @@index([materialId, effectiveDate])
+  // Supplier-scoped lookups hit the same table with an extra equality column.
+  @@index([materialId, supplierId, effectiveDate])
 }
 
 // ─── FINISHED GOODS ───────────────────────────────────────────────────────────
@@ -160,17 +197,35 @@ model FinishedGood {
 
 // ─── BOM ─────────────────────────────────────────────────────────────────────
 
+/// A recipe version for a FinishedGood.
+///
+/// BOMItem quantities are stated per ONE BATCH of batchSize batchUnit — i.e. as
+/// the recipe card is actually written ("this makes 10 kg"), not normalised to a
+/// single unit. Normalising would round small ingredients (0.0035 kg of salt per
+/// kg) and make the stored rows impossible to check against the physical recipe.
+/// Scaling to a target quantity is derived: factor = targetQty / batchSize.
+///
+/// Versions are immutable. An edit supersedes the active version with a new one
+/// (isActive = false on the old); rows are never mutated or deleted, because
+/// ProductionOrder pins bomId and a completed run must keep reporting the
+/// ingredients it actually consumed.
 model BOM {
   id             String       @id @default(cuid())
   finishedGoodId String
   finishedGood   FinishedGood @relation(fields: [finishedGoodId], references: [id])
   version        Int          @default(1)
   isActive       Boolean      @default(true)
+  batchSize      Decimal
+  batchUnitId    String
+  batchUnit      Unit         @relation(fields: [batchUnitId], references: [id])
   notes          String?
   createdAt      DateTime     @default(now())
 
   items            BOMItem[]
   productionOrders ProductionOrder[]
+
+  @@unique([finishedGoodId, version])
+  @@index([finishedGoodId, isActive])
 }
 
 model BOMItem {
@@ -183,6 +238,8 @@ model BOMItem {
   unitId     String
   unit       Unit     @relation(fields: [unitId], references: [id])
   notes      String?
+
+  @@index([bomId])
 }
 
 // ─── SUPPLIERS ───────────────────────────────────────────────────────────────
@@ -200,6 +257,7 @@ model Supplier {
   updatedAt   DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
+  itemPrices     ItemPrice[]
 }
 
 // ─── PURCHASE REQUESTS ────────────────────────────────────────────────────────
