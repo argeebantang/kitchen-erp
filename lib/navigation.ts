@@ -8,6 +8,7 @@ import {
   GitBranch,
   Users,
   Settings,
+  Map,
 } from 'lucide-react'
 
 export type NavItem = {
@@ -27,6 +28,7 @@ export const navigation: NavGroup[] = [
     group: 'Overview',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [] },
+      { label: 'Roadmap',   href: '/roadmap',   icon: Map,             roles: [] },
     ],
   },
   {
