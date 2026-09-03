@@ -161,6 +161,7 @@ async function main() {
     { email: 'procurement@kitchen.com', name: 'Juan Procurement', role: Role.PROCUREMENT_MANAGER },
     { email: 'production@kitchen.com',  name: 'Maria Production', role: Role.PRODUCTION_MANAGER },
     { email: 'branch@kitchen.com',      name: 'Pedro Branch',     role: Role.BRANCH_MANAGER },
+    { email: 'accounting@kitchen.com',  name: 'Liza Accounting',  role: Role.ACCOUNTING },
     { email: 'viewer@kitchen.com',      name: 'Ana Viewer',       role: Role.VIEWER },
   ]
 

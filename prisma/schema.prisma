@@ -14,6 +14,7 @@ enum Role {
   PROCUREMENT_MANAGER
   PRODUCTION_MANAGER
   BRANCH_MANAGER
+  ACCOUNTING
   VIEWER
 }
 
@@ -27,6 +28,9 @@ enum PRStatus {
 
 enum POStatus {
   DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
   SENT
   PARTIALLY_RECEIVED
   FULLY_RECEIVED
@@ -70,6 +74,7 @@ model User {
   approvals        Approval[]
   purchaseRequests PurchaseRequest[]
   productionOrders ProductionOrder[]
+  notifications    Notification[] 
 }
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
@@ -274,8 +279,10 @@ model PurchaseRequest {
   updatedAt     DateTime  @updatedAt
 
   items          PurchaseRequestItem[]
-  approvals      Approval[]
   purchaseOrders PurchaseOrder[]
+
+  @@index([status])
+  @@index([requestedById])
 }
 
 model PurchaseRequestItem {
@@ -287,6 +294,8 @@ model PurchaseRequestItem {
   quantity          Decimal
   estimatedUnitCost Decimal?
   notes             String?
+
+  @@index([purchaseRequestId])
 }
 
 // ─── PURCHASE ORDERS ──────────────────────────────────────────────────────────
@@ -296,8 +305,8 @@ model PurchaseOrder {
   poNumber          String           @unique
   purchaseRequestId String?
   purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
-  supplierId        String
-  supplier          Supplier         @relation(fields: [supplierId], references: [id])
+  supplierId        String?
+  supplier          Supplier?        @relation(fields: [supplierId], references: [id])
   status            POStatus         @default(DRAFT)
   totalAmount       Decimal          @default(0)
   expectedDelivery  DateTime?
@@ -307,6 +316,11 @@ model PurchaseOrder {
 
   items            PurchaseOrderItem[]
   receivingReports ReceivingReport[]
+
+  @@index([status])
+  @@index([supplierId])
+  @@index([purchaseRequestId])
+
 }
 
 model PurchaseOrderItem {
@@ -318,6 +332,8 @@ model PurchaseOrderItem {
   quantity        Decimal
   unitCost        Decimal
   totalCost       Decimal
+
+  @@index([purchaseOrderId])
 }
 
 // ─── RECEIVING REPORTS ────────────────────────────────────────────────────────
@@ -435,13 +451,46 @@ model Conversion {
 
 // ─── APPROVALS ───────────────────────────────────────────────────────────────
 
+/// A recorded approve/reject decision on a workflow document.
+///
+/// Polymorphic by (referenceType, referenceId) — the same shape StockMovement
+/// uses for its source-document link. One table covers PurchaseRequest and
+/// PurchaseOrder now, and ProductionOrder / Conversion later, instead of a
+/// near-identical approval table per workflow.
+///
+/// referenceId is deliberately NOT a foreign key: Postgres cannot express an FK
+/// whose target table varies by row, so there is no DB-level guarantee it points
+/// at a live row. The service layer passes a real id — treat this the way
+/// StockMovement.referenceId is already treated (see docs/database.md).
 model Approval {
-  id                String          @id @default(cuid())
-  purchaseRequestId String
-  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id])
-  approverId        String
-  approver          User            @relation(fields: [approverId], references: [id])
-  decision          String          // 'APPROVED' | 'REJECTED'
-  remarks           String?
-  decidedAt         DateTime        @default(now())
+  id            String   @id @default(cuid())
+  referenceType String // 'PurchaseRequest' | 'PurchaseOrder'
+  referenceId   String
+  approverId    String
+  approver      User     @relation(fields: [approverId], references: [id])
+  decision      String // 'APPROVED' | 'REJECTED'
+  remarks       String?
+  decidedAt     DateTime @default(now())
+
+  @@index([referenceType, referenceId])
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
+
+/// An in-app notification for one user. Written by the BullMQ worker on PR
+/// submission (and later by other jobs). Week 3 only produces rows — the bell
+/// UI that reads them is Week 11. readAt = null means unread.
+model Notification {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  type          String
+  title         String
+  body          String?
+  referenceType String?
+  referenceId   String?
+  readAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, readAt])
 }

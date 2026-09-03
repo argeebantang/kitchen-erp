@@ -16,11 +16,22 @@ const PUBLIC_PATHS = [
 // Paths that require a specific role.
 // Kept in sync with the role restrictions in lib/navigation.ts — the sidebar
 // hides links a role can't use, but this is what actually blocks the URL.
+//
+// The loop below checks EVERY matching guard, not just the first — so overlapping
+// prefixes are AND-ed. Procurement relies on that: `/procurement` sets the
+// baseline (any procurement role, no VIEWER), then the narrower guards further
+// restrict specific sub-paths.
 const ROLE_GUARDS: { path: string; roles: Role[] }[] = [
-  { path: '/procurement',         roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
-  { path: '/production',          roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
-  { path: '/inventory/transfers', roles: ['ADMIN', 'BRANCH_MANAGER'] },
-  { path: '/admin',               roles: ['ADMIN'] },
+  { path: '/procurement',           roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  { path: '/procurement/orders',    roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
+  { path: '/procurement/approvals', roles: ['ADMIN', 'ACCOUNTING'] },
+  { path: '/procurement/receiving', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
+  { path: '/api/purchase-requests', roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  { path: '/api/purchase-orders',   roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
+  { path: '/api/approvals',         roles: ['ADMIN', 'ACCOUNTING'] },
+  { path: '/production',            roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  { path: '/admin',                 roles: ['ADMIN'] },
 ]
 
 export async function middleware(req: NextRequest) {

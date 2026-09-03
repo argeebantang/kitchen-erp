@@ -15,6 +15,10 @@ costing and AI. It does not. All 22 models in `prisma/schema.prisma` are core do
 tables listed on the sprint plan's DB Schema tab are **additions still to be made**, not part of
 the 22. Final count will be 26 tables.
 
+**Update (2026-09-03):** Week 3 added a 23rd core table, `Notification` — not on the sprint
+plan's list, but required as the sink for the BullMQ jobs (PR submitted, low stock, escalation)
+and as the foundation for Week 11's notification bell + email. Final count is therefore 27.
+
 | Needed | Status in `schema.prisma` | Due |
 |---|---|---|
 | `item_prices` | **Done (2026-09-01).** `ItemPrice` added — open-ended effective dating with an optional `supplierId` (null = organisation reference price). `Material.standardCost` is deprecated but retained; nothing reads it. | Week 2 |
@@ -85,12 +89,22 @@ unrelated to Week 2 and both invisible in `next dev`:
    project pins 15.3.4, so `npm run lint` errored out in CI. Replaced with the `FlatCompat` bridge.
 
 ### Week 3 — Purchase Request & Purchase Order
+- [x] Schema foundation — `ACCOUNTING` role, polymorphic `Approval`, `Notification` table,
+      `POStatus` approval states, nullable `PurchaseOrder.supplierId`, inbox/FK indexes, and
+      `pr_number_seq`/`po_number_seq` for race-free document numbers. Middleware `/procurement`
+      guard split so accounting approves and procurement cannot.
+      Migration `20260902113746_week3_procurement_workflow`.
 - [ ] PR form + status flow (Draft → Pending → Approved/Rejected)
 - [ ] Accounting approver inbox
 - [ ] BullMQ notification job on PR submission
 - [ ] Auto-generate PO draft on PR approval
 - [ ] PO form + approval
-- [ ] PO PDF export (Puppeteer)
+- [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)
+
+**Note (2026-09-03):** four schema blockers found while planning Week 3 are now resolved —
+there was no `ACCOUNTING` role, `POStatus` had no approval states, `Approval` was PR-only, and
+`prNumber`/`poNumber` had no race-free generator. See `docs/2026-09-03-week3-procurement.md`
+for the decisions and their rationale.
 
 ### Week 4 — Receiving Report & Stock Update
 - [ ] RR form linked to approved PO
