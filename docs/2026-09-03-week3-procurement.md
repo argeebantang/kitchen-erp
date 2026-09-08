@@ -167,8 +167,9 @@ a self-assessed urgency label is neither, and everyone ticks "urgent".
   unpriced — a partial total would understate the request.
 - `app/api/purchase-requests/route.ts` (new) — `POST`. Reads `x-user-id` from the header
   middleware injected, zod-validates the body, delegates, maps the service result to 201/400/401/500.
-- `app/(protected)/procurement/requests/page.tsx` (new) — Server Component list, calls the
-  service directly.
+- `app/(protected)/procurement/requests/page.tsx` (new) — Server Component list.
+  **Correction:** this file shipped in commit 2 still rendering hardcoded placeholder rows;
+  the service call landed in commit 3 below.
 - `app/(protected)/procurement/requests/new/page.tsx` (new) — Server Component that loads
   materials and renders the form.
 - `components/procurement/PurchaseRequestForm.tsx` (new) — Client Component. Repeating line
@@ -237,3 +238,55 @@ docker compose exec postgres psql -U kitchen -d kitchen_erp \
 - No edit or delete for a draft.
 - The list is capped at `take: 100` with no pagination controls; the repository supports
   `skip`/`take` but nothing drives them.
+
+
+---
+
+## Commit 3 — viewer scoping, and the list page actually reading the database
+
+**What changed**
+
+- `services/purchase-request.service.ts` — added a `Viewer` type (`userId` + `role`) and
+  scoping. `list()` now takes a viewer and narrows the query to `requestedById` unless the
+  role is ADMIN, ACCOUNTING or PROCUREMENT_MANAGER. `getById()` applies the same rule and
+  returns **404, not 403**, when a requester opens someone else's PR — a 403 would confirm the
+  id exists, which is more than they are entitled to know.
+- `app/(protected)/procurement/requests/page.tsx` — replaced the placeholder rows with a real
+  `PurchaseRequestService.list()` call, reading identity via `getSession()`.
+- Dropped `max-w-6xl` / `max-w-4xl` from both procurement pages, matching the width change
+  applied to the other pages.
+
+**Why scoping lives in the service**
+
+A page or handler that forgot to pass `requestedById` would silently list every request. Putting
+the decision inside `list()` makes the safe behaviour the default and the unsafe one impossible
+to reach by omission. This is per-**user** ownership, not branch isolation — `docs/database.md`
+still notes branch is not a security boundary.
+
+It is scoping rather than secrecy: a branch manager's list stays useful instead of filling with
+other people's requests, while accounting and procurement keep the whole picture.
+
+**Correction to commit 2**
+
+`app/(protected)/procurement/requests/page.tsx` was committed in 602581a still rendering
+hardcoded placeholder rows, although that commit's message and this note both described it as
+calling the service. The step was written but never applied, and verification at the time went
+through `psql` rather than the page, so it went unnoticed. Fixed here.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+- As `branch@kitchen.com`: `/procurement/requests` lists only requests that user raised.
+- As `accounting@kitchen.com` or `admin@kitchen.com`: the same page lists every request.
+- Both should show real rows from the database, not placeholders.
+
+**Risks / follow-up**
+
+- `PurchaseRequestService.getById` is scoped but still has no UI caller — the detail page is
+  the next commit.
+- A `VIEWER` is blocked from the page by `middleware.ts`, so the role is absent from
+  `ROLES_SEEING_ALL_REQUESTS` by design; if VIEWER is ever allowed read access, it must be
+  added there deliberately rather than inheriting the requester scope.

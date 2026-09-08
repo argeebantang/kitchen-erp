@@ -1,4 +1,4 @@
-import { Prisma, PRStatus } from '@prisma/client'
+import { Prisma, PRStatus, Role } from '@prisma/client'
 import { toDecimal, toDecimalString, toNullableDecimalString } from '@/lib/decimal'
 import {
   PurchaseRequestRepository,
@@ -119,9 +119,44 @@ function toDetailDto(pr: PurchaseRequestWithDetail): PurchaseRequestDetailDto {
   }
 }
 
+/**
+ * Who is asking. Taken from the verified JWT — getSession() in a Server
+ * Component, or the x-user-id / x-user-role headers middleware injects in a
+ * route handler. Never from a request body.
+ *
+ * role is a plain string because that is what JWTPayload carries; the constant
+ * below is typed as Role[] so the literals themselves are still checked.
+ */
+export type Viewer = {
+  userId: string
+  role: string
+}
+
+/**
+ * Roles that see every request. Everyone else sees only their own.
+ *
+ * This is scoping, not secrecy: a branch manager's list stays useful instead of
+ * filling with other people's requests. Accounting and procurement need the
+ * whole picture to approve and to source.
+ */
+const ROLES_SEEING_ALL_REQUESTS: Role[] = ['ADMIN', 'ACCOUNTING', 'PROCUREMENT_MANAGER']
+
+function seesAllRequests(viewer: Viewer): boolean {
+  return ROLES_SEEING_ALL_REQUESTS.some(role => role === viewer.role)
+}
+
 export const PurchaseRequestService = {
-  async list(filters: PurchaseRequestListFilters = {}) {
-    const { rows, total } = await PurchaseRequestRepository.findMany(filters)
+  /**
+   * Scoping is applied here rather than by the caller. A page or handler that
+   * forgot to pass requestedById would silently leak every request, so the
+   * decision cannot live at the call site.
+   */
+  async list(viewer: Viewer, filters: PurchaseRequestListFilters = {}) {
+    const scoped: PurchaseRequestListFilters = seesAllRequests(viewer)
+      ? filters
+      : { ...filters, requestedById: viewer.userId }
+
+    const { rows, total } = await PurchaseRequestRepository.findMany(scoped)
 
     return {
       purchaseRequests: rows.map<PurchaseRequestSummaryDto>(pr => {
@@ -142,10 +177,15 @@ export const PurchaseRequestService = {
     }
   },
 
-  async getById(id: string): Promise<PurchaseRequestResult<PurchaseRequestDetailDto>> {
+  async getById(
+    id: string,
+    viewer: Viewer,
+  ): Promise<PurchaseRequestResult<PurchaseRequestDetailDto>> {
     const pr = await PurchaseRequestRepository.findById(id)
 
-    if (!pr) {
+    // 404 rather than 403 when a requester opens someone else's PR: a 403 would
+    // confirm the id exists, which is more than they are entitled to know.
+    if (!pr || (!seesAllRequests(viewer) && pr.requestedById !== viewer.userId)) {
       return { success: false, error: 'Purchase request not found', status: 404 }
     }
 

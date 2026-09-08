@@ -1,14 +1,9 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { Plus } from 'lucide-react'
+import { getSession } from '@/lib/session'
+import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { formatPeso } from '@/lib/format'
-
-// TEMPORARY: hardcoded so the page is viewable before any data layer is wired.
-// Replaced with a real PurchaseRequestService.list() call in a later step.
-const DUMMY_ROWS = [
-  { id: 'a', prNumber: 'PR-000001', requesterName: 'Pedro Branch',     lineCount: 2, estimatedTotal: '10100', neededBy: '2026-09-10', status: 'DRAFT' },
-  { id: 'b', prNumber: 'PR-000002', requesterName: 'Maria Production', lineCount: 5, estimatedTotal: '24350', neededBy: '2026-09-12', status: 'PENDING_APPROVAL' },
-  { id: 'c', prNumber: 'PR-000003', requesterName: 'Pedro Branch',     lineCount: 1, estimatedTotal: null,    neededBy: null,         status: 'APPROVED' },
-]
 
 const STATUS_STYLES: Record<string, string> = {
   DRAFT:            'bg-gray-100 text-gray-600',
@@ -18,8 +13,21 @@ const STATUS_STYLES: Record<string, string> = {
   CONVERTED_TO_PO:  'bg-blue-50 text-blue-700',
 }
 
-export default function PurchaseRequestListPage() {
-  const rows = DUMMY_ROWS
+export default async function PurchaseRequestListPage() {
+  // Server Components never see the x-user-id header middleware injects — that
+  // reaches route handlers only. They re-read the cookie via getSession()
+  // instead (docs/architecture.md). The protected layout already redirects an
+  // unauthenticated visitor; this call narrows the type.
+  const session = await getSession()
+  if (!session) redirect('/login')
+
+  // Called directly rather than through an API route, because this is a read
+  // (docs/architecture.md). Scoping to the viewer happens inside the service,
+  // never at the call site.
+  const { purchaseRequests, total } = await PurchaseRequestService.list(
+    { userId: session.userId, role: session.role },
+    { take: 100 },
+  )
 
   return (
     <div>
@@ -27,7 +35,9 @@ export default function PurchaseRequestListPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Purchase Requests</h1>
           <p className="mt-1 text-sm text-gray-400">
-            Raise a request for materials. Accounting approves it before it becomes a purchase order.
+            {total === 0
+              ? 'Raise a request for materials. Accounting approves it before it becomes a purchase order.'
+              : `${total} request${total === 1 ? '' : 's'}.`}
           </p>
         </div>
 
@@ -40,9 +50,10 @@ export default function PurchaseRequestListPage() {
         </Link>
       </div>
 
-      {rows.length === 0 ? (
+      {purchaseRequests.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
           <p className="text-sm font-medium text-gray-600">No purchase requests yet</p>
+          <p className="mt-1 text-sm text-gray-400">Create one to get started.</p>
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -58,7 +69,7 @@ export default function PurchaseRequestListPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {rows.map(row => (
+              {purchaseRequests.map(row => (
                 <tr key={row.id} className="transition-colors hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono text-xs text-gray-700">{row.prNumber}</td>
                   <td className="px-4 py-3 text-gray-700">{row.requesterName}</td>
@@ -68,7 +79,10 @@ export default function PurchaseRequestListPage() {
                       ? <span className="text-gray-400">Not priced</span>
                       : formatPeso(row.estimatedTotal)}
                   </td>
-                  <td className="px-4 py-3 text-gray-500">{row.neededBy ?? '—'}</td>
+                  {/* ISO string sliced rather than toLocaleDateString(): locale
+                      formatting differs between the server and browser renders,
+                      which React reports as a hydration mismatch. */}
+                  <td className="px-4 py-3 text-gray-500">{row.neededBy?.slice(0, 10) ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_STYLES[row.status]}`}>
                       {row.status.replace(/_/g, ' ')}

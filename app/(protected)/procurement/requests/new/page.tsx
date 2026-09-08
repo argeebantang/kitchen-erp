@@ -11,7 +11,7 @@ export default async function NewPurchaseRequestPage() {
   const { materials } = await MaterialService.list({ take: 200 })
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <Link
         href="/procurement/requests"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"

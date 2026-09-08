@@ -97,7 +97,8 @@ unrelated to Week 2 and both invisible in `next dev`:
 - [~] PR form + status flow — **create** done: `/procurement/requests` list, `/procurement/requests/new`
       form with live cost estimate, `POST /api/purchase-requests`, service + repository.
       Lines are auto-priced from `ItemPrice` when no cost is typed. `prNumber` from
-      `pr_number_seq`. Submit → Pending → Approved/Rejected transitions still to do.
+      `pr_number_seq`. Requesters see only their own requests; accounting, procurement and
+      admin see all. Submit → Pending → Approved/Rejected transitions still to do.
 - [ ] Accounting approver inbox
 - [ ] BullMQ notification job on PR submission
 - [ ] Auto-generate PO draft on PR approval
