@@ -27,7 +27,7 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
   ])
 
   return (
-    <div className="max-w-6xl">
+    <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Master Data</h1>
         <p className="mt-1 text-sm text-gray-400">

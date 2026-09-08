@@ -28,7 +28,7 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
   const isScaled = trimDecimal(bom.targetQuantity) !== trimDecimal(bom.batchSize)
 
   return (
-    <div className="max-w-6xl">
+    <div>
       <Link
         href="/production/bom"
         className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"

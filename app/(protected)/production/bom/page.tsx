@@ -18,7 +18,7 @@ export default async function BomListPage({ searchParams }: PageProps) {
   })
 
   return (
-    <div className="max-w-6xl">
+    <div>
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Bill of Materials</h1>

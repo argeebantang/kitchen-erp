@@ -22,7 +22,7 @@ export default async function DashboardPage() {
   const roleLabel = session?.role.replace(/_/g, ' ').toLowerCase()
 
   return (
-    <div className="max-w-6xl">
+    <div>
       {/* Page header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
