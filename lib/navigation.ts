@@ -34,7 +34,7 @@ export const navigation: NavGroup[] = [
   {
     group: 'Procurement',
     items: [
-      { label: 'Purchase Requests', href: '/procurement/requests',  icon: ShoppingCart,  roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
+      { label: 'Purchase Requests', href: '/procurement/requests',  icon: ShoppingCart,  roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Purchase Orders',   href: '/procurement/orders',    icon: ClipboardList, roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
       { label: 'Receiving',         href: '/procurement/receiving', icon: Truck,         roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
     ],

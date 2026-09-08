@@ -94,7 +94,10 @@ unrelated to Week 2 and both invisible in `next dev`:
       `pr_number_seq`/`po_number_seq` for race-free document numbers. Middleware `/procurement`
       guard split so accounting approves and procurement cannot.
       Migration `20260902113746_week3_procurement_workflow`.
-- [ ] PR form + status flow (Draft → Pending → Approved/Rejected)
+- [~] PR form + status flow — **create** done: `/procurement/requests` list, `/procurement/requests/new`
+      form with live cost estimate, `POST /api/purchase-requests`, service + repository.
+      Lines are auto-priced from `ItemPrice` when no cost is typed. `prNumber` from
+      `pr_number_seq`. Submit → Pending → Approved/Rejected transitions still to do.
 - [ ] Accounting approver inbox
 - [ ] BullMQ notification job on PR submission
 - [ ] Auto-generate PO draft on PR approval

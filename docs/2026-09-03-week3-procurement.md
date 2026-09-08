@@ -134,3 +134,106 @@ exists.
   the schema will not know they exist — hence this note and the comment in the migration.
 - `prisma/migrations/migration_lock.toml` has an unrelated pre-existing local modification
   (Prisma changed the comment wording); deliberately left out of this commit.
+
+---
+
+## Commit 2 — Purchase Request creation (list, form, API, service, repository)
+
+The first slice of application code. A user can raise a DRAFT purchase request and see it
+listed. Submit/approve transitions are deliberately excluded — they are their own commit.
+
+**Two decisions taken here**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| When `prNumber` is assigned | At **creation**, not at submission | A PR that cannot be referred to by number is awkward in the UI and in the audit trail. Sequences already produce gaps on rollback, so abandoned drafts leaving gaps costs nothing. |
+| `estimatedUnitCost` on lines | **Auto-filled** from `ItemPrice` when the caller supplies none | An approver looking at an uncosted request cannot judge it. This is where Week 2 pays off: `ItemPriceRepository.findPricesAsOf` prices every line in one supplier-aware query with reference-price fallback. A caller-supplied cost still wins. |
+
+Also settled: the sprint plan's "PR form: items + quantities + **urgency** + notes" is served by
+the existing `neededBy` date rather than a new urgency enum. A date is actionable and objective;
+a self-assessed urgency label is neither, and everyone ticks "urgent".
+
+**What changed**
+
+- `repositories/purchase-request.repository.ts` (new) — `findMany` (paginated, newest first),
+  `findById`, `create` (nested line insert in one statement), and `nextPrNumber()`, which reads
+  `pr_number_seq` via `$queryRaw`. Two include shapes: full detail for one PR, a lighter one for
+  list rows that still carries line quantity/cost so the service can total each row without a
+  per-row query.
+- `services/purchase-request.service.ts` (new) — `list`, `getById`, `create`. Validates line
+  count, duplicate materials and non-positive quantities; resolves all materials in one
+  `findManyByIds` and all prices in one `findPricesAsOf`. Converts every `Decimal` to a string
+  and every `Date` to an ISO string before returning. `estimatedTotal` is null when *any* line is
+  unpriced — a partial total would understate the request.
+- `app/api/purchase-requests/route.ts` (new) — `POST`. Reads `x-user-id` from the header
+  middleware injected, zod-validates the body, delegates, maps the service result to 201/400/401/500.
+- `app/(protected)/procurement/requests/page.tsx` (new) — Server Component list, calls the
+  service directly.
+- `app/(protected)/procurement/requests/new/page.tsx` (new) — Server Component that loads
+  materials and renders the form.
+- `components/procurement/PurchaseRequestForm.tsx` (new) — Client Component. Repeating line
+  rows, live estimated total, `fetch` on submit, `router.refresh()` after success.
+- `lib/navigation.ts` — Purchase Requests link opened to the roles that can raise one.
+
+**Why `fetch` + an API route rather than a Server Action**
+
+Server Actions POST to the *current page URL*, so `middleware.ts` sees the page path, not an
+action-specific one. The `ROLE_GUARDS` design — especially routing every approve/reject through
+a single guarded `/api/approvals` — cannot work that way, and each action would need an inline
+role check, which `docs/coding-conventions.md` forbids. API routes are also plain URLs, which
+Week 9's `create_purchase_request` AI tool needs; a Server Action is only callable from inside
+the React tree. Reads still go through Server Components — no `fetch` for those.
+
+`axios` was considered and rejected: ~13 KB shipped for ergonomics this app does not need. Its
+main draw is interceptors attaching a bearer token, and auth here is an httpOnly cookie the
+browser sends automatically.
+
+**Database changes**
+
+None. Uses the tables and sequence from commit 1.
+
+**API changes**
+
+New: `POST /api/purchase-requests`. Body `{ notes?, neededBy?, items: [{ materialId, quantity,
+estimatedUnitCost?, notes? }] }`. Returns `201 { purchaseRequest }`. `requestedById` is taken
+from the `x-user-id` header and never from the body — otherwise a caller could raise a request
+in another user's name. Guarded by `middleware.ts` to ADMIN, PROCUREMENT_MANAGER,
+BRANCH_MANAGER, PRODUCTION_MANAGER, ACCOUNTING.
+
+**UI changes**
+
+- `/procurement/requests` — table of requests with status badges and estimated totals.
+- `/procurement/requests/new` — line-item form with a live estimate as you type.
+- Sidebar now shows Purchase Requests to requester roles.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+Log in as `branch@kitchen.com` / `password123`, go to Purchase Requests → New Request, add two
+lines (Pork Belly 25, Garlic 3) leaving costs blank, save. Expect `PR-000002` in the list with
+2 lines and ₱10,040.00 — 25 × 380 + 3 × 180, both prices auto-filled from `ItemPrice`. Confirm:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT pr."prNumber", count(i.id) FROM "PurchaseRequest" pr
+      LEFT JOIN "PurchaseRequestItem" i ON i."purchaseRequestId" = pr.id
+      GROUP BY pr.id, pr."prNumber" ORDER BY pr."prNumber";'
+```
+
+**Risks / follow-up**
+
+- A half-filled line (material but no quantity, or vice versa) originally got dropped silently
+  from the payload. Now it blocks submission with a message. This is convenience validation
+  only — the server revalidates via zod and the service.
+- No ownership check yet on reads: any role that can reach the list sees every request, not just
+  their own. Fine while the only consumers are the requester and the approver, but the inbox
+  commit should decide whether a BRANCH_MANAGER may read another branch's requests
+  (`docs/database.md` notes branch is not a security boundary today).
+- No detail page yet, so list rows are not clickable and `PurchaseRequestService.getById` has no
+  UI caller.
+- No edit or delete for a draft.
+- The list is capped at `take: 100` with no pagination controls; the repository supports
+  `skip`/`take` but nothing drives them.
