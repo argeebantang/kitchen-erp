@@ -127,6 +127,23 @@ export const PurchaseRequestRepository = {
   async findById(id: string): Promise<PurchaseRequestWithDetail | null> {
     return prisma.purchaseRequest.findUnique({ where: { id }, include: detailInclude })
   },
+  
+
+  /**
+     * Moves a request to a new status.
+     *
+     * Deliberately dumb — which transitions are legal is a business rule, so that
+     * decision lives in the service. Postgres would happily accept
+     * DRAFT → CONVERTED_TO_PO; see docs/database.md: "status transitions are
+     * enforced in the service layer, not by the database".
+     */
+    async updateStatus(id: string, status: PRStatus): Promise<PurchaseRequestWithDetail> {
+      return prisma.purchaseRequest.update({
+        where:   { id },
+        data:    { status },
+        include: detailInclude,
+      })
+    },
 
   /**
    * Creates a DRAFT with its lines in one statement — Prisma emits a single

@@ -290,3 +290,106 @@ npx tsc --noEmit && npm run lint && npm run build && npm start
 - A `VIEWER` is blocked from the page by `middleware.ts`, so the role is absent from
   `ROLES_SEEING_ALL_REQUESTS` by design; if VIEWER is ever allowed read access, it must be
   added there deliberately rather than inheriting the requester scope.
+
+---
+
+## Commit 4 — PR detail page and submit-for-approval
+
+Built top-down — view, then the button's `fetch` (which 404'd until the endpoint existed), then
+the endpoint as a stub, then the service and repository — so each layer was visibly reached in
+the browser before the next was written.
+
+**What changed**
+
+- `components/procurement/StatusBadge.tsx` (new) — the status pill, extracted from the list page
+  because the detail page and the upcoming PO pages need the same thing. Covers both `PRStatus`
+  and `POStatus`. Not a Client Component: it has no interactivity, so it ships no JavaScript.
+- `app/(protected)/procurement/requests/page.tsx` — uses `StatusBadge`; each PR number now links
+  to its detail page.
+- `app/(protected)/procurement/requests/[id]/page.tsx` (new) — detail page. Awaits `params`
+  (a Promise in Next.js 15), reads the viewer via `getSession()`, calls
+  `PurchaseRequestService.getById`, and calls `notFound()` on any failure.
+- `app/(protected)/procurement/requests/not-found.tsx` (new) — rendered by `notFound()`. Placed
+  at `requests/` rather than the app root so it renders inside the protected layout and keeps the
+  sidebar. Its wording covers both "does not exist" and "not yours" without saying which.
+  Before it existed, a refused PR rendered a blank page.
+- `components/procurement/PurchaseRequestActions.tsx` (new) — Client Component holding only the
+  Submit button. Calls the endpoint, then `router.refresh()` so the Server Component re-runs and
+  the badge updates in place.
+- `app/api/purchase-requests/[id]/submit/route.ts` (new) — `POST`, no body. Reads `x-user-id`
+  and `x-user-role`, delegates to the service.
+- `services/purchase-request.service.ts` — `submit(id, viewer)`.
+- `repositories/purchase-request.repository.ts` — `updateStatus(id, status)`. Deliberately
+  carries no rules; which transitions are legal is decided in the service.
+
+**Why a dedicated `/submit` endpoint rather than `PATCH { status }`**
+
+A general update endpoint that accepts a status would let a requester send
+`{ "status": "APPROVED" }` and approve their own request. Giving each transition its own URL is
+what makes path-prefix authorization possible: submitting is the requester's action at
+`/api/purchase-requests/[id]/submit`; approving will be accounting's at `/api/approvals`, which
+`middleware.ts` already restricts to ACCOUNTING and ADMIN.
+
+**The four failure codes**
+
+| Code | When |
+|---|---|
+| 404 | PR missing, or not visible to this viewer. Indistinguishable on purpose — a 403 would confirm the id exists. |
+| 403 | Visible but not yours to submit. Accounting can *see* every request but must not submit one; ADMIN may act for anyone. |
+| 409 | Not a draft any more — a stale tab or a double-click. The payload was valid; the resource's state has moved on, so retrying identically fails identically. |
+| 400 | No lines. Cannot happen today (create requires one and lines are not editable), but costs nothing and protects the future edit feature. |
+
+The ownership check is repeated in `submit` even though `getById` already scopes reads, because
+the endpoint can be called directly without ever loading the page.
+
+**Database changes**
+
+None. Uses the existing `PurchaseRequest.status` column and its index.
+
+**API changes**
+
+New: `POST /api/purchase-requests/[id]/submit` — no body. `200 { purchaseRequest }` on success;
+404 / 403 / 409 / 400 as above. Covered by the existing `/api/purchase-requests` guard in
+`middleware.ts`.
+
+**UI changes**
+
+- PR numbers in the list are links.
+- `/procurement/requests/[id]` shows header, notes, lines with unit cost and line total, and an
+  estimated total. A **Submit for approval** button appears for drafts only.
+- A readable not-found message replaces the blank page for refused or missing PRs.
+
+**Related fix, separate commit**
+
+`2ec9e21` adds `accounting@kitchen.com` to the dev quick-login list on `/login`. Commit 1 seeded
+the account but never updated that hardcoded list.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+1. As `admin@kitchen.com`, create a request, open it from the list, click **Submit for
+   approval**. The badge changes to `PENDING APPROVAL` without a page reload and the button
+   disappears.
+2. Open another draft in two tabs. Submit in one, then click Submit in the other — expect
+   *"This request is already pending approval and cannot be submitted again"* (409).
+3. Copy a detail URL owned by admin, then open it as `branch@kitchen.com` — expect the
+   not-found message with HTTP 404. As `accounting@kitchen.com` it opens, with no Submit button.
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT "prNumber", status FROM "PurchaseRequest" ORDER BY "prNumber";'
+```
+
+**Risks / follow-up**
+
+- `PENDING_APPROVAL` is currently a dead end: nothing can approve or reject yet. The inbox and
+  `POST /api/approvals` are next.
+- Submitting writes no `Approval` row, by design — an `Approval` records a *decision*, and
+  submission is not one.
+- Edit and delete for drafts were agreed to land in this slice and have not. A typo still means
+  abandoning the draft, which burns a PR number and leaves a stray DRAFT in the list.
+- Hiding the Submit button for non-drafts is convenience only; the service's 409 is the real
+  guard.

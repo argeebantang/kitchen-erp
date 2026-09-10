@@ -191,6 +191,49 @@ export const PurchaseRequestService = {
 
     return { success: true, data: toDetailDto(pr) }
   },
+  
+   /**
+   * DRAFT → PENDING_APPROVAL.
+   *
+   * The ownership check is repeated here even though getById already scopes
+   * reads, because this endpoint can be called directly with curl — the user
+   * need never have loaded the page.
+   */
+  async submit(
+    id: string,
+    viewer: Viewer,
+  ): Promise<PurchaseRequestResult<PurchaseRequestDetailDto>> {
+    const pr = await PurchaseRequestRepository.findById(id)
+
+    // Same 404-not-403 reasoning as getById: do not confirm an id exists to
+    // someone with no business knowing.
+    if (!pr || (!seesAllRequests(viewer) && pr.requestedById !== viewer.userId)) {
+      return { success: false, error: 'Purchase request not found', status: 404 }
+    }
+
+    // Accounting can SEE every request but must not submit one — they approve,
+    // and submitting on someone's behalf blurs whose request it is. ADMIN may
+    // act for anyone.
+    if (pr.requestedById !== viewer.userId && viewer.role !== Role.ADMIN) {
+      return { success: false, error: 'Only the requester can submit this request', status: 403 }
+    }
+
+    if (pr.status !== PRStatus.DRAFT) {
+      return {
+        success: false,
+        error:   `This request is already ${pr.status.replace(/_/g, ' ').toLowerCase()} and cannot be submitted again`,
+        status:  409,
+      }
+    }
+
+    if (pr.items.length === 0) {
+      return { success: false, error: 'Add at least one line before submitting', status: 400 }
+    }
+
+    const updated = await PurchaseRequestRepository.updateStatus(id, PRStatus.PENDING_APPROVAL)
+
+    return { success: true, data: toDetailDto(updated) }
+  },
 
   /**
    * Creates a DRAFT purchase request owned by the requester.

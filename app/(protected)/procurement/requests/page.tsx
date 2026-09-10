@@ -4,14 +4,7 @@ import { Plus } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { formatPeso } from '@/lib/format'
-
-const STATUS_STYLES: Record<string, string> = {
-  DRAFT:            'bg-gray-100 text-gray-600',
-  PENDING_APPROVAL: 'bg-amber-50 text-amber-700',
-  APPROVED:         'bg-emerald-50 text-emerald-700',
-  REJECTED:         'bg-red-50 text-red-700',
-  CONVERTED_TO_PO:  'bg-blue-50 text-blue-700',
-}
+import { StatusBadge } from '@/components/procurement/StatusBadge'
 
 export default async function PurchaseRequestListPage() {
   // Server Components never see the x-user-id header middleware injects — that
@@ -71,7 +64,14 @@ export default async function PurchaseRequestListPage() {
             <tbody className="divide-y divide-gray-100">
               {purchaseRequests.map(row => (
                 <tr key={row.id} className="transition-colors hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700">{row.prNumber}</td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/procurement/requests/${row.id}`}
+                      className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      {row.prNumber}
+                    </Link>
+                  </td>
                   <td className="px-4 py-3 text-gray-700">{row.requesterName}</td>
                   <td className="px-4 py-3 text-gray-500">{row.lineCount}</td>
                   <td className="px-4 py-3 text-gray-700">
@@ -84,9 +84,7 @@ export default async function PurchaseRequestListPage() {
                       which React reports as a hydration mismatch. */}
                   <td className="px-4 py-3 text-gray-500">{row.neededBy?.slice(0, 10) ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${STATUS_STYLES[row.status]}`}>
-                      {row.status.replace(/_/g, ' ')}
-                    </span>
+                    <StatusBadge status={row.status} />
                   </td>
                 </tr>
               ))}
