@@ -12,6 +12,7 @@ const DEV_USERS = [
   { email: 'production@kitchen.com',  label: 'Production Manager' },
   { email: 'branch@kitchen.com',      label: 'Branch Manager' },
   { email: 'viewer@kitchen.com',      label: 'Viewer' },
+  { email: 'accounting@kitchen.com',  label: 'Accounting' },
 ]
 const isDev = process.env.NODE_ENV === 'development'
 
