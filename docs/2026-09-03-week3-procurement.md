@@ -503,3 +503,81 @@ the transaction guarantees.
 - A rejected request cannot be edited and resubmitted — it is a dead end. Edit/delete for drafts
   is still outstanding from commit 4.
 - No notification is sent on submission yet; the BullMQ job is a later commit.
+
+---
+
+## Commit 6 — decision history on the detail page, and an inbox ordered by need
+
+Two follow-ups recorded against commit 5, both small.
+
+**1. Decisions were written but never read back**
+
+`Approval` rows were being created and nothing displayed them. A rejected request showed a red
+badge and nothing else, so the requester could not see why it was rejected or what to change —
+the reason was in the database the whole time.
+
+- `repositories/approval.repository.ts` (new) — `findByReference(referenceType, referenceId)`.
+  The pair is not a foreign key (Postgres cannot express an FK whose target table varies by
+  row), so this is a plain two-column lookup, made fast by the
+  `@@index([referenceType, referenceId])` added with the table in commit 1. Without that index
+  it would scan every approval in the system.
+- `services/purchase-request.service.ts` — new `ApprovalDto`; `PurchaseRequestDetailDto` gains
+  `decisions: ApprovalDto[]`, newest first. `toDetailDto` became `async` so it can fetch them,
+  which required `await` at all four call sites.
+- The detail page renders each decision as a green or red card with the approver's name, the
+  date and the remarks.
+
+**2. The inbox was ordered newest-first**
+
+An approval queue wants soonest-needed first, not most-recently-raised.
+
+- `PurchaseRequestSort` (`'newest' | 'neededBy'`) added to the repository's filters. A named
+  option rather than Prisma's `orderBy` shape, so services and pages never import Prisma types
+  just to ask for an order.
+- `sort: 'neededBy'` orders by `{ neededBy: { sort: 'asc', nulls: 'last' } }` with `createdAt`
+  ascending as a tie-breaker, so requests needed the same day are handled oldest-first.
+- The approvals page passes it. The main list stays newest-first — that is a history view, not
+  a queue.
+
+**Why `nulls: 'last'` is written out**
+
+Sorting on a nullable column needs an explicit decision about where nulls go, and in a queue
+"no deadline" must mean last. Postgres happens to default to `NULLS LAST` for `ASC` — but the
+default flips to `NULLS FIRST` for `DESC`, so someone later reversing the direction would
+silently push every undated request to the top of accounting's queue. Stating it makes that
+impossible.
+
+This is also the payoff for choosing `neededBy` over an urgency enum in commit 2: a date can be
+sorted meaningfully, whereas a self-assessed urgency label degrades to everyone selecting
+"urgent".
+
+**Database changes**
+
+None. First read of the `Approval` table, and first use of its index.
+
+**API / UI changes**
+
+No new endpoints. `PurchaseRequestDetailDto` gained a `decisions` array — additive, so no caller
+breaks. The detail page shows decision cards; the approvals inbox is reordered.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+- Open a rejected request: a red card with the reason, approver and date.
+- Open an approved one: a green card; if remarks were empty only the heading line shows.
+- Open a draft: no card at all.
+- With two pending requests needed on different dates, the sooner one tops the Approvals inbox
+  regardless of creation order.
+
+**Risks / follow-up**
+
+- The undated case is untested — every seeded request currently has a `neededBy`. Create one
+  without a date and confirm it sorts last rather than first.
+- `toDetailDto` now issues an extra query on every call, including from `submit` and
+  `applyDecision`, whose responses the UI discards in favour of `router.refresh()`. Harmless at
+  this scale; worth remembering if the detail DTO is ever used in a loop.
+- Still outstanding from commit 4: edit and delete for drafts. A rejected request also cannot be
+  amended and resubmitted — it is a dead end.

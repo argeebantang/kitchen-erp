@@ -7,6 +7,7 @@ import {
 } from '@/repositories/purchase-request.repository'
 import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
+import { ApprovalRepository } from '@/repositories/approval.repository'
 
 export type PurchaseRequestLineDto = {
   id: string
@@ -18,6 +19,14 @@ export type PurchaseRequestLineDto = {
   estimatedUnitCost: string | null
   lineTotal: string | null
   notes: string | null
+}
+
+export type ApprovalDto = {
+  id: string
+  decision: string
+  remarks: string | null
+  approverName: string
+  decidedAt: string
 }
 
 export type PurchaseRequestDetailDto = {
@@ -33,6 +42,9 @@ export type PurchaseRequestDetailDto = {
   lines: PurchaseRequestLineDto[]
   /** Null if ANY line is unpriced — a partial total would mislead the approver. */
   estimatedTotal: string | null
+  /** Newest first. Empty until the request has been decided at least once. */
+  decisions: ApprovalDto[]
+
 }
 
 export type PurchaseRequestSummaryDto = {
@@ -89,7 +101,8 @@ function sumLines(
  * place — see lib/decimal.ts for why a Decimal must never reach a Client
  * Component.
  */
-function toDetailDto(pr: PurchaseRequestWithDetail): PurchaseRequestDetailDto {
+async function toDetailDto(pr: PurchaseRequestWithDetail): Promise<PurchaseRequestDetailDto> {
+  const decisions = await ApprovalRepository.findByReference('PurchaseRequest', pr.id)
   const total = sumLines(pr.items)
 
   return {
@@ -116,6 +129,13 @@ function toDetailDto(pr: PurchaseRequestWithDetail): PurchaseRequestDetailDto {
       notes:             item.notes,
     })),
     estimatedTotal: total === null ? null : toDecimalString(total),
+    decisions: decisions.map(decision => ({
+      id:           decision.id,
+      decision:     decision.decision,
+      remarks:      decision.remarks,
+      approverName: decision.approver.name,
+      decidedAt:    decision.decidedAt.toISOString(),
+    })),
   }
 }
 
@@ -189,7 +209,7 @@ export const PurchaseRequestService = {
       return { success: false, error: 'Purchase request not found', status: 404 }
     }
 
-    return { success: true, data: toDetailDto(pr) }
+    return { success: true, data: await toDetailDto(pr) }
   },
   
    /**
@@ -232,7 +252,7 @@ export const PurchaseRequestService = {
 
     const updated = await PurchaseRequestRepository.updateStatus(id, PRStatus.PENDING_APPROVAL)
 
-    return { success: true, data: toDetailDto(updated) }
+    return { success: true, data: await toDetailDto(updated) }
   },
 
 
@@ -289,7 +309,7 @@ export const PurchaseRequestService = {
       remarks,
     })
 
-    return { success: true, data: toDetailDto(updated) }
+    return { success: true, data: await toDetailDto(updated) }
   },
 
 
@@ -355,7 +375,7 @@ export const PurchaseRequestService = {
       })),
     })
 
-    return { success: true, data: toDetailDto(pr) }
+    return { success: true, data: await toDetailDto(pr) }
   },
 }
 

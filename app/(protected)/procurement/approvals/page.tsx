@@ -14,7 +14,7 @@ export default async function ApprovalsInboxPage() {
   // No new service code: list() already accepted a status filter.
   const { purchaseRequests, total } = await PurchaseRequestService.list(
     { userId: session.userId, role: session.role },
-    { status: 'PENDING_APPROVAL', take: 100 },
+    { status: 'PENDING_APPROVAL', sort: 'neededBy', take: 100 },
   )
 
   return (

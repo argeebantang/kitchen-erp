@@ -101,10 +101,11 @@ unrelated to Week 2 and both invisible in `next dev`:
       endpoint so `middleware.ts` can authorise by path: `POST /api/purchase-requests/[id]/submit`
       (requester or ADMIN) and `POST /api/approvals` (accounting only). Nobody approves their
       own request, ADMIN included.
-- [x] Accounting approver inbox — `/procurement/approvals`, guarded to ADMIN + ACCOUNTING.
-      Lists pending requests; the decision is made on the detail page so the approver sees the
-      lines before deciding. Approve/reject writes an `Approval` row and flips the PR status in
-      one transaction.
+- [x] Accounting approver inbox — `/procurement/approvals`, guarded to ADMIN + ACCOUNTING,
+      ordered by soonest `neededBy` (undated requests sort last). The decision is made on the
+      detail page so the approver sees the lines before deciding; approve/reject writes an
+      `Approval` row and flips the PR status in one transaction, and the detail page then shows
+      who decided, when, and their remarks.
 - [ ] BullMQ notification job on PR submission
 - [ ] Auto-generate PO draft on PR approval
 - [ ] PO form + approval

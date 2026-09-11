@@ -81,6 +81,29 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
         </div>
       )}
 
+      {pr.decisions.length > 0 && (
+        <div className="mb-6 space-y-2">
+          {pr.decisions.map(decision => (
+            <div
+              key={decision.id}
+              className={`rounded-xl border p-4 ${
+                decision.decision === 'APPROVED'
+                  ? 'border-emerald-200 bg-emerald-50'
+                  : 'border-red-200 bg-red-50'
+              }`}
+            >
+              <p className="text-sm font-medium text-gray-700">
+                {decision.decision === 'APPROVED' ? 'Approved' : 'Rejected'} by{' '}
+                {decision.approverName} on {decision.decidedAt.slice(0, 10)}
+              </p>
+              {decision.remarks && (
+                <p className="mt-1 text-sm text-gray-600">{decision.remarks}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">

@@ -15,11 +15,21 @@ export type CreatePurchaseRequestInput = {
   items: PurchaseRequestLineInput[]
 }
 
+/**
+ * How a list is ordered.
+ *
+ * A named option rather than exposing Prisma's orderBy shape: the repository
+ * owns how sorting is expressed in SQL, so services and pages never import
+ * Prisma types just to ask for an order.
+ */
+export type PurchaseRequestSort = 'newest' | 'neededBy'
+
 export type PurchaseRequestListFilters = {
   status?: PRStatus
   requestedById?: string
   skip?: number
   take?: number
+  sort?: PurchaseRequestSort
 }
 
 /**
@@ -110,11 +120,21 @@ export const PurchaseRequestRepository = {
   async findMany(filters: PurchaseRequestListFilters = {}) {
     const where = buildWhere(filters)
 
+    // 'neededBy' is the approval queue's order — deal with what is wanted
+    // soonest, first. A request with no date must not jump the queue, hence
+    // nulls: 'last'. Postgres already defaults that way for ASC, but stating it
+    // keeps the intent correct if the direction ever flips. createdAt breaks
+    // ties, so two requests needed the same day are handled oldest-first.
+    const orderBy: Prisma.PurchaseRequestOrderByWithRelationInput[] =
+      filters.sort === 'neededBy'
+        ? [{ neededBy: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }]
+        : [{ createdAt: 'desc' }]
+
     const [rows, total] = await prisma.$transaction([
       prisma.purchaseRequest.findMany({
         where,
         include: summaryInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),
