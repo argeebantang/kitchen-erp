@@ -235,6 +235,65 @@ export const PurchaseRequestService = {
     return { success: true, data: toDetailDto(updated) }
   },
 
+
+    /**
+   * PENDING_APPROVAL → APPROVED or REJECTED.
+   *
+   * No role check here: middleware.ts already restricts /api/approvals to
+   * ACCOUNTING and ADMIN, and docs/coding-conventions.md asks that route-level
+   * access control stay there rather than being duplicated per handler.
+   *
+   * Self-approval IS checked here, because it is not a route rule — it depends
+   * on who raised this particular request. ADMIN is not exempt: the separation
+   * between who asks for money and who authorises it is the entire reason the
+   * ACCOUNTING role exists.
+   */
+  
+  async applyDecision(
+    id: string,
+    viewer: Viewer,
+    decision: 'APPROVED' | 'REJECTED',
+    remarks: string | null,
+  ): Promise<PurchaseRequestResult<PurchaseRequestDetailDto>> {
+    const pr = await PurchaseRequestRepository.findById(id)
+
+    if (!pr) {
+      return { success: false, error: 'Purchase request not found', status: 404 }
+    }
+
+    if (pr.requestedById === viewer.userId) {
+      return {
+        success: false,
+        error:   'You cannot approve your own request — someone else has to decide it',
+        status:  403,
+      }
+    }
+
+    if (pr.status !== PRStatus.PENDING_APPROVAL) {
+      return {
+        success: false,
+        error:   `This request is ${pr.status.replace(/_/g, ' ').toLowerCase()} and is no longer awaiting a decision`,
+        status:  409,
+      }
+    }
+
+    if (decision === 'REJECTED' && (remarks === null || remarks.trim() === '')) {
+      return { success: false, error: 'Give a reason when rejecting', status: 400 }
+    }
+
+    const updated = await PurchaseRequestRepository.applyDecision({
+      id,
+      newStatus:  decision === 'APPROVED' ? PRStatus.APPROVED : PRStatus.REJECTED,
+      approverId: viewer.userId,
+      decision,
+      remarks,
+    })
+
+    return { success: true, data: toDetailDto(updated) }
+  },
+
+
+
   /**
    * Creates a DRAFT purchase request owned by the requester.
    *

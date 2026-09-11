@@ -6,6 +6,7 @@ import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { PurchaseRequestActions } from '@/components/procurement/PurchaseRequestActions'
+import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 
 // Next.js 15: params is a Promise and must be awaited. In Next 14 it was a
 // plain object — writing the old shape here silently gives you undefined.
@@ -29,7 +30,10 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
   if (!result.success) notFound()
 
   const pr = result.data
-  const isDraft = pr.status === 'DRAFT'
+  const isDraft      = pr.status === 'DRAFT'
+  const isPending    = pr.status === 'PENDING_APPROVAL'
+  const isApprover   = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
+  const isOwnRequest = pr.requestedById === session.userId
 
   return (
     <div>
@@ -57,6 +61,18 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
             re-checks the status and returns 409 if it is not a draft. */}
         {isDraft && <PurchaseRequestActions purchaseRequestId={pr.id} />}
       </div>
+
+      {/* Nobody approves their own request — ADMIN included. That separation is
+      the reason the ACCOUNTING role exists. The service enforces it too. */}
+      {isPending && isApprover && !isOwnRequest && (
+        <ApprovalActions purchaseRequestId={pr.id} />
+      )}
+      {isPending && isApprover && isOwnRequest && (
+        <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+          You raised this request, so someone else has to approve it.
+        </p>
+      )}
+
 
       {pr.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
@@ -115,5 +131,6 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
         </table>
       </div>
     </div>
+    
   )
 }

@@ -144,6 +144,49 @@ export const PurchaseRequestRepository = {
         include: detailInclude,
       })
     },
+    
+
+      /**
+   * Records a decision and moves the request, as ONE transaction.
+   *
+   * Both writes must land together. If the Approval insert succeeded and the
+   * status update did not, the request would sit at PENDING_APPROVAL with a
+   * decision already logged — and the approver would be asked to decide it
+   * again. If the status update landed without the Approval row, the request
+   * would read APPROVED with no record of who authorised the spend, which is
+   * exactly the question an audit asks.
+   *
+   * $transaction gives all-or-nothing: if anything inside throws, Postgres
+   * rolls both writes back and no half-finished state is ever visible.
+   */
+  async applyDecision(input: {
+    id: string
+    newStatus: PRStatus
+    approverId: string
+    decision: string
+    remarks?: string | null
+  }): Promise<PurchaseRequestWithDetail> {
+    return prisma.$transaction(async tx => {
+      // NOTE: tx, not prisma. Inside this callback `tx` is the transactional
+      // client; writing `prisma.` here instead would run that statement OUTSIDE
+      // the transaction, silently defeating the whole thing.
+      await tx.approval.create({
+        data: {
+          referenceType: 'PurchaseRequest',
+          referenceId:   input.id,
+          approverId:    input.approverId,
+          decision:      input.decision,
+          remarks:       input.remarks ?? null,
+        },
+      })
+
+      return tx.purchaseRequest.update({
+        where:   { id: input.id },
+        data:    { status: input.newStatus },
+        include: detailInclude,
+      })
+    })
+  },
 
   /**
    * Creates a DRAFT with its lines in one statement — Prisma emits a single

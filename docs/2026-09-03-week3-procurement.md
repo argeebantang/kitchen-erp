@@ -393,3 +393,113 @@ docker compose exec postgres psql -U kitchen -d kitchen_erp \
   abandoning the draft, which burns a PR number and leaves a stray DRAFT in the list.
 - Hiding the Submit button for non-drafts is convenience only; the service's 409 is the real
   guard.
+
+---
+
+## Commit 5 — approvals inbox, approve/reject, and the first transaction
+
+Completes the PR lifecycle: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`.
+
+**Two decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Where approve/reject lives | On the **detail page**, not on inbox rows | An approver should see the materials, quantities and line costs before deciding. Approving from a one-line summary invites rubber-stamping, which is the exact failure an approval step exists to prevent. The inbox stays a queue, and there is one approval UI rather than two. |
+| Can someone approve their own request | **No — ADMIN included** | The separation between who asks for money and who authorises it is the whole reason the `ACCOUNTING` role was added in commit 1. An exemption for ADMIN would reopen the hole. |
+
+**What changed**
+
+- `app/(protected)/procurement/approvals/page.tsx` (new) — the inbox. Needed **no new service
+  code**: `list()` already accepted a `status` filter, and both roles that can reach this URL
+  are see-all roles, so `list(viewer, { status: 'PENDING_APPROVAL' })` is the whole query.
+- `lib/navigation.ts` — Approvals link for ADMIN + ACCOUNTING, matching the middleware guard.
+- `components/procurement/ApprovalActions.tsx` (new) — Client Component with a remarks field and
+  Approve / Reject. `useState<Decision | null>` tracks *which* action is running, so only the
+  clicked button shows a pending label while both are disabled.
+- `app/(protected)/procurement/requests/[id]/page.tsx` — renders the decision box for an
+  approver when the request is pending and they did not raise it; otherwise shows a note
+  explaining that someone else must decide.
+- `app/api/approvals/route.ts` (new) — `POST`. `referenceType` is `z.literal('PurchaseRequest')`
+  for now, so an unsupported type gets a clean 400 rather than failing deeper down.
+- `repositories/purchase-request.repository.ts` — `applyDecision()`, wrapping both writes in
+  `prisma.$transaction`.
+- `services/purchase-request.service.ts` — `applyDecision()` with the rules.
+
+**Why the endpoint has no `[id]`**
+
+Every other endpoint identifies its target in the URL. This one takes `referenceType` +
+`referenceId` in the body so the path stays a fixed string, which lets one middleware rule —
+`{ path: '/api/approvals', roles: ['ADMIN', 'ACCOUNTING'] }` — cover PR approvals today and PO,
+production-order and conversion approvals later. Per-document approve routes would each need
+their own guard, and each one is a chance to forget.
+
+**The transaction**
+
+`applyDecision` inserts the `Approval` row and updates `PurchaseRequest.status` inside a single
+`prisma.$transaction`. Either both land or neither does:
+
+- Approval written, status not → the request still reads `PENDING_APPROVAL` with a decision
+  already logged, and the approver is asked to decide it again.
+- Status written, approval not → the request reads `APPROVED` with no record of who authorised
+  the spend, which is precisely what an audit asks for.
+
+Inside the callback every write goes through `tx`, not `prisma`. Using `prisma` there would run
+that statement on a different connection, outside the transaction, and it would commit even if
+the rest rolled back — the classic ORM transaction bug, invisible until something fails midway.
+
+**Authorization split**
+
+`applyDecision` deliberately does **not** re-check the caller's role: `middleware.ts` already
+restricts `/api/approvals` to ADMIN and ACCOUNTING, and `docs/coding-conventions.md` asks that
+route-level access control stay there. It *does* check self-approval, because that is not a
+route rule — it depends on who raised the particular request being decided.
+
+**Database changes**
+
+None. First use of the `Approval` table created in commit 1.
+
+**API changes**
+
+New: `POST /api/approvals`. Body
+`{ referenceType: 'PurchaseRequest', referenceId, decision: 'APPROVED' | 'REJECTED', remarks? }`.
+Returns `200 { purchaseRequest }`. 404 missing · 403 self-approval · 409 no longer pending ·
+400 rejection without remarks.
+
+**UI changes**
+
+- `/procurement/approvals` inbox, with a sidebar entry for ADMIN + ACCOUNTING.
+- Detail page shows a decision box for approvers, or a "someone else must approve this" note.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+As `branch@kitchen.com` raise and submit a request; as `accounting@kitchen.com` open Approvals,
+click through to the request, and approve or reject it. Rejecting with empty remarks is refused
+in the browser and again by the service. Then:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT "prNumber", status FROM "PurchaseRequest" ORDER BY "prNumber";' \
+  -c 'SELECT a."referenceType", a.decision, a.remarks, u.email AS approver
+      FROM "Approval" a JOIN "User" u ON u.id = a."approverId" ORDER BY a."decidedAt";'
+```
+
+Every decided request should have exactly one matching `Approval` row — that pairing is what
+the transaction guarantees.
+
+**Risks / follow-up**
+
+- The inbox is newest-first, because that is how `findMany` sorts. An approval queue wants
+  soonest-`neededBy` first — which is why a date was chosen over an urgency label in commit 2.
+  Needs an `orderBy` option on the repository filters.
+- The detail page does not yet show the decision, the approver or their remarks once a request
+  is decided; the `Approval` rows are written but never read back. Needs
+  `ApprovalRepository.findByReference`.
+- `APPROVED` is currently terminal. The next task auto-generates a PO draft on approval and
+  moves the request to `CONVERTED_TO_PO`.
+- A rejected request cannot be edited and resubmitted — it is a dead end. Edit/delete for drafts
+  is still outstanding from commit 4.
+- No notification is sent on submission yet; the BullMQ job is a later commit.

@@ -94,14 +94,17 @@ unrelated to Week 2 and both invisible in `next dev`:
       `pr_number_seq`/`po_number_seq` for race-free document numbers. Middleware `/procurement`
       guard split so accounting approves and procurement cannot.
       Migration `20260902113746_week3_procurement_workflow`.
-- [~] PR form + status flow — **create** done: `/procurement/requests` list, `/procurement/requests/new`
-      form with live cost estimate, `POST /api/purchase-requests`, service + repository.
-      Lines are auto-priced from `ItemPrice` when no cost is typed. `prNumber` from
-      `pr_number_seq`. Requesters see only their own requests; accounting, procurement and
-      admin see all. **Submit** done: detail page at `/procurement/requests/[id]`,
-      `POST /api/purchase-requests/[id]/submit` moves DRAFT → PENDING_APPROVAL (requester or
-      ADMIN only; 409 if not a draft). Approve/Reject still to do — it lands with the inbox.
-- [ ] Accounting approver inbox
+- [x] PR form + status flow (Draft → Pending → Approved/Rejected) — list, form with live cost
+      estimate, detail page, and the full lifecycle. Lines are auto-priced from `ItemPrice`
+      when no cost is typed; `prNumber` comes from `pr_number_seq`. Requesters see only their
+      own requests; accounting, procurement and admin see all. Each transition has its own
+      endpoint so `middleware.ts` can authorise by path: `POST /api/purchase-requests/[id]/submit`
+      (requester or ADMIN) and `POST /api/approvals` (accounting only). Nobody approves their
+      own request, ADMIN included.
+- [x] Accounting approver inbox — `/procurement/approvals`, guarded to ADMIN + ACCOUNTING.
+      Lists pending requests; the decision is made on the detail page so the approver sees the
+      lines before deciding. Approve/reject writes an `Approval` row and flips the PR status in
+      one transaction.
 - [ ] BullMQ notification job on PR submission
 - [ ] Auto-generate PO draft on PR approval
 - [ ] PO form + approval
