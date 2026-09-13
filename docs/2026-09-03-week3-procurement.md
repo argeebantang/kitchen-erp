@@ -581,3 +581,114 @@ npx tsc --noEmit && npm run lint && npm run build && npm start
   this scale; worth remembering if the detail DTO is ever used in a loop.
 - Still outstanding from commit 4: edit and delete for drafts. A rejected request also cannot be
   amended and resubmitted — it is a dead end.
+
+---
+
+## Commit 7 — BullMQ notification job on PR submission
+
+The first background job in the project, and the first code that runs outside the Next.js
+process.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Who is notified | Everyone who can approve (`ACCOUNTING` + `ADMIN`), **minus the requester** | An admin who raised the request cannot decide it, so telling them to would be noise. Mirrors the self-approval rule from commit 5. |
+| Redis unavailable at submit time | The submit still **succeeds** | The status change is already committed and the request is visible in the inbox. Failing the request over a missing notification would show the user an error for something that worked, and they would retry into a 409. |
+| Job payload | `{ purchaseRequestId }` — an id, never the object | The worker re-reads from the database when it runs, so it always acts on current data. A snapshot in the payload is a second source of truth that is already stale by the time the job is picked up. |
+
+**What changed**
+
+- `lib/queue.ts` (new) — producer side only. Queue name and job name constants, the
+  `PrSubmittedJob` payload type, shared `redisConnection` settings, and a lazily-created
+  `Queue` cached on `globalThis`.
+- `services/purchase-request.service.ts` — `submit()` enqueues after the status change commits,
+  wrapped in try/catch.
+- `worker/index.ts` (new) — the consumer, a standalone process.
+- `services/notification.service.ts` (new) — `notifyPurchaseRequestSubmitted(id)`: loads the
+  request, finds approvers, drops the requester, writes the rows.
+- `repositories/notification.repository.ts` (new) — `createMany`, one statement for all
+  recipients rather than a round trip each.
+- `repositories/user.repository.ts` — `findByRoles(roles)`.
+- `package.json` — `npm run worker` (watch) and `npm run worker:start`.
+
+**Why the worker is a separate process**
+
+A BullMQ `Worker` holds a long-lived Redis connection and blocks waiting for jobs. Next.js has
+nowhere to run that: its server answers a request and moves on, and in development it
+re-evaluates modules on every hot reload — so a `Worker` constructed inside the app would be
+duplicated on each reload, every copy competing for the same jobs.
+
+Nothing under `app/` imports `worker/`. That structural separation is what prevents the
+duplication, rather than a flag suppressing it. During the build the file was briefly created at
+`services/index.ts`; that is precisely the wrong place, because `services/` is imported by pages
+and route handlers and `index.ts` is what `from '@/services'` resolves to.
+
+The worker is treated as an entry point like a route handler — thin, delegating to a service.
+Week 4's daily low-stock check and Week 11's 24h escalation job will reuse
+`NotificationService` rather than each re-deriving who to notify.
+
+**Two traps worth recording**
+
+*Duplicate ioredis.* Passing `new IORedis(...)` as the connection does not compile: bullmq pins
+its own copy of ioredis (5.10.1) beside the project's (5.11.1), and TypeScript treats the two
+`Redis` classes as unrelated types because they resolve to different files, even though they are
+identical at runtime. Fixed by passing connection **options** (`{ url, maxRetriesPerRequest: null }`)
+and letting bullmq build the client with its own copy — no version coupling across the boundary.
+`maxRetriesPerRequest: null` is mandatory; BullMQ manages its own retries and refuses to start
+against a connection configured to give up.
+
+*`.env` is not loaded for a standalone script.* Next.js reads `.env` automatically; `tsx` does
+not. Without `--env-file=.env` the worker dies at startup on `lib/config.ts`'s
+`Missing required environment variable: REDIS_URL`. Node 22's built-in `--env-file` avoids
+adding `dotenv` as a dependency.
+
+`lib/queue.ts` creates the `Queue` lazily. Constructing it at module top level would open a Redis
+connection the moment the file is imported — including during `next build`, which would then
+require Redis to be running just to compile.
+
+**Database changes**
+
+None. First use of the `Notification` table created in commit 1.
+
+**API / UI changes**
+
+None. Notifications are written but not yet displayed; the bell is Week 11.
+
+**Config / environment changes**
+
+No new variables — `REDIS_URL` was already required and is in `.env.example`. Development now
+needs **two processes**: `npm run dev` and `npm run worker`.
+
+**How to verify**
+
+Two terminals. With the worker running, submit a draft, and watch it print
+`→ wrote N notification(s)`. Then:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT n.type, n.title, n.body, u.email AS recipient
+      FROM "Notification" n JOIN "User" u ON u.id = n."userId" ORDER BY n."createdAt";'
+
+docker compose exec redis redis-cli LLEN bull:notifications:wait      # 0
+docker compose exec redis redis-cli ZCARD bull:notifications:failed   # 0
+```
+
+A request submitted by admin notifies accounting only; one submitted by a branch manager
+notifies both admin and accounting.
+
+With the worker stopped, submitting still succeeds and the job waits in Redis until the worker
+starts — that is the queue earning its place over an inline call.
+
+**Risks / follow-up**
+
+- **Not idempotent.** BullMQ retries a failed job, and a job that wrote its rows and then failed
+  would write them again on retry, duplicating notifications. A unique constraint on
+  `(userId, type, referenceId)` or an existence check would fix it; neither is in place.
+- Nothing reads the `Notification` table yet — no bell, no unread count, no email. Week 11.
+- No notification on approval or rejection, so the requester is never told the outcome. Worth
+  adding when the bell exists.
+- The worker has no process supervisor. Deployment (Week 12) needs pm2, systemd or a container
+  restart policy; `npm run worker:start` alone will not survive a crash.
+- `docker-compose.yml` still carries an obsolete `version:` key that makes Compose v2 warn on
+  every command.

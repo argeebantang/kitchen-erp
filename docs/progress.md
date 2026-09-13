@@ -106,7 +106,10 @@ unrelated to Week 2 and both invisible in `next dev`:
       detail page so the approver sees the lines before deciding; approve/reject writes an
       `Approval` row and flips the PR status in one transaction, and the detail page then shows
       who decided, when, and their remarks.
-- [ ] BullMQ notification job on PR submission
+- [x] BullMQ notification job on PR submission — `lib/queue.ts` (producer) enqueues on submit;
+      `worker/index.ts` runs as a **separate process** (`npm run worker`) and writes
+      `Notification` rows via `NotificationService`. Approvers are notified, minus whoever
+      raised the request. A Redis outage never fails the submit.
 - [ ] Auto-generate PO draft on PR approval
 - [ ] PO form + approval
 - [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)

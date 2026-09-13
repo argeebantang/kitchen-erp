@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "worker": "tsx watch --env-file=.env worker/index.ts",
+    "worker:start": "tsx --env-file=.env worker/index.ts"
   },
   "dependencies": {
     "@prisma/client": "5.22.0",

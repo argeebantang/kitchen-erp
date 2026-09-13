@@ -8,6 +8,7 @@ import {
 import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
+import { getNotificationQueue, PR_SUBMITTED, type PrSubmittedJob } from '@/lib/queue'
 
 export type PurchaseRequestLineDto = {
   id: string
@@ -251,6 +252,19 @@ export const PurchaseRequestService = {
     }
 
     const updated = await PurchaseRequestRepository.updateStatus(id, PRStatus.PENDING_APPROVAL)
+
+    // Enqueued AFTER the status change has committed, and a queue failure never
+    // fails the submit: the request is saved and already visible in the
+    // approvals inbox, so a missing notification is a degraded nicety, not a
+    // reason to reject the user's work.
+    try {
+      await getNotificationQueue().add(
+        PR_SUBMITTED,
+        { purchaseRequestId: id } satisfies PrSubmittedJob,
+      )
+    } catch (err) {
+      console.error('[PurchaseRequestService.submit] could not enqueue notification', err)
+    }
 
     return { success: true, data: await toDetailDto(updated) }
   },

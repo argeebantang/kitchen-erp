@@ -56,4 +56,13 @@ export const UserRepository = {
       select: safeUserSelect,
     })
   },
+
+    /** Users holding any of the given roles — used to fan a notification out to approvers. */
+  async findByRoles(roles: Role[]): Promise<SafeUser[]> {
+    return prisma.user.findMany({
+      where:   { role: { in: roles } },
+      select:  safeUserSelect,
+      orderBy: { name: 'asc' },
+    })
+  },
 }
