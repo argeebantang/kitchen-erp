@@ -692,3 +692,94 @@ starts — that is the queue earning its place over an inline call.
   restart policy; `npm run worker:start` alone will not survive a crash.
 - `docker-compose.yml` still carries an obsolete `version:` key that makes Compose v2 warn on
   every command.
+
+---
+
+## Commit 8 — a PR approval generates its purchase order
+
+Approving a request now produces the purchase order automatically, rather than leaving someone
+to create it by hand.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Status after approval | `CONVERTED_TO_PO`, not `APPROVED` | By the time the transaction commits a purchase order exists, so "approved" understates what happened. The requester sees that their request became an order rather than that it merely passed. `APPROVED` remains in the enum but is now transient — reachable only inside the transaction. |
+| Where the PO is created | **Inside the approval transaction** | A request reading `CONVERTED_TO_PO` with no purchase order behind it is unrepairable without guessing. Approval cannot be retried either — the request is no longer pending, so the approver gets a 409. Three writes, all or nothing. |
+| Which price the lines use | The cost **stored on the request line** | That is the figure the approver saw and authorised. Generating an order at a different total than the one approved is the quiet discrepancy an approval step exists to prevent. A fresh lookup is the fallback for a line that was never priced; with no price at all the approval is refused (400), because `PurchaseOrderItem.unitCost` is NOT NULL and you cannot order what you cannot cost. |
+
+**What changed**
+
+- `repositories/purchase-order.repository.ts` (new) — `createDraftFromRequest(tx, input)`. Draws
+  `poNumber` from `po_number_seq`, totals the lines in `Decimal`, and creates the order with its
+  items. `supplierId` is explicitly null.
+- `repositories/purchase-request.repository.ts` — `applyDecision` gained an optional
+  `purchaseOrderLines`; when present it calls the PO repository **inside** the existing
+  transaction.
+- `services/purchase-request.service.ts` — `priceLinesForPurchaseOrder()` helper, and
+  `applyDecision` now prices the lines before opening the transaction and lands on
+  `CONVERTED_TO_PO` when approving.
+
+**Transactions across repositories**
+
+`createDraftFromRequest` takes a `Prisma.TransactionClient` as its first argument rather than
+reaching for `prisma` itself. That is how one transaction spans two repositories: the purchase
+request repository opens it and passes `tx` down, so the purchase order's writes join the same
+all-or-nothing unit. Using `prisma` there would put those writes on a separate connection, and
+an orphan purchase order would survive a rolled-back approval — the same `tx`-versus-`prisma`
+trap as commit 5, this time across a file boundary.
+
+Pricing happens *before* the transaction opens. A transaction holds locks, so reads belong
+outside it and the write window stays as short as possible; an unpriced material should also
+abort before any write has begun.
+
+**Why the supplier is null**
+
+Nothing in a purchase request names a supplier — `PurchaseRequest` and `PurchaseRequestItem`
+carry no such field, and a branch manager raising a request knows what they need, not who is
+cheapest this week. Choosing the supplier depends on price, lead time, stock and minimum order
+size; that is the sourcing decision, and it is the reason `PROCUREMENT_MANAGER` exists as a
+separate role. Guessing was considered and rejected: "cheapest quote" ignores lead time and most
+materials have no supplier quote at all, and "whoever we used last time" has no history to read.
+
+This is the nullable `supplierId` from commit 1 paying for itself. The database no longer
+guarantees a purchase order has a supplier; the service will enforce it at the point that
+matters, which is submitting the order for approval, not creating the draft.
+
+**Database changes**
+
+None. First rows in `PurchaseOrder` and `PurchaseOrderItem`, and first use of `po_number_seq`.
+
+**API / UI changes**
+
+No new endpoints. The purchase request detail page shows the new `CONVERTED_TO_PO` badge, which
+`StatusBadge` already styled.
+
+**How to verify**
+
+Raise a request, submit it, approve it as accounting. The badge turns blue `CONVERTED TO PO`.
+Then:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT po."poNumber", po.status, po."supplierId", po."totalAmount"::numeric(12,2),
+             pr."prNumber", pr.status
+      FROM "PurchaseOrder" po LEFT JOIN "PurchaseRequest" pr ON pr.id = po."purchaseRequestId";'
+```
+
+Expect `PO-000001`, `DRAFT`, an empty `supplierId`, a total matching what the approver saw, and
+the request at `CONVERTED_TO_PO`.
+
+**Risks / follow-up**
+
+- **Nothing can see the purchase order yet.** There are no PO pages, so a requester sees
+  `CONVERTED_TO_PO` with no way to open the order it became. The PO form is the next task.
+- One purchase order per request, covering every line. A request might sensibly split across
+  suppliers — meat from one, produce from another — and the schema already allows it
+  (`purchaseRequestId` is many-to-one), but no splitting UI exists.
+- A rejected request is still a dead end: it cannot be amended and resubmitted.
+- The rollback path is reasoned about but untested. Proving it would mean forcing a failure
+  between the writes.
+- `APPROVED` is now an unreachable resting state for a purchase request. If PO generation is
+  ever made manual, it becomes meaningful again; until then it is dead vocabulary worth
+  remembering when reading the enum.

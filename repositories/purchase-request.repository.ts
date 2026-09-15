@@ -1,5 +1,9 @@
 import { Prisma, PRStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import {
+  PurchaseOrderRepository,
+  type PurchaseOrderLineInput,
+} from '@/repositories/purchase-order.repository'
 
 export type PurchaseRequestLineInput = {
   materialId: string
@@ -185,6 +189,7 @@ export const PurchaseRequestRepository = {
     approverId: string
     decision: string
     remarks?: string | null
+    purchaseOrderLines?: PurchaseOrderLineInput[]
   }): Promise<PurchaseRequestWithDetail> {
     return prisma.$transaction(async tx => {
       // NOTE: tx, not prisma. Inside this callback `tx` is the transactional
@@ -199,6 +204,16 @@ export const PurchaseRequestRepository = {
           remarks:       input.remarks ?? null,
         },
       })
+
+      // Joins the SAME transaction because tx is passed through. Creating it
+      // with `prisma` instead would leave an orphan purchase order behind when
+      // the approval rolls back.
+      if (input.purchaseOrderLines) {
+        await PurchaseOrderRepository.createDraftFromRequest(tx, {
+          purchaseRequestId: input.id,
+          lines:             input.purchaseOrderLines,
+        })
+      }
 
       return tx.purchaseRequest.update({
         where:   { id: input.id },

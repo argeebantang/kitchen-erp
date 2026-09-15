@@ -110,7 +110,10 @@ unrelated to Week 2 and both invisible in `next dev`:
       `worker/index.ts` runs as a **separate process** (`npm run worker`) and writes
       `Notification` rows via `NotificationService`. Approvers are notified, minus whoever
       raised the request. A Redis outage never fails the submit.
-- [ ] Auto-generate PO draft on PR approval
+- [x] Auto-generate PO draft on PR approval — approving writes the `Approval` row, creates a
+      `DRAFT` PurchaseOrder with its lines, and moves the request to `CONVERTED_TO_PO`, all in
+      one transaction. `supplierId` is left null: a request never names a supplier, and
+      choosing one is procurement's job. Lines carry the cost the approver actually saw.
 - [ ] PO form + approval
 - [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)
 

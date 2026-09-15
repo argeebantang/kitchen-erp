@@ -9,6 +9,7 @@ import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { getNotificationQueue, PR_SUBMITTED, type PrSubmittedJob } from '@/lib/queue'
+import { type PurchaseOrderLineInput } from '@/repositories/purchase-order.repository'
 
 export type PurchaseRequestLineDto = {
   id: string
@@ -138,6 +139,57 @@ async function toDetailDto(pr: PurchaseRequestWithDetail): Promise<PurchaseReque
       decidedAt:    decision.decidedAt.toISOString(),
     })),
   }
+}
+
+/**
+ * Prices a request's lines for the purchase order it is about to become.
+ *
+ * Prefers the cost already stored on the line, because that is the figure the
+ * approver saw and authorised. Generating a purchase order at a different total
+ * than the one approved is exactly the quiet discrepancy an approval step
+ * exists to prevent.
+ *
+ * Falls back to the current reference price only for a line that was never
+ * priced, and refuses outright if there is no price at all — you cannot order
+ * what you cannot cost, and PurchaseOrderItem.unitCost is NOT NULL.
+ */
+async function priceLinesForPurchaseOrder(
+  pr: PurchaseRequestWithDetail,
+): Promise<
+  | { success: true;  lines: PurchaseOrderLineInput[] }
+  | { success: false; error: string; status: number }
+> {
+  const unpriced = pr.items.filter(item => item.estimatedUnitCost === null)
+
+  // findPricesAsOf returns an empty map for an empty list, so this is safe to
+  // call unconditionally — and it is ONE query for every unpriced line, not one
+  // query per line.
+  const fallback = await ItemPriceRepository.findPricesAsOf(
+    unpriced.map(item => item.materialId),
+    new Date(),
+  )
+
+  const lines: PurchaseOrderLineInput[] = []
+
+  for (const item of pr.items) {
+    const unitCost = item.estimatedUnitCost ?? fallback.get(item.materialId)?.unitPrice ?? null
+
+    if (unitCost === null) {
+      return {
+        success: false,
+        error:   `${item.material.name} has no price on record — record one before approving this request`,
+        status:  400,
+      }
+    }
+
+    lines.push({
+      materialId: item.materialId,
+      quantity:   item.quantity,
+      unitCost,
+    })
+  }
+
+  return { success: true, lines }
 }
 
 /**
@@ -315,13 +367,29 @@ export const PurchaseRequestService = {
       return { success: false, error: 'Give a reason when rejecting', status: 400 }
     }
 
+        // Approving creates the purchase order inside the same transaction, so the
+    // lines must be priced BEFORE the transaction opens — a failure here should
+    // abort cleanly rather than roll back work already begun.
+    let purchaseOrderLines: PurchaseOrderLineInput[] | undefined
+
+    if (decision === 'APPROVED') {
+      const priced = await priceLinesForPurchaseOrder(pr)
+      if (!priced.success) return priced
+      purchaseOrderLines = priced.lines
+    }
+
     const updated = await PurchaseRequestRepository.applyDecision({
       id,
-      newStatus:  decision === 'APPROVED' ? PRStatus.APPROVED : PRStatus.REJECTED,
+      // CONVERTED_TO_PO, not APPROVED: by the time this commits a purchase
+      // order exists, so "approved" would understate what happened. Rejection
+      // creates nothing.
+      newStatus:  decision === 'APPROVED' ? PRStatus.CONVERTED_TO_PO : PRStatus.REJECTED,
       approverId: viewer.userId,
       decision,
       remarks,
+      purchaseOrderLines,
     })
+
 
     return { success: true, data: await toDetailDto(updated) }
   },
