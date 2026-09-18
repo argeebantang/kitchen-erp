@@ -114,7 +114,11 @@ unrelated to Week 2 and both invisible in `next dev`:
       `DRAFT` PurchaseOrder with its lines, and moves the request to `CONVERTED_TO_PO`, all in
       one transaction. `supplierId` is left null: a request never names a supplier, and
       choosing one is procurement's job. Lines carry the cost the approver actually saw.
-- [ ] PO form + approval
+- [~] PO form + approval — **form done**: `/procurement/orders` list and
+      `/procurement/orders/[id]` detail, with a sourcing form on drafts to set supplier,
+      expected delivery and notes. Saving re-prices every line against the chosen supplier
+      (reference-price fallback per material) via `PATCH /api/purchase-orders/[id]`.
+      Editable only while `DRAFT`, and only by procurement or admin. PO approval still to do.
 - [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)
 
 **Note (2026-09-03):** four schema blockers found while planning Week 3 are now resolved —

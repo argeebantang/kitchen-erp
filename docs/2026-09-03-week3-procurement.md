@@ -783,3 +783,112 @@ the request at `CONVERTED_TO_PO`.
 - `APPROVED` is now an unreachable resting state for a purchase request. If PO generation is
   ever made manual, it becomes meaningful again; until then it is dead vocabulary worth
   remembering when reading the enum.
+
+---
+
+## Commit 9 — purchase order list, detail, and the sourcing form
+
+Procurement can now open the draft an approval produced and decide who to buy from.
+
+**What changed**
+
+- `repositories/purchase-order.repository.ts` — `findMany` (paginated) and `findById` joined the
+  existing `createDraftFromRequest`, plus `updateDraft`, which rewrites the line costs and the
+  order header in one transaction.
+- `repositories/supplier.repository.ts` — `findById`, so an unknown `supplierId` returns 400
+  rather than surfacing as a raw foreign-key failure and a 500.
+- `services/purchase-order.service.ts` (new) — `list`, `getById`, `updateDraft`.
+- `app/(protected)/procurement/orders/page.tsx`, `[id]/page.tsx`, `not-found.tsx` (new).
+- `components/procurement/PurchaseOrderForm.tsx` (new) — supplier, expected delivery, notes.
+- `app/api/purchase-orders/[id]/route.ts` (new) — `PATCH`.
+- `lib/navigation.ts` — the Purchase Orders link opened to `ACCOUNTING`, matching what
+  `middleware.ts` already allowed on that path; accounting has to open an order to approve it.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Can procurement change quantities? | **No** | They were approved on the request. Letting them be edited afterwards would make the approval meaningless — accounting authorised one number and a different one gets ordered. Partial ordering is a real need, but it belongs in receiving or in a change that routes back for re-approval. |
+| Can procurement type a unit cost? | **Deferred** | Re-pricing and manual entry conflict: if a line is typed by hand and the supplier then changes, the system must know whether to keep or overwrite it. Answering that needs a column on `PurchaseOrderItem` recording which lines a human set — a migration, and not part of "the PO form". Recorded as follow-up. |
+| When do lines re-price? | **On save, server-side** | Follows from the decision above. With no manual override there is nothing to preserve, so the server can price every line from `ItemPrice` and `router.refresh()` shows the result. This also avoided shipping a client-side price table. |
+
+The second decision is worth remembering as a pattern: *the data model decides which features
+are cheap*. A boolean that was not added three commits ago is the difference between an hour's
+work and a migration.
+
+**No viewer scoping**
+
+`PurchaseOrderService.list` takes no viewer, unlike the purchase request service. A request
+belongs to whoever raised it; an order belongs to the organisation, and every role
+`middleware.ts` lets onto `/procurement/orders` — ADMIN, PROCUREMENT_MANAGER, ACCOUNTING —
+needs the whole list to source or to approve. Less code because the rule is genuinely simpler,
+not because a check was skipped.
+
+There is also no `sumLines` helper here: `PurchaseOrder.totalAmount` is a stored column written
+when the draft was created. A purchase request has to total its lines on the fly because it has
+no such column. Storing it is right for an order — it records what was *ordered*, which should
+not silently change when a price moves later.
+
+**Where the role check lives**
+
+`updateDraft` rejects anyone who is not `PROCUREMENT_MANAGER` or `ADMIN`, in the service rather
+than in middleware. That is deliberate and consistent with the self-approval rule: accounting
+must reach `/api/purchase-orders` in order to approve orders, so the *path* cannot express
+"may read, may not edit". Same URL, different action.
+
+**Honest totals**
+
+A draft with no supplier still carries a total — the reference-priced figure inherited from the
+approved request. Leaving it at zero would have been worse: the authorised amount would vanish
+the moment the order was created. But the number is an estimate until a supplier exists, so the
+list marks it `est.` and the detail footer reads "Estimated total" rather than "Order total"
+until `supplierId` is set. Same rule as a purchase request's `estimatedTotal` being null when
+any line is unpriced: a figure on screen should not imply more certainty than it has.
+
+**Database changes**
+
+None.
+
+**API changes**
+
+New: `PATCH /api/purchase-orders/[id]`, body `{ supplierId?, expectedDelivery?, notes? }`.
+Returns `200 { purchaseOrder }`. 403 if the caller is not procurement or admin · 404 unknown
+order · 409 no longer a draft · 400 unknown supplier or invalid input.
+
+**UI changes**
+
+- `/procurement/orders` — list with supplier, source request, total and status. Drafts without
+  a supplier show an amber "Not chosen yet".
+- `/procurement/orders/[id]` — detail with supplier block, lines and total, linking back to the
+  request it came from. A sourcing form replaces the supplier block while the order is `DRAFT`.
+- Purchase Orders now appears in the sidebar for accounting.
+
+**How to verify**
+
+Raise a request containing Pork Belly, approve it, open the resulting order and pick **Bantang
+Meat Supply**. The pork belly line moves from the ₱380 reference price to Bantang's ₱355 quote,
+the footer flips to "Order total", and the `est.` marker disappears from the list. A material
+Bantang does not quote — garlic — stays at its reference price, which is the supplier→reference
+fallback from Week 2 doing its job.
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT po."poNumber", po.status, s.name, po."totalAmount"::numeric(12,2)
+      FROM "PurchaseOrder" po LEFT JOIN "Supplier" s ON s.id = po."supplierId";'
+```
+
+As `accounting@kitchen.com`, saving the same form returns 403.
+
+**Risks / follow-up**
+
+- Manual unit cost entry, as above — needs a column and a rule for what happens to overridden
+  lines when the supplier changes.
+- `updateDraft` loops over the lines with one `update` each. Bounded by the lines on a single
+  order and wrapped in one transaction, so it is not the unbounded N+1 the conventions warn
+  about — but Prisma has no "update many rows to different values" call, which is worth knowing
+  before this pattern is copied somewhere with a larger N.
+- Nothing can move an order out of `DRAFT` yet. Approval is the next task.
+- Two repositories now export a `findById`. During this work the supplier version was pasted
+  into the purchase order repository and silently *replaced* the order's own method — same name,
+  same object literal, no compile error, and the symptom was a 404 in the browser.
+- No way to cancel or delete a draft order.
