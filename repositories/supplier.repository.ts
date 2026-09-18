@@ -9,4 +9,12 @@ export const SupplierRepository = {
       orderBy: { name: 'asc' },
     })
   },
+
+  async findById(id: string): Promise<{ id: string; name: string } | null> {
+    return prisma.supplier.findUnique({
+      where:  { id },
+      select: { id: true, name: true },
+    })
+  },
+
 }

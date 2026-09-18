@@ -503,3 +503,392 @@ the transaction guarantees.
 - A rejected request cannot be edited and resubmitted — it is a dead end. Edit/delete for drafts
   is still outstanding from commit 4.
 - No notification is sent on submission yet; the BullMQ job is a later commit.
+
+---
+
+## Commit 6 — decision history on the detail page, and an inbox ordered by need
+
+Two follow-ups recorded against commit 5, both small.
+
+**1. Decisions were written but never read back**
+
+`Approval` rows were being created and nothing displayed them. A rejected request showed a red
+badge and nothing else, so the requester could not see why it was rejected or what to change —
+the reason was in the database the whole time.
+
+- `repositories/approval.repository.ts` (new) — `findByReference(referenceType, referenceId)`.
+  The pair is not a foreign key (Postgres cannot express an FK whose target table varies by
+  row), so this is a plain two-column lookup, made fast by the
+  `@@index([referenceType, referenceId])` added with the table in commit 1. Without that index
+  it would scan every approval in the system.
+- `services/purchase-request.service.ts` — new `ApprovalDto`; `PurchaseRequestDetailDto` gains
+  `decisions: ApprovalDto[]`, newest first. `toDetailDto` became `async` so it can fetch them,
+  which required `await` at all four call sites.
+- The detail page renders each decision as a green or red card with the approver's name, the
+  date and the remarks.
+
+**2. The inbox was ordered newest-first**
+
+An approval queue wants soonest-needed first, not most-recently-raised.
+
+- `PurchaseRequestSort` (`'newest' | 'neededBy'`) added to the repository's filters. A named
+  option rather than Prisma's `orderBy` shape, so services and pages never import Prisma types
+  just to ask for an order.
+- `sort: 'neededBy'` orders by `{ neededBy: { sort: 'asc', nulls: 'last' } }` with `createdAt`
+  ascending as a tie-breaker, so requests needed the same day are handled oldest-first.
+- The approvals page passes it. The main list stays newest-first — that is a history view, not
+  a queue.
+
+**Why `nulls: 'last'` is written out**
+
+Sorting on a nullable column needs an explicit decision about where nulls go, and in a queue
+"no deadline" must mean last. Postgres happens to default to `NULLS LAST` for `ASC` — but the
+default flips to `NULLS FIRST` for `DESC`, so someone later reversing the direction would
+silently push every undated request to the top of accounting's queue. Stating it makes that
+impossible.
+
+This is also the payoff for choosing `neededBy` over an urgency enum in commit 2: a date can be
+sorted meaningfully, whereas a self-assessed urgency label degrades to everyone selecting
+"urgent".
+
+**Database changes**
+
+None. First read of the `Approval` table, and first use of its index.
+
+**API / UI changes**
+
+No new endpoints. `PurchaseRequestDetailDto` gained a `decisions` array — additive, so no caller
+breaks. The detail page shows decision cards; the approvals inbox is reordered.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint && npm run build && npm start
+```
+
+- Open a rejected request: a red card with the reason, approver and date.
+- Open an approved one: a green card; if remarks were empty only the heading line shows.
+- Open a draft: no card at all.
+- With two pending requests needed on different dates, the sooner one tops the Approvals inbox
+  regardless of creation order.
+
+**Risks / follow-up**
+
+- The undated case is untested — every seeded request currently has a `neededBy`. Create one
+  without a date and confirm it sorts last rather than first.
+- `toDetailDto` now issues an extra query on every call, including from `submit` and
+  `applyDecision`, whose responses the UI discards in favour of `router.refresh()`. Harmless at
+  this scale; worth remembering if the detail DTO is ever used in a loop.
+- Still outstanding from commit 4: edit and delete for drafts. A rejected request also cannot be
+  amended and resubmitted — it is a dead end.
+
+---
+
+## Commit 7 — BullMQ notification job on PR submission
+
+The first background job in the project, and the first code that runs outside the Next.js
+process.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Who is notified | Everyone who can approve (`ACCOUNTING` + `ADMIN`), **minus the requester** | An admin who raised the request cannot decide it, so telling them to would be noise. Mirrors the self-approval rule from commit 5. |
+| Redis unavailable at submit time | The submit still **succeeds** | The status change is already committed and the request is visible in the inbox. Failing the request over a missing notification would show the user an error for something that worked, and they would retry into a 409. |
+| Job payload | `{ purchaseRequestId }` — an id, never the object | The worker re-reads from the database when it runs, so it always acts on current data. A snapshot in the payload is a second source of truth that is already stale by the time the job is picked up. |
+
+**What changed**
+
+- `lib/queue.ts` (new) — producer side only. Queue name and job name constants, the
+  `PrSubmittedJob` payload type, shared `redisConnection` settings, and a lazily-created
+  `Queue` cached on `globalThis`.
+- `services/purchase-request.service.ts` — `submit()` enqueues after the status change commits,
+  wrapped in try/catch.
+- `worker/index.ts` (new) — the consumer, a standalone process.
+- `services/notification.service.ts` (new) — `notifyPurchaseRequestSubmitted(id)`: loads the
+  request, finds approvers, drops the requester, writes the rows.
+- `repositories/notification.repository.ts` (new) — `createMany`, one statement for all
+  recipients rather than a round trip each.
+- `repositories/user.repository.ts` — `findByRoles(roles)`.
+- `package.json` — `npm run worker` (watch) and `npm run worker:start`.
+
+**Why the worker is a separate process**
+
+A BullMQ `Worker` holds a long-lived Redis connection and blocks waiting for jobs. Next.js has
+nowhere to run that: its server answers a request and moves on, and in development it
+re-evaluates modules on every hot reload — so a `Worker` constructed inside the app would be
+duplicated on each reload, every copy competing for the same jobs.
+
+Nothing under `app/` imports `worker/`. That structural separation is what prevents the
+duplication, rather than a flag suppressing it. During the build the file was briefly created at
+`services/index.ts`; that is precisely the wrong place, because `services/` is imported by pages
+and route handlers and `index.ts` is what `from '@/services'` resolves to.
+
+The worker is treated as an entry point like a route handler — thin, delegating to a service.
+Week 4's daily low-stock check and Week 11's 24h escalation job will reuse
+`NotificationService` rather than each re-deriving who to notify.
+
+**Two traps worth recording**
+
+*Duplicate ioredis.* Passing `new IORedis(...)` as the connection does not compile: bullmq pins
+its own copy of ioredis (5.10.1) beside the project's (5.11.1), and TypeScript treats the two
+`Redis` classes as unrelated types because they resolve to different files, even though they are
+identical at runtime. Fixed by passing connection **options** (`{ url, maxRetriesPerRequest: null }`)
+and letting bullmq build the client with its own copy — no version coupling across the boundary.
+`maxRetriesPerRequest: null` is mandatory; BullMQ manages its own retries and refuses to start
+against a connection configured to give up.
+
+*`.env` is not loaded for a standalone script.* Next.js reads `.env` automatically; `tsx` does
+not. Without `--env-file=.env` the worker dies at startup on `lib/config.ts`'s
+`Missing required environment variable: REDIS_URL`. Node 22's built-in `--env-file` avoids
+adding `dotenv` as a dependency.
+
+`lib/queue.ts` creates the `Queue` lazily. Constructing it at module top level would open a Redis
+connection the moment the file is imported — including during `next build`, which would then
+require Redis to be running just to compile.
+
+**Database changes**
+
+None. First use of the `Notification` table created in commit 1.
+
+**API / UI changes**
+
+None. Notifications are written but not yet displayed; the bell is Week 11.
+
+**Config / environment changes**
+
+No new variables — `REDIS_URL` was already required and is in `.env.example`. Development now
+needs **two processes**: `npm run dev` and `npm run worker`.
+
+**How to verify**
+
+Two terminals. With the worker running, submit a draft, and watch it print
+`→ wrote N notification(s)`. Then:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT n.type, n.title, n.body, u.email AS recipient
+      FROM "Notification" n JOIN "User" u ON u.id = n."userId" ORDER BY n."createdAt";'
+
+docker compose exec redis redis-cli LLEN bull:notifications:wait      # 0
+docker compose exec redis redis-cli ZCARD bull:notifications:failed   # 0
+```
+
+A request submitted by admin notifies accounting only; one submitted by a branch manager
+notifies both admin and accounting.
+
+With the worker stopped, submitting still succeeds and the job waits in Redis until the worker
+starts — that is the queue earning its place over an inline call.
+
+**Risks / follow-up**
+
+- **Not idempotent.** BullMQ retries a failed job, and a job that wrote its rows and then failed
+  would write them again on retry, duplicating notifications. A unique constraint on
+  `(userId, type, referenceId)` or an existence check would fix it; neither is in place.
+- Nothing reads the `Notification` table yet — no bell, no unread count, no email. Week 11.
+- No notification on approval or rejection, so the requester is never told the outcome. Worth
+  adding when the bell exists.
+- The worker has no process supervisor. Deployment (Week 12) needs pm2, systemd or a container
+  restart policy; `npm run worker:start` alone will not survive a crash.
+- `docker-compose.yml` still carries an obsolete `version:` key that makes Compose v2 warn on
+  every command.
+
+---
+
+## Commit 8 — a PR approval generates its purchase order
+
+Approving a request now produces the purchase order automatically, rather than leaving someone
+to create it by hand.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Status after approval | `CONVERTED_TO_PO`, not `APPROVED` | By the time the transaction commits a purchase order exists, so "approved" understates what happened. The requester sees that their request became an order rather than that it merely passed. `APPROVED` remains in the enum but is now transient — reachable only inside the transaction. |
+| Where the PO is created | **Inside the approval transaction** | A request reading `CONVERTED_TO_PO` with no purchase order behind it is unrepairable without guessing. Approval cannot be retried either — the request is no longer pending, so the approver gets a 409. Three writes, all or nothing. |
+| Which price the lines use | The cost **stored on the request line** | That is the figure the approver saw and authorised. Generating an order at a different total than the one approved is the quiet discrepancy an approval step exists to prevent. A fresh lookup is the fallback for a line that was never priced; with no price at all the approval is refused (400), because `PurchaseOrderItem.unitCost` is NOT NULL and you cannot order what you cannot cost. |
+
+**What changed**
+
+- `repositories/purchase-order.repository.ts` (new) — `createDraftFromRequest(tx, input)`. Draws
+  `poNumber` from `po_number_seq`, totals the lines in `Decimal`, and creates the order with its
+  items. `supplierId` is explicitly null.
+- `repositories/purchase-request.repository.ts` — `applyDecision` gained an optional
+  `purchaseOrderLines`; when present it calls the PO repository **inside** the existing
+  transaction.
+- `services/purchase-request.service.ts` — `priceLinesForPurchaseOrder()` helper, and
+  `applyDecision` now prices the lines before opening the transaction and lands on
+  `CONVERTED_TO_PO` when approving.
+
+**Transactions across repositories**
+
+`createDraftFromRequest` takes a `Prisma.TransactionClient` as its first argument rather than
+reaching for `prisma` itself. That is how one transaction spans two repositories: the purchase
+request repository opens it and passes `tx` down, so the purchase order's writes join the same
+all-or-nothing unit. Using `prisma` there would put those writes on a separate connection, and
+an orphan purchase order would survive a rolled-back approval — the same `tx`-versus-`prisma`
+trap as commit 5, this time across a file boundary.
+
+Pricing happens *before* the transaction opens. A transaction holds locks, so reads belong
+outside it and the write window stays as short as possible; an unpriced material should also
+abort before any write has begun.
+
+**Why the supplier is null**
+
+Nothing in a purchase request names a supplier — `PurchaseRequest` and `PurchaseRequestItem`
+carry no such field, and a branch manager raising a request knows what they need, not who is
+cheapest this week. Choosing the supplier depends on price, lead time, stock and minimum order
+size; that is the sourcing decision, and it is the reason `PROCUREMENT_MANAGER` exists as a
+separate role. Guessing was considered and rejected: "cheapest quote" ignores lead time and most
+materials have no supplier quote at all, and "whoever we used last time" has no history to read.
+
+This is the nullable `supplierId` from commit 1 paying for itself. The database no longer
+guarantees a purchase order has a supplier; the service will enforce it at the point that
+matters, which is submitting the order for approval, not creating the draft.
+
+**Database changes**
+
+None. First rows in `PurchaseOrder` and `PurchaseOrderItem`, and first use of `po_number_seq`.
+
+**API / UI changes**
+
+No new endpoints. The purchase request detail page shows the new `CONVERTED_TO_PO` badge, which
+`StatusBadge` already styled.
+
+**How to verify**
+
+Raise a request, submit it, approve it as accounting. The badge turns blue `CONVERTED TO PO`.
+Then:
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT po."poNumber", po.status, po."supplierId", po."totalAmount"::numeric(12,2),
+             pr."prNumber", pr.status
+      FROM "PurchaseOrder" po LEFT JOIN "PurchaseRequest" pr ON pr.id = po."purchaseRequestId";'
+```
+
+Expect `PO-000001`, `DRAFT`, an empty `supplierId`, a total matching what the approver saw, and
+the request at `CONVERTED_TO_PO`.
+
+**Risks / follow-up**
+
+- **Nothing can see the purchase order yet.** There are no PO pages, so a requester sees
+  `CONVERTED_TO_PO` with no way to open the order it became. The PO form is the next task.
+- One purchase order per request, covering every line. A request might sensibly split across
+  suppliers — meat from one, produce from another — and the schema already allows it
+  (`purchaseRequestId` is many-to-one), but no splitting UI exists.
+- A rejected request is still a dead end: it cannot be amended and resubmitted.
+- The rollback path is reasoned about but untested. Proving it would mean forcing a failure
+  between the writes.
+- `APPROVED` is now an unreachable resting state for a purchase request. If PO generation is
+  ever made manual, it becomes meaningful again; until then it is dead vocabulary worth
+  remembering when reading the enum.
+
+---
+
+## Commit 9 — purchase order list, detail, and the sourcing form
+
+Procurement can now open the draft an approval produced and decide who to buy from.
+
+**What changed**
+
+- `repositories/purchase-order.repository.ts` — `findMany` (paginated) and `findById` joined the
+  existing `createDraftFromRequest`, plus `updateDraft`, which rewrites the line costs and the
+  order header in one transaction.
+- `repositories/supplier.repository.ts` — `findById`, so an unknown `supplierId` returns 400
+  rather than surfacing as a raw foreign-key failure and a 500.
+- `services/purchase-order.service.ts` (new) — `list`, `getById`, `updateDraft`.
+- `app/(protected)/procurement/orders/page.tsx`, `[id]/page.tsx`, `not-found.tsx` (new).
+- `components/procurement/PurchaseOrderForm.tsx` (new) — supplier, expected delivery, notes.
+- `app/api/purchase-orders/[id]/route.ts` (new) — `PATCH`.
+- `lib/navigation.ts` — the Purchase Orders link opened to `ACCOUNTING`, matching what
+  `middleware.ts` already allowed on that path; accounting has to open an order to approve it.
+
+**Three decisions**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Can procurement change quantities? | **No** | They were approved on the request. Letting them be edited afterwards would make the approval meaningless — accounting authorised one number and a different one gets ordered. Partial ordering is a real need, but it belongs in receiving or in a change that routes back for re-approval. |
+| Can procurement type a unit cost? | **Deferred** | Re-pricing and manual entry conflict: if a line is typed by hand and the supplier then changes, the system must know whether to keep or overwrite it. Answering that needs a column on `PurchaseOrderItem` recording which lines a human set — a migration, and not part of "the PO form". Recorded as follow-up. |
+| When do lines re-price? | **On save, server-side** | Follows from the decision above. With no manual override there is nothing to preserve, so the server can price every line from `ItemPrice` and `router.refresh()` shows the result. This also avoided shipping a client-side price table. |
+
+The second decision is worth remembering as a pattern: *the data model decides which features
+are cheap*. A boolean that was not added three commits ago is the difference between an hour's
+work and a migration.
+
+**No viewer scoping**
+
+`PurchaseOrderService.list` takes no viewer, unlike the purchase request service. A request
+belongs to whoever raised it; an order belongs to the organisation, and every role
+`middleware.ts` lets onto `/procurement/orders` — ADMIN, PROCUREMENT_MANAGER, ACCOUNTING —
+needs the whole list to source or to approve. Less code because the rule is genuinely simpler,
+not because a check was skipped.
+
+There is also no `sumLines` helper here: `PurchaseOrder.totalAmount` is a stored column written
+when the draft was created. A purchase request has to total its lines on the fly because it has
+no such column. Storing it is right for an order — it records what was *ordered*, which should
+not silently change when a price moves later.
+
+**Where the role check lives**
+
+`updateDraft` rejects anyone who is not `PROCUREMENT_MANAGER` or `ADMIN`, in the service rather
+than in middleware. That is deliberate and consistent with the self-approval rule: accounting
+must reach `/api/purchase-orders` in order to approve orders, so the *path* cannot express
+"may read, may not edit". Same URL, different action.
+
+**Honest totals**
+
+A draft with no supplier still carries a total — the reference-priced figure inherited from the
+approved request. Leaving it at zero would have been worse: the authorised amount would vanish
+the moment the order was created. But the number is an estimate until a supplier exists, so the
+list marks it `est.` and the detail footer reads "Estimated total" rather than "Order total"
+until `supplierId` is set. Same rule as a purchase request's `estimatedTotal` being null when
+any line is unpriced: a figure on screen should not imply more certainty than it has.
+
+**Database changes**
+
+None.
+
+**API changes**
+
+New: `PATCH /api/purchase-orders/[id]`, body `{ supplierId?, expectedDelivery?, notes? }`.
+Returns `200 { purchaseOrder }`. 403 if the caller is not procurement or admin · 404 unknown
+order · 409 no longer a draft · 400 unknown supplier or invalid input.
+
+**UI changes**
+
+- `/procurement/orders` — list with supplier, source request, total and status. Drafts without
+  a supplier show an amber "Not chosen yet".
+- `/procurement/orders/[id]` — detail with supplier block, lines and total, linking back to the
+  request it came from. A sourcing form replaces the supplier block while the order is `DRAFT`.
+- Purchase Orders now appears in the sidebar for accounting.
+
+**How to verify**
+
+Raise a request containing Pork Belly, approve it, open the resulting order and pick **Bantang
+Meat Supply**. The pork belly line moves from the ₱380 reference price to Bantang's ₱355 quote,
+the footer flips to "Order total", and the `est.` marker disappears from the list. A material
+Bantang does not quote — garlic — stays at its reference price, which is the supplier→reference
+fallback from Week 2 doing its job.
+
+```bash
+docker compose exec postgres psql -U kitchen -d kitchen_erp \
+  -c 'SELECT po."poNumber", po.status, s.name, po."totalAmount"::numeric(12,2)
+      FROM "PurchaseOrder" po LEFT JOIN "Supplier" s ON s.id = po."supplierId";'
+```
+
+As `accounting@kitchen.com`, saving the same form returns 403.
+
+**Risks / follow-up**
+
+- Manual unit cost entry, as above — needs a column and a rule for what happens to overridden
+  lines when the supplier changes.
+- `updateDraft` loops over the lines with one `update` each. Bounded by the lines on a single
+  order and wrapped in one transaction, so it is not the unbounded N+1 the conventions warn
+  about — but Prisma has no "update many rows to different values" call, which is worth knowing
+  before this pattern is copied somewhere with a larger N.
+- Nothing can move an order out of `DRAFT` yet. Approval is the next task.
+- Two repositories now export a `findById`. During this work the supplier version was pasted
+  into the purchase order repository and silently *replaced* the order's own method — same name,
+  same object literal, no compile error, and the symptom was a 404 in the browser.
+- No way to cancel or delete a draft order.

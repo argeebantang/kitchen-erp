@@ -101,13 +101,24 @@ unrelated to Week 2 and both invisible in `next dev`:
       endpoint so `middleware.ts` can authorise by path: `POST /api/purchase-requests/[id]/submit`
       (requester or ADMIN) and `POST /api/approvals` (accounting only). Nobody approves their
       own request, ADMIN included.
-- [x] Accounting approver inbox — `/procurement/approvals`, guarded to ADMIN + ACCOUNTING.
-      Lists pending requests; the decision is made on the detail page so the approver sees the
-      lines before deciding. Approve/reject writes an `Approval` row and flips the PR status in
-      one transaction.
-- [ ] BullMQ notification job on PR submission
-- [ ] Auto-generate PO draft on PR approval
-- [ ] PO form + approval
+- [x] Accounting approver inbox — `/procurement/approvals`, guarded to ADMIN + ACCOUNTING,
+      ordered by soonest `neededBy` (undated requests sort last). The decision is made on the
+      detail page so the approver sees the lines before deciding; approve/reject writes an
+      `Approval` row and flips the PR status in one transaction, and the detail page then shows
+      who decided, when, and their remarks.
+- [x] BullMQ notification job on PR submission — `lib/queue.ts` (producer) enqueues on submit;
+      `worker/index.ts` runs as a **separate process** (`npm run worker`) and writes
+      `Notification` rows via `NotificationService`. Approvers are notified, minus whoever
+      raised the request. A Redis outage never fails the submit.
+- [x] Auto-generate PO draft on PR approval — approving writes the `Approval` row, creates a
+      `DRAFT` PurchaseOrder with its lines, and moves the request to `CONVERTED_TO_PO`, all in
+      one transaction. `supplierId` is left null: a request never names a supplier, and
+      choosing one is procurement's job. Lines carry the cost the approver actually saw.
+- [~] PO form + approval — **form done**: `/procurement/orders` list and
+      `/procurement/orders/[id]` detail, with a sourcing form on drafts to set supplier,
+      expected delivery and notes. Saving re-prices every line against the chosen supplier
+      (reference-price fallback per material) via `PATCH /api/purchase-orders/[id]`.
+      Editable only while `DRAFT`, and only by procurement or admin. PO approval still to do.
 - [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)
 
 **Note (2026-09-03):** four schema blockers found while planning Week 3 are now resolved —
