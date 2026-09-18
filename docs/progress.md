@@ -47,7 +47,9 @@ Two consequences worth planning around:
 - [x] Initialize Next.js 15 + TypeScript monorepo
 - [~] Prisma schema: 22 tables covering the core domain — **not** costing or AI (see Pending schema work below)
 - [x] Docker Compose: PostgreSQL + Redis
-- [x] GitHub repo + GitHub Actions CI pipeline
+- [x] GitHub repo + GitHub Actions CI pipeline — typecheck, lint, `prisma validate` and
+      `npm run build`. The build step was added 2026-09-18; before that CI never exercised a
+      production build, which is how two production-only bugs reached main (see Week 2 note).
 - [~] Auth with 5 roles — implemented as `ADMIN, PROCUREMENT_MANAGER, PRODUCTION_MANAGER, BRANCH_MANAGER, VIEWER` (renamed from the plan's Admin/Accounting Approver/Warehouse Staff/Kitchen Supervisor/Branch Manager — intentional naming, matches `docs/overview.md`)
 - [x] Login page + protected route middleware per role
 - [x] Logout (topbar button, `components/dashboard/Topbar.tsx`)

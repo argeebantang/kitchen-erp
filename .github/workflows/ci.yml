@@ -29,3 +29,22 @@ jobs:
 
       - name: Validate Prisma schema
         run: npx prisma validate
+        env:
+          # prisma validate parses the datasource block but never opens a
+          # connection, so any well-formed URL satisfies it. Nothing here is a
+          # secret and nothing is reachable from the runner.
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      # Runs the production build, which `next dev` does not exercise. Two
+      # production-only bugs reached main before this step existed: bcryptjs
+      # pulled into the Edge runtime via middleware, and a broken eslint config.
+      # Every page that touches the database is server-rendered on demand, so no
+      # query runs during a build — these variables exist only because
+      # lib/config.ts throws at import time on a missing one.
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-only-not-a-real-secret
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
