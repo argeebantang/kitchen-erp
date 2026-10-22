@@ -72,6 +72,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   approvals        Approval[]
+  submittedPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderSubmitter")  
   purchaseRequests PurchaseRequest[]
   productionOrders ProductionOrder[]
   notifications    Notification[] 
@@ -307,6 +308,8 @@ model PurchaseOrder {
   purchaseRequest   PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id])
   supplierId        String?
   supplier          Supplier?        @relation(fields: [supplierId], references: [id])
+  submittedById     String?
+  submittedBy       User?            @relation("PurchaseOrderSubmitter", fields: [submittedById], references: [id])
   status            POStatus         @default(DRAFT)
   totalAmount       Decimal          @default(0)
   expectedDelivery  DateTime?
