@@ -81,7 +81,7 @@ const plan = {
             { t: "PO form: supplier name, unit prices, expected delivery date",
               partial: "Supplier and expected delivery done; lines re-price automatically from ItemPrice for the chosen supplier. Typing a unit cost by hand is deferred — it needs a column recording which lines a human set, so re-pricing knows what not to overwrite." },
             { t: "PO approval by accounting", done: true },
-            "PO PDF export via Puppeteer",
+            "PO PDF export via @react-pdf/renderer (replaces Puppeteer — see change note)",
           ],
           deliverable: "Full PR → PO flow. Staff submits → approver notified → approves → PDF generated.",
         },
