@@ -58,6 +58,10 @@ const detailInclude = {
     },
     orderBy: { material: { name: 'asc' } },
   },
+  purchaseOrders: {
+    select:  { id: true, poNumber: true, status: true },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.PurchaseRequestInclude
 
 

@@ -1,17 +1,24 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { getSession } from '@/lib/session'
+import { ApprovalActions } from '@/components/procurement/ApprovalActions'
+import { PurchaseOrderActions } from '@/components/procurement/PurchaseOrderActions'
 import { ArrowLeft } from 'lucide-react'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { SupplierRepository } from '@/repositories/supplier.repository'
 import { PurchaseOrderForm } from '@/components/procurement/PurchaseOrderForm'
+import { DecisionHistory } from '@/components/procurement/DecisionHistory'
 
 type PageProps = {
   params: Promise<{ id: string }>
 }
 
 export default async function PurchaseOrderDetailPage({ params }: PageProps) {
+
+  const session = await getSession()
+  if (!session) redirect('/login')
   const { id } = await params
 
   const result = await PurchaseOrderService.getById(id)
@@ -19,7 +26,12 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
 
   const po = result.data
   const isDraft = po.status === 'DRAFT'
+  const isPending     = po.status === 'PENDING_APPROVAL'
+  const isApproved    = po.status === 'APPROVED'
+  const isProcurement = session.role === 'PROCUREMENT_MANAGER' || session.role === 'ADMIN'
+  const isApprover    = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
   const suppliers = isDraft ? await SupplierRepository.findAllActive() : []
+  const isOwnSubmission = po.submittedById !== null && po.submittedById === session.userId
 
   return (
     <div>
@@ -78,12 +90,33 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
         </div>
       )}
 
+      {isDraft && isProcurement && (
+         <PurchaseOrderActions
+          mode="submit"
+          purchaseOrderId={po.id}
+          blockedReason={po.supplierId === null ? 'Choose a supplier and save before submitting.' : null}
+        />
+      )}
+      {isPending && isApprover && !isOwnSubmission && (
+        <ApprovalActions referenceType="PurchaseOrder" referenceId={po.id} />
+      )}
+      {isPending && isApprover && isOwnSubmission && (
+        <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+          You submitted this order, so someone else has to decide it.
+        </p>
+      )}
+      {isApproved && isProcurement && (
+         <PurchaseOrderActions mode="send" purchaseOrderId={po.id} blockedReason={null} />
+      )}
+
       {po.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Notes</p>
           <p className="text-sm text-gray-700">{po.notes}</p>
         </div>
       )}
+
+      <DecisionHistory decisions={po.decisions} />
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">

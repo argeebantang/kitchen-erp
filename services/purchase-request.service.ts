@@ -46,7 +46,8 @@ export type PurchaseRequestDetailDto = {
   estimatedTotal: string | null
   /** Newest first. Empty until the request has been decided at least once. */
   decisions: ApprovalDto[]
-
+  /** Orders generated from this request. Empty until it has been approved. */
+  purchaseOrders: { id: string; poNumber: string; status: string }[]
 }
 
 export type PurchaseRequestSummaryDto = {
@@ -137,6 +138,11 @@ async function toDetailDto(pr: PurchaseRequestWithDetail): Promise<PurchaseReque
       remarks:      decision.remarks,
       approverName: decision.approver.name,
       decidedAt:    decision.decidedAt.toISOString(),
+    })),
+    purchaseOrders: pr.purchaseOrders.map(po => ({
+      id:       po.id,
+      poNumber: po.poNumber,
+      status:   po.status,
     })),
   }
 }

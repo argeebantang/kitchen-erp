@@ -892,3 +892,104 @@ As `accounting@kitchen.com`, saving the same form returns 403.
   into the purchase order repository and silently *replaced* the order's own method — same name,
   same object literal, no compile error, and the symptom was a 404 in the browser.
 - No way to cancel or delete a draft order.
+
+---
+
+## Commit 10 — purchase order approval
+
+Procurement submits a sourced draft, accounting approves or rejects it, procurement marks an
+approved order as sent. `DRAFT → PENDING_APPROVAL → APPROVED → SENT`, or `→ REJECTED`
+(terminal).
+
+**What changed**
+
+- `POST /api/purchase-orders/[id]/submit` and `POST /api/purchase-orders/[id]/send`, one
+  endpoint per transition.
+- `POST /api/approvals` is now polymorphic in practice: `referenceType` is
+  `z.enum(['PurchaseRequest', 'PurchaseOrder'])` and the handler dispatches to the matching
+  service. No new route, no new middleware guard.
+- `PurchaseOrderService.submit / applyDecision / markSent`, each backed by a guarded
+  repository transition (below).
+- The approvals inbox lists pending purchase orders under the pending requests, on one page.
+- The PO detail page shows submit / decision / mark-as-sent controls by status and role, and a
+  decision history card (`DecisionHistory`, new, reusable).
+- `ApprovalActions` takes `referenceType` + `referenceId` instead of a hardcoded request id.
+- Also in this commit, from separate work: the PR detail page lists the purchase order(s) it
+  generated (`docs/2026-10-23-pr-shows-its-purchase-order.md`).
+
+**Why**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Who submitted | New nullable `PurchaseOrder.submittedById` | "Nobody approves their own work, ADMIN included" needs to know who submitted. A PO has no requester column, and ADMIN can both submit and approve. Nullable because drafts have no submitter and orders that predate the column have none. The self-approval check skips null. |
+| Race protection | Status in the `UPDATE ... WHERE`, via `updateMany` and a zero-row check | Check-then-write in the service lets two approvers both read `PENDING_APPROVAL` and write two `Approval` rows. Here the second UPDATE matches no rows and the service answers 409. The status moves *before* the `Approval` row is written, so a lost race leaves no stray row. |
+| Role checks | In the service, not `middleware.ts` | `/api/purchase-orders` must stay open to ACCOUNTING for reads; a prefix guard cannot single out `*/submit`. Same reasoning as `updateDraft`. Approval stays path-guarded at `/api/approvals`. |
+| Supplier required | Checked in the service *and* in the UPDATE's WHERE | `supplierId` is nullable by design (a PR never names one). The WHERE clause closes the gap where a concurrent save clears it between the check and the write. |
+
+**Files affected**
+
+`prisma/schema.prisma`, `prisma/migrations/20261023055715_po_submitted_by/`,
+`repositories/purchase-order.repository.ts`, `services/purchase-order.service.ts`,
+`app/api/approvals/route.ts`, `app/api/purchase-orders/[id]/submit/route.ts` (new),
+`app/api/purchase-orders/[id]/send/route.ts` (new),
+`app/(protected)/procurement/approvals/page.tsx`,
+`app/(protected)/procurement/orders/[id]/page.tsx`,
+`app/(protected)/procurement/requests/[id]/page.tsx`,
+`components/procurement/ApprovalActions.tsx`, `PurchaseOrderActions.tsx` (new),
+`DecisionHistory.tsx` (new).
+
+**Database changes**
+
+Migration `20261023055715_po_submitted_by`: one nullable column and its FK
+(`ON DELETE SET NULL`). No existing row altered. Rollback:
+`ALTER TABLE "PurchaseOrder" DROP COLUMN "submittedById";`. Generated with
+`migrate diff` and applied with `migrate deploy`. Restart `npm run dev` and `npm run worker`
+after `prisma generate`, or the cached client rejects the new field with a 500.
+
+**API changes**
+
+| Endpoint | Who | Results |
+|---|---|---|
+| `POST /api/purchase-orders/[id]/submit` | procurement, admin | 200 · 400 no supplier / no lines · 403 · 404 · 409 not a draft, or changed underneath |
+| `POST /api/purchase-orders/[id]/send` | procurement, admin | 200 · 403 · 404 · 409 not approved |
+| `POST /api/approvals` with `referenceType: "PurchaseOrder"` | accounting, admin (middleware) | 200 · 400 reject without remarks · 403 you submitted it · 404 · 409 not pending, or decided by someone else just now |
+
+`PurchaseOrderDetailDto` gains `submittedById` and `decisions`.
+
+**UI changes**
+
+Approvals inbox gains a Purchase orders section. PO detail gains the submit bar (disabled with
+a reason while no supplier is set), the decision panel (hidden from the submitter, replaced by
+a note), the mark-as-sent bar, and the decision history.
+
+**How to verify**
+
+```bash
+npx prisma migrate status && npx tsc --noEmit && npm run lint
+```
+
+Walk one order through: `procurement@` submits → `accounting@` approves in the inbox →
+`procurement@` marks it sent; reject a second with a reason and see it on the page.
+Self-approval: submit as `admin@`, then POST `/api/approvals` as `admin@` → 403. Race: fire
+two approvals of one pending order concurrently as `accounting@` → one 200, one 409, and
+`SELECT count(*) FROM "Approval" WHERE "referenceId" = '<id>'` is 1.
+
+The self-approval and race checks were run against the real endpoints with real logins
+(curl). The on-page "You submitted this order" note was not exercised in a browser.
+
+**Risks / assumptions / follow-up**
+
+- `SENT` is a status flip only. Nothing is emailed; the PDF (next task) is what procurement
+  would send.
+- `REJECTED` is terminal, so a rejected order is a dead end, like a rejected request.
+- Orders that predate `submittedById` have null there, so the self-approval rule cannot apply
+  to them.
+- The inbox lists purchase orders newest-first; the repository has no sort option, and
+  `expectedDelivery` is a weaker urgency signal than a request's `neededBy`.
+- No notification on PO submission (requests have one). Needs a second job type.
+- The PR `applyDecision` still checks status in the service only, so it has the race this
+  commit closes for POs. Separate fix.
+- `ApprovalDto` is imported from the PR service into the PO service; it should move somewhere
+  shared if a third document type needs it.
+- Two throwaway orders (`PO-000004`, `PO-000005`) were created in the dev database while
+  testing the guards above.

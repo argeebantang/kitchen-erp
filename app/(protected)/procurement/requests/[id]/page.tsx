@@ -34,6 +34,9 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
   const isPending    = pr.status === 'PENDING_APPROVAL'
   const isApprover   = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
   const isOwnRequest = pr.requestedById === session.userId
+  // Same roles middleware.ts lets into /procurement/orders; anyone else would
+  // be redirected by the link, so they get plain text instead.
+  const canOpenOrders = ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'].includes(session.role)
 
   return (
     <div>
@@ -65,7 +68,7 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
       {/* Nobody approves their own request — ADMIN included. That separation is
       the reason the ACCOUNTING role exists. The service enforces it too. */}
       {isPending && isApprover && !isOwnRequest && (
-        <ApprovalActions purchaseRequestId={pr.id} />
+        <ApprovalActions referenceType="PurchaseRequest" referenceId={pr.id} />
       )}
       {isPending && isApprover && isOwnRequest && (
         <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
@@ -73,6 +76,31 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
         </p>
       )}
 
+
+      {pr.purchaseOrders.length > 0 && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+            Purchase {pr.purchaseOrders.length === 1 ? 'order' : 'orders'}
+          </p>
+          <ul className="space-y-1">
+            {pr.purchaseOrders.map(po => (
+              <li key={po.id} className="flex items-center gap-2 text-sm">
+                {canOpenOrders ? (
+                  <Link
+                    href={`/procurement/orders/${po.id}`}
+                    className="font-mono text-blue-600 hover:underline"
+                  >
+                    {po.poNumber}
+                  </Link>
+                ) : (
+                  <span className="font-mono text-gray-700">{po.poNumber}</span>
+                )}
+                <StatusBadge status={po.status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {pr.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">

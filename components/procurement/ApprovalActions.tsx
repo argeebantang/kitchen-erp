@@ -12,7 +12,12 @@ type Decision = 'APPROVED' | 'REJECTED'
  * middleware.ts guards that one prefix to ACCOUNTING and ADMIN, so the same
  * guard will cover purchase orders later without a second rule.
  */
-export function ApprovalActions({ purchaseRequestId }: { purchaseRequestId: string }) {
+type ApprovalActionsProps = {
+  referenceType: 'PurchaseRequest' | 'PurchaseOrder'
+  referenceId:   string
+}
+
+export function ApprovalActions({ referenceType, referenceId }: ApprovalActionsProps) {
   const router = useRouter()
   const [remarks, setRemarks] = useState('')
   const [busy, setBusy]       = useState<Decision | null>(null)
@@ -34,8 +39,8 @@ export function ApprovalActions({ purchaseRequestId }: { purchaseRequestId: stri
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          referenceType: 'PurchaseRequest',
-          referenceId:   purchaseRequestId,
+          referenceType,
+          referenceId,
           decision,
           remarks:       remarks.trim() || null,
         }),

@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { PurchaseRequestService } from '@/services/purchase-request.service'
+import { PurchaseOrderService } from '@/services/purchase-order.service'
 
 
-/**
- * One endpoint for every approval decision in the system.
- *
- * referenceType is a literal rather than a free string: today only purchase
- * requests can be approved, so anything else gets a clean 400 here instead of
- * failing confusingly deeper down. When purchase orders need approval this
- * becomes z.enum(['PurchaseRequest', 'PurchaseOrder']) — no new route, and no
- * new middleware guard, because /api/approvals is already ACCOUNTING-only.
- */
 const DecisionSchema = z.object({
-  referenceType: z.literal('PurchaseRequest'),
+  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder']),
   referenceId:   z.string().cuid(),
   decision:      z.enum(['APPROVED', 'REJECTED']),
   remarks:       z.string().trim().max(1000).nullish(),
@@ -37,14 +29,21 @@ export async function POST(req: NextRequest) {
       )
     }
 
-        // referenceType is a literal today, so there is nothing to dispatch on yet.
-    // When purchase orders join, this becomes a switch and the schema widens.
-    const result = await PurchaseRequestService.applyDecision(
-      parsed.data.referenceId,
-      { userId, role },
-      parsed.data.decision,
-      parsed.data.remarks ?? null,
-    )
+    const { referenceType, referenceId, decision } = parsed.data
+    const remarks = parsed.data.remarks ?? null
+    const viewer  = { userId, role }
+
+    if (referenceType === 'PurchaseOrder') {
+      const result = await PurchaseOrderService.applyDecision(referenceId, viewer, decision, remarks)
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: result.status })
+      }
+
+      return NextResponse.json({ purchaseOrder: result.data })
+    }
+
+    const result = await PurchaseRequestService.applyDecision(referenceId, viewer, decision, remarks)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status })

@@ -121,6 +121,62 @@ export const PurchaseOrderRepository = {
     })
   },
 
+    /**
+   * DRAFT → PENDING_APPROVAL. Records who submitted, so the approver can be
+   * kept from being the same person. Returns null if the order is no longer a
+   * draft or has lost its supplier — see moveStatus.
+   */
+  async submit(input: { id: string; submittedById: string }): Promise<PurchaseOrderWithDetail | null> {
+    return prisma.$transaction(tx =>
+      moveStatus(
+        tx,
+        input.id,
+        POStatus.DRAFT,
+        { status: POStatus.PENDING_APPROVAL, submittedById: input.submittedById },
+        { supplierId: { not: null } },
+      ),
+    )
+  },
+
+  /** APPROVED → SENT. */
+  async markSent(id: string): Promise<PurchaseOrderWithDetail | null> {
+    return prisma.$transaction(tx =>
+      moveStatus(tx, id, POStatus.APPROVED, { status: POStatus.SENT }),
+    )
+  },
+
+  /**
+   * PENDING_APPROVAL → APPROVED | REJECTED, and the Approval row, in one
+   * transaction. The status moves FIRST: if another decision got there before
+   * us, moveStatus returns null and no Approval row is written.
+   */
+  async decide(input: {
+    id: string
+    approverId: string
+    decision: 'APPROVED' | 'REJECTED'
+    remarks: string | null
+  }): Promise<PurchaseOrderWithDetail | null> {
+    return prisma.$transaction(async tx => {
+      // tx, not prisma — see PurchaseRequestRepository.applyDecision.
+      const moved = await moveStatus(tx, input.id, POStatus.PENDING_APPROVAL, {
+        status: input.decision === 'APPROVED' ? POStatus.APPROVED : POStatus.REJECTED,
+      })
+      if (moved === null) return null
+
+      await tx.approval.create({
+        data: {
+          referenceType: 'PurchaseOrder',
+          referenceId:   input.id,
+          approverId:    input.approverId,
+          decision:      input.decision,
+          remarks:       input.remarks,
+        },
+      })
+
+      return moved
+    })
+  },
+
 }
 
 /**
@@ -146,6 +202,34 @@ const detailInclude = {
 export type PurchaseOrderWithDetail = Prisma.PurchaseOrderGetPayload<{
   include: typeof detailInclude
 }>
+
+/**
+ * Moves an order out of `from` ONLY IF it is still there when the UPDATE runs.
+ *
+ * The status sits in the WHERE clause, so the check and the write are one
+ * atomic statement. Checking the status in the service and then updating, the
+ * way the PR flow does, leaves a gap: two approvers who both read
+ * PENDING_APPROVAL would both pass the check and write two Approval rows.
+ * Here the second UPDATE matches zero rows and we return null.
+ *
+ * updateMany rather than update, because update() only accepts unique fields
+ * in `where` and cannot filter on status.
+ */
+async function moveStatus(
+  tx: Prisma.TransactionClient,
+  id: string,
+  from: POStatus,
+  data: Prisma.PurchaseOrderUncheckedUpdateManyInput,
+  also: Prisma.PurchaseOrderWhereInput = {},
+): Promise<PurchaseOrderWithDetail | null> {
+  const { count } = await tx.purchaseOrder.updateMany({
+    where: { id, status: from, ...also },
+    data,
+  })
+  if (count === 0) return null
+
+  return tx.purchaseOrder.findUniqueOrThrow({ where: { id }, include: detailInclude })
+}
 
 /**
  * List rows need only a count, not the lines themselves — totalAmount is stored
