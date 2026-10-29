@@ -7,7 +7,8 @@ const DecimalString = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative 
 const ListQuerySchema = z.object({
   search:          z.string().trim().min(1).optional(),
   categoryId:      z.string().cuid().optional(),
-  includeInactive: z.coerce.boolean().optional(),
+  // Not z.coerce.boolean(): that is Boolean(value), which reads "false" as true.
+  includeInactive: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   skip:            z.coerce.number().int().min(0).optional(),
   take:            z.coerce.number().int().min(1).max(100).optional(),
 })

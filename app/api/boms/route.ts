@@ -8,7 +8,8 @@ const PositiveDecimalString = z
 
 const ListQuerySchema = z.object({
   finishedGoodId:    z.string().cuid().optional(),
-  includeSuperseded: z.coerce.boolean().optional(),
+  // Not z.coerce.boolean(): that is Boolean(value), which reads "false" as true.
+  includeSuperseded: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   skip:              z.coerce.number().int().min(0).optional(),
   take:              z.coerce.number().int().min(1).max(100).optional(),
 })

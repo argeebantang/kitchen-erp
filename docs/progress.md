@@ -153,6 +153,11 @@ for the decisions and their rationale.
 - [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table
 - [ ] BullMQ daily low-stock check job
 
+**Note (2026-10-30):** three API gaps from Weeks 1–2 closed — `/api/auth/register` was public and
+let the caller pick any role (now ADMIN-only); item-master and BOM writes had no role guard (now
+ADMIN, plus PRODUCTION_MANAGER for BOMs, via method-aware `ROLE_GUARDS`); `includeInactive=false`
+was read as true. See `docs/2026-10-30-api-guards.md`.
+
 **Note (2026-08-17):** Scope revision to the stock dashboard, carried through to Week 10's
 Reorder Recommender below — see `kitchenERP-sprint-v3.jsx` (Week 4 tasks/deliverable, Week 10
 Feature 4, and the `ai_features` table). Build the Week 4 dashboard as the color-coded location

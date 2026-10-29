@@ -7,7 +7,7 @@ The browser is the only client. Server Components read through services directly
 ## Conventions
 
 * **Auth**: the `kitchen-token` cookie (set by `POST /api/auth/login`). `middleware.ts` verifies it on every non-public path; without it, the request is redirected to `/login` (a `307`, not a `401` — route handlers never see an unauthenticated request).
-* **Roles**: `ROLE_GUARDS` in `middleware.ts` restricts path prefixes. A role outside the guard is redirected to `/unauthorized` (`307`). Services add action-level checks (`403`) where one path serves several roles. All guards that match a path apply.
+* **Roles**: `ROLE_GUARDS` in `middleware.ts` restricts path prefixes, optionally only for some HTTP methods. A role outside the guard is redirected to `/unauthorized` (`307`). Services add action-level checks (`403`) where one path serves several roles. All guards that match a path apply.
 * **Identity**: handlers that record *who* read `x-user-id` / `x-user-role` (injected by middleware) and return `401` if they are missing. Who did something is never taken from the body.
 * **Bodies** are JSON. Quantities and money are **decimal strings** (`"2.5"`, regex-validated), never numbers. Dates are `YYYY-MM-DD`.
 * **Success**: `200` with `{ <resource>: … }`, `201` on create. Lists return `{ <resources>: [...], total }`.
@@ -16,14 +16,17 @@ The browser is the only client. Server Components read through services directly
 
 ## Guards
 
-| Prefix | Roles |
-|---|---|
-| `/api/auth/login`, `/api/auth/register` | public |
-| `/api/purchase-requests` | ADMIN, PROCUREMENT_MANAGER, BRANCH_MANAGER, PRODUCTION_MANAGER, ACCOUNTING |
-| `/api/purchase-orders` | ADMIN, PROCUREMENT_MANAGER, ACCOUNTING |
-| `/api/approvals` | ADMIN, ACCOUNTING |
-| `/api/receiving-reports` | ADMIN, PROCUREMENT_MANAGER |
-| everything else under `/api` | any signed-in user — see [Known gaps](#known-gaps) |
+| Prefix | Methods | Roles |
+|---|---|---|
+| `/api/auth/login` | all | public |
+| `/api/auth/register` | all | ADMIN |
+| `/api/purchase-requests` | all | ADMIN, PROCUREMENT_MANAGER, BRANCH_MANAGER, PRODUCTION_MANAGER, ACCOUNTING |
+| `/api/purchase-orders` | all | ADMIN, PROCUREMENT_MANAGER, ACCOUNTING |
+| `/api/approvals` | all | ADMIN, ACCOUNTING |
+| `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
+| `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
+| `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
+| everything else, and reads of the item master and BOMs | GET | any signed-in user |
 
 ## Auth
 
@@ -32,7 +35,7 @@ The browser is the only client. Server Components read through services directly
 | POST | `/api/auth/login` | `email`, `password` | 200 `{ user }` + sets cookie | 400, 401 invalid credentials |
 | POST | `/api/auth/logout` | — | 200 `{ success: true }`, clears cookie | — |
 | GET | `/api/auth/me` | — | 200 `{ user }` | 401, 404 user deleted |
-| POST | `/api/auth/register` | `email`, `name`, `password` (8–100), `role`, `branchId?` | 201 `{ user }` | 400, 409 email taken |
+| POST | `/api/auth/register` | `email`, `name`, `password` (8–100), `role`, `branchId?` | 201 `{ user }` — ADMIN only; no page calls it yet (planned `/admin/users`) | 400, 409 email taken |
 
 ## Item master
 
@@ -99,8 +102,6 @@ Rules (both): the order is `SENT` or `PARTIALLY_RECEIVED`; every PO line counted
 
 ## Known gaps
 
-Recorded here so they are not mistaken for intended behaviour. None is fixed yet.
+None open. Fixed 2026-10-30 (see `docs/2026-10-30-api-guards.md`): public registration with a caller-chosen role, unguarded item-master and BOM writes, and boolean query parameters that read `"false"` as true.
 
-* **`POST /api/auth/register` is public and the caller chooses `role`.** Anyone who can reach the server can create an `ADMIN` account and sign in. No page calls it. It should be removed or restricted to ADMIN (with a guard and a role check) before the app is reachable by anyone else.
-* **Item-master and BOM writes have no role guard.** `/api/materials`, `/api/finished-goods`, `/api/categories`, `/api/units` and `/api/boms` are only behind sign-in, so a `VIEWER` can create or edit materials, record prices (which feed PR and PO costs) and publish BOM versions. The pages using them sit under `/admin` and `/production`, which *are* guarded; the API paths are not. Reads can stay open; writes need guards or service checks.
-* **`includeInactive` / `includeSuperseded` use `z.coerce.boolean()`**, which turns the string `"false"` into `true`. Omitting the parameter is the only way to get `false`. `z.enum(['true','false']).transform(v => v === 'true')` would fix it.
+Boolean query parameters (`includeInactive`, `includeSuperseded`) accept exactly `true` or `false`; anything else is a 400.

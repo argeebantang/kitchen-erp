@@ -7,11 +7,17 @@ import { verifyToken, COOKIE_NAME } from '@/lib/jwt'
 import type { Role } from '@prisma/client'
 
 // Paths that never require a token
+// /api/auth/register is deliberately absent: it lets the caller choose any
+// role, so it is ADMIN-only below rather than public.
 const PUBLIC_PATHS = [
   '/login',
   '/api/auth/login',
-  '/api/auth/register',
 ]
+
+// Requests that change data. A guard limited to these leaves reads open to
+// every signed-in user — the item master is read across modules, but only the
+// roles that own it may change it.
+const WRITE_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE']
 
 // Paths that require a specific role.
 // Kept in sync with the role restrictions in lib/navigation.ts — the sidebar
@@ -21,7 +27,9 @@ const PUBLIC_PATHS = [
 // prefixes are AND-ed. Procurement relies on that: `/procurement` sets the
 // baseline (any procurement role, no VIEWER), then the narrower guards further
 // restrict specific sub-paths.
-const ROLE_GUARDS: { path: string; roles: Role[] }[] = [
+//
+// A guard with `methods` applies only to those HTTP methods; without it, to all.
+const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/procurement',           roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   { path: '/procurement/orders',    roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
   { path: '/procurement/approvals', roles: ['ADMIN', 'ACCOUNTING'] },
@@ -30,7 +38,16 @@ const ROLE_GUARDS: { path: string; roles: Role[] }[] = [
   { path: '/api/purchase-orders',   roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
   { path: '/api/approvals',         roles: ['ADMIN', 'ACCOUNTING'] },
   { path: '/api/receiving-reports', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
-  { path: '/production',            roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/api/auth/register',     roles: ['ADMIN'] },
+  // Item master: written from /admin/master, so ADMIN only. Covers
+  // /api/materials/[id]/prices through the /api/materials prefix.
+  { path: '/api/materials',         roles: ['ADMIN'], methods: WRITE_METHODS },
+  { path: '/api/finished-goods',    roles: ['ADMIN'], methods: WRITE_METHODS },
+  { path: '/api/categories',        roles: ['ADMIN'], methods: WRITE_METHODS },
+  { path: '/api/units',             roles: ['ADMIN'], methods: WRITE_METHODS },
+  // BOMs belong to production, same roles as the /production pages.
+  { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
+  { path: '/production',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
 ]
@@ -61,6 +78,7 @@ export async function middleware(req: NextRequest) {
 
   // 3. Check role guards
   for (const guard of ROLE_GUARDS) {
+    if (guard.methods && !guard.methods.includes(req.method)) continue
     if (pathname.startsWith(guard.path) && !guard.roles.includes(payload.role as Role)) {
       return NextResponse.redirect(new URL('/unauthorized', req.url))
     }
