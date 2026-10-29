@@ -92,7 +92,7 @@ const plan = {
           tag: null,
           tasks: [
             { t: "RR form: linked to approved PO, actual received quantities per line", done: true },
-            "Variance detection: flag when received differs from ordered",
+            { t: "Variance detection: flag when received differs from what was still outstanding (short / over-delivered / rejected, in pesos)", done: true },
             "RR approval by accounting",
             "On RR approval: inventory_ledger entry written, stock levels updated",
             "Every movement writes to inventory_ledger with source document reference",

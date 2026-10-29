@@ -2,8 +2,9 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { getSession } from '@/lib/session'
-import { ReceivingReportService } from '@/services/receiving-report.service'
+import { ReceivingReportService, type ReceivingReportDetailDto } from '@/services/receiving-report.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { VarianceChips } from '@/components/procurement/VarianceChips'
 import { formatPeso, trimDecimal } from '@/lib/format'
 
 type PageProps = {
@@ -80,15 +81,23 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
         </div>
       )}
 
+      <VarianceBanner
+        variance={rr.variance}
+        lineTotal={rr.lines.length}
+        poNumber={rr.poNumber}
+      />
+
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
           <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-4 py-3 font-medium">Material</th>
               <th className="px-4 py-3 text-right font-medium">Ordered</th>
+              <th className="px-4 py-3 text-right font-medium">Expected</th>
               <th className="px-4 py-3 text-right font-medium">Received</th>
               <th className="px-4 py-3 text-right font-medium">Rejected</th>
               <th className="px-4 py-3 text-right font-medium">Accepted</th>
+              <th className="px-4 py-3 font-medium">Variance</th>
               <th className="px-4 py-3 text-right font-medium">Unit cost</th>
               <th className="px-4 py-3 text-right font-medium">Accepted value</th>
             </tr>
@@ -104,9 +113,13 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
                     {line.notes && <p className="mt-1 text-xs text-gray-500">{line.notes}</p>}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-500">{trimDecimal(line.orderedQuantity)} {unit}</td>
+                  <td className="px-4 py-3 text-right text-gray-500">{trimDecimal(line.expectedQuantity)} {unit}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{trimDecimal(line.receivedQuantity)} {unit}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{trimDecimal(line.rejectedQuantity)} {unit}</td>
                   <td className="px-4 py-3 text-right font-medium text-gray-800">{trimDecimal(line.acceptedQuantity)} {unit}</td>
+                  <td className="px-4 py-3">
+                    <VarianceChips unit={line.unitAbbreviation} {...line.variance} />
+                  </td>
                   <td className="px-4 py-3 text-right text-gray-700">{formatPeso(line.unitCost)}</td>
                   <td className="px-4 py-3 text-right text-gray-700">{formatPeso(line.acceptedValue)}</td>
                 </tr>
@@ -115,7 +128,7 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
           </tbody>
           <tfoot className="border-t border-gray-200 bg-gray-50">
             <tr>
-              <td colSpan={6} className="px-4 py-3 text-right text-sm text-gray-500">
+              <td colSpan={8} className="px-4 py-3 text-right text-sm text-gray-500">
                 Value accepted into stock on approval
               </td>
               <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
@@ -125,6 +138,41 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
           </tfoot>
         </table>
       </div>
+    </div>
+  )
+}
+
+function VarianceBanner({
+  variance,
+  lineTotal,
+  poNumber,
+}: {
+  variance: ReceivingReportDetailDto['variance']
+  lineTotal: number
+  poNumber: string
+}) {
+  if (variance.lineCount === 0) {
+    return (
+      <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <span className="font-medium">No variance.</span> Every line matches what was expected, and nothing was rejected.
+      </div>
+    )
+  }
+
+  const totals = [
+    { label: 'short',          value: variance.shortValue },
+    { label: 'over-delivered', value: variance.overValue },
+    { label: 'rejected',       value: variance.rejectedValue },
+  ].filter(total => Number(total.value) !== 0)
+
+  return (
+    <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <span className="font-medium">
+        Variance on {variance.lineCount} of {lineTotal} {lineTotal === 1 ? 'line' : 'lines'}
+      </span>
+      {' — '}
+      {totals.map(total => `${formatPeso(total.value)} ${total.label}`).join(' · ')}.
+      {Number(variance.shortValue) !== 0 && <> Short quantities stay outstanding on {poNumber}.</>}
     </div>
   )
 }

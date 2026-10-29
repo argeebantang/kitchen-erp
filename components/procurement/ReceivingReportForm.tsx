@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { trimDecimal } from '@/lib/format'
+import { VarianceChips } from '@/components/procurement/VarianceChips'
 // A type-only import, so nothing from the service (or Prisma behind it) is
 // bundled into the browser — same as PurchaseRequestForm's MaterialDto.
 import type { ReceivingLineDto } from '@/services/receiving-report.service'
@@ -55,11 +56,51 @@ function lineError(line: ReceivingLineDto, count: Count): string | null {
   return null
 }
 
+// Kept apart from lineError: a missing note blocks Save but the counts are
+// valid, so the line's accepted figure and variance still show.
+function noteError(count: Count): string | null {
+  const rejected = count.rejected === '' ? '0' : count.rejected
+  if (!QUANTITY_PATTERN.test(rejected) || toMillionths(rejected) === 0) return null
+  if (count.notes.trim() !== '') return null
+  return 'Rejected goods need a line note saying why.'
+}
+
 function acceptedQuantity(count: Count): string | null {
   if (!QUANTITY_PATTERN.test(count.received)) return null
   const rejected = count.rejected === '' ? '0' : count.rejected
   if (!QUANTITY_PATTERN.test(rejected)) return null
   return String((toMillionths(count.received) - toMillionths(rejected)) / 1_000_000)
+}
+
+/**
+ * The same split as the service's lineVariance — short, over-delivered,
+ * rejected — for the person typing. Expected is the line's outstanding, which
+ * is what the service stores when the draft is saved. Peso values go through
+ * Number for display only; the detail page shows the Decimal figures.
+ */
+function liveVariance(line: ReceivingLineDto, count: Count) {
+  if (count.received === '' || lineError(line, count) !== null) return null
+  const received = toMillionths(count.received)
+  const rejected = toMillionths(count.rejected === '' ? '0' : count.rejected)
+  const expected = toMillionths(line.outstanding)
+
+  const short   = Math.max(expected - (received - rejected), 0)
+  const over    = Math.max(received - expected, 0)
+  const refused = rejected - over
+  const quantity = (millionths: number) => String(millionths / 1_000_000)
+  const value    = (millionths: number) => String((millionths / 1_000_000) * Number(line.unitCost))
+
+  return {
+    short, over, refused,
+    chips: {
+      shortQuantity:    quantity(short),
+      shortValue:       value(short),
+      overQuantity:     quantity(over),
+      overValue:        value(over),
+      rejectedQuantity: quantity(refused),
+      rejectedValue:    value(refused),
+    },
+  }
 }
 
 export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branches, today, lines, initial }: Props) {
@@ -84,8 +125,19 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
     setCounts(current => ({ ...current, [id]: { ...current[id], ...patch } }))
   }
 
-  const errors = new Map(lines.map(line => [line.purchaseOrderItemId, lineError(line, counts[line.purchaseOrderItemId])]))
+  const errors = new Map(lines.map(line => {
+    const count = counts[line.purchaseOrderItemId]
+    return [line.purchaseOrderItemId, lineError(line, count) ?? noteError(count)]
+  }))
   const hasLineError = [...errors.values()].some(Boolean)
+
+  const variances = new Map(lines.map(line => [line.purchaseOrderItemId, liveVariance(line, counts[line.purchaseOrderItemId])]))
+  const counted   = [...variances.values()].filter(variance => variance !== null)
+  const summary   = [
+    { label: 'short',          count: counted.filter(variance => variance.short > 0).length },
+    { label: 'over-delivered', count: counted.filter(variance => variance.over > 0).length },
+    { label: 'rejected',       count: counted.filter(variance => variance.refused > 0).length },
+  ].filter(part => part.count > 0)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -193,6 +245,7 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
               <th className="w-28 px-4 py-3 font-medium">Received</th>
               <th className="w-28 px-4 py-3 font-medium">Rejected</th>
               <th className="px-4 py-3 text-right font-medium">Accepted</th>
+              <th className="px-4 py-3 font-medium">Variance</th>
               <th className="px-4 py-3 font-medium">Line notes</th>
             </tr>
           </thead>
@@ -201,6 +254,7 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
               const count    = counts[line.purchaseOrderItemId]
               const message  = errors.get(line.purchaseOrderItemId)
               const accepted = acceptedQuantity(count)
+              const variance = variances.get(line.purchaseOrderItemId)
               const unit     = <span className="text-gray-400">{line.unitAbbreviation}</span>
 
               return (
@@ -243,6 +297,11 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
                   <td className="px-4 py-3 text-right align-top text-gray-700">
                     {accepted === null ? <span className="text-gray-300">—</span> : <>{accepted} {unit}</>}
                   </td>
+                  <td className="px-4 py-3 align-top">
+                    {variance
+                      ? <VarianceChips unit={line.unitAbbreviation} {...variance.chips} />
+                      : <span className="text-gray-300">—</span>}
+                  </td>
                   <td className="px-4 py-2 align-top">
                     <input
                       type="text"
@@ -260,6 +319,19 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
         </table>
       </div>
 
+      {/* Only once every line is counted: a half-filled form is not a variance. */}
+      {counted.length === lines.length && (
+        summary.length === 0 ? (
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            Matches what was outstanding — nothing short or rejected.
+          </p>
+        ) : (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {summary.map(part => `${part.label} on ${part.count} ${part.count === 1 ? 'line' : 'lines'}`).join(' · ')}.
+            {' '}You can still save; accounting sees the variance when approving.
+          </p>
+        )
+      )}
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}

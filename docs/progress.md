@@ -147,7 +147,13 @@ for the decisions and their rationale.
       edit becomes the counter, so the no-self-approval rule holds. No stock moves until
       approval. Migration `20261029065124_week4_receiving_report` adds `branchId` to
       `ReceivingReport` and `StockMovement` and links RR lines to PO lines.
-- [ ] Variance detection
+- [x] Variance detection — measured against what was **outstanding** when the delivery was
+      counted (stored per line as `expectedQuantity`, migration
+      `20261029220219_rr_expected_quantity`), not the ordered quantity, so a split delivery's
+      second report doesn't read as short. Each line splits into short / over-delivered /
+      rejected with peso values, shown on the RR page, live in the form, and as a "Match" /
+      "Variance · N lines" badge on the receiving list and the order page. A rejected quantity
+      needs a line note. A flag, not a block — accounting decides on approval.
 - [ ] RR approval
 - [ ] Inventory ledger entry + stock update on RR approval
 - [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table

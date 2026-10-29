@@ -6,6 +6,7 @@ import { PurchaseOrderActions } from '@/components/procurement/PurchaseOrderActi
 import { ArrowLeft, Download, Truck } from 'lucide-react'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { VarianceBadge } from '@/components/procurement/VarianceChips'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { SupplierRepository } from '@/repositories/supplier.repository'
 import { PurchaseOrderForm } from '@/components/procurement/PurchaseOrderForm'
@@ -160,6 +161,7 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
                   <span className="font-mono text-gray-700">{rr.rrNumber}</span>
                 )}
                 <StatusBadge status={rr.status} />
+                <VarianceBadge varianceLineCount={rr.varianceLineCount} />
                 <span className="text-gray-400">
                   {rr.receivedAt.slice(0, 10)} · {rr.branchName}
                 </span>

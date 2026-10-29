@@ -18,6 +18,8 @@ export type ReceivingLineDto = {
   orderedQuantity: string
   alreadyReceived: string
   outstanding: string
+  /** Copied from the PO line; the form prices the variance with it. */
+  unitCost: string
 }
 
 export type ReceivingFormDto = {
@@ -60,6 +62,8 @@ export type ReceivingReportSummaryDto = {
   receivedByName: string
   receivedAt: string
   lineCount: number
+  /** Lines whose count differs from what was expected; 0 is a match. */
+  varianceLineCount: number
 }
 
 export type ReceivingReportLineDto = {
@@ -75,7 +79,38 @@ export type ReceivingReportLineDto = {
   unitCost: string
   /** accepted × unitCost: the value this line adds to stock on approval. */
   acceptedValue: string
+  /** What the supplier still owed on this line when it was counted. */
+  expectedQuantity: string
+  variance: LineVarianceDto
   notes: string | null
+}
+
+/**
+ * How a line's count departs from what was expected. Each part is zero when it
+ * does not apply; all three zero is a match.
+ *
+ * - short: accepted below expected — still owed, stays outstanding on the order.
+ * - over: received above expected — the extra, which the line must enter as
+ *   rejected (accepted can never exceed outstanding).
+ * - rejected: the rest of the rejected quantity — refused for another reason.
+ *
+ * Values are quantity × the line's unit cost.
+ */
+export type LineVarianceDto = {
+  hasVariance: boolean
+  shortQuantity: string
+  shortValue: string
+  overQuantity: string
+  overValue: string
+  rejectedQuantity: string
+  rejectedValue: string
+}
+
+export type ReportVarianceDto = {
+  lineCount: number
+  shortValue: string
+  overValue: string
+  rejectedValue: string
 }
 
 export type ReceivingReportDetailDto = {
@@ -94,6 +129,7 @@ export type ReceivingReportDetailDto = {
   notes: string | null
   createdAt: string
   acceptedValue: string
+  variance: ReportVarianceDto
   lines: ReceivingReportLineDto[]
 }
 
@@ -131,6 +167,36 @@ async function lineBalances(po: PurchaseOrderWithDetail) {
       outstanding: Prisma.Decimal.max(item.quantity.sub(alreadyReceived), zero),
     }
   })
+}
+
+/**
+ * Splits a line's count against what was expected into short, over and
+ * rejected. Derived, never stored — received, rejected and expected are the
+ * facts. See LineVarianceDto for what each part means.
+ */
+function lineVariance(
+  expected: Prisma.Decimal,
+  received: Prisma.Decimal,
+  rejected: Prisma.Decimal,
+  unitCost: Prisma.Decimal,
+) {
+  const zero     = new Prisma.Decimal(0)
+  const accepted = received.sub(rejected)
+  const short    = Prisma.Decimal.max(expected.sub(accepted), zero)
+  // Over can never exceed rejected: validation keeps accepted ≤ outstanding,
+  // so anything received beyond expected is already in the rejected column.
+  const over     = Prisma.Decimal.max(received.sub(expected), zero)
+  const refused  = rejected.sub(over)
+
+  return {
+    hasVariance: !short.isZero() || !over.isZero() || !refused.isZero(),
+    short,
+    over,
+    refused,
+    shortValue:   short.mul(unitCost),
+    overValue:    over.mul(unitCost),
+    refusedValue: refused.mul(unitCost),
+  }
 }
 
 /**
@@ -199,6 +265,13 @@ async function validateCounts(
         status:  400,
       }
     }
+    // Whoever refused goods at the door says why — spoiled, wrong item, or
+    // more than was ordered (over-delivery is entered as rejected too). A short
+    // line needs no note: the shortfall stays outstanding, nothing is lost.
+    // The schema trims notes, so whitespace-only arrives as ''.
+    if (!rejected.isZero() && !item.notes) {
+      return { success: false, error: `${name}: a rejected quantity needs a note saying why`, status: 400 }
+    }
 
     lines.push({
       purchaseOrderItemId: poItem.id,
@@ -206,6 +279,10 @@ async function validateCounts(
       // The PO line's own quantity, not what is outstanding: the column says
       // what was ordered, and outstanding can be derived from earlier reports.
       orderedQuantity:     poItem.quantity,
+      // Outstanding as of this save — what variance is measured against. It
+      // stays true until approval: only one report per order can be open, so
+      // no other approval can move outstanding while this one is counted.
+      expectedQuantity:    outstanding,
       receivedQuantity:    received,
       rejectedQuantity:    rejected,
       // Copied, never typed: accounting approved the PO at this price.
@@ -238,6 +315,7 @@ export const ReceivingReportService = {
    */
   async list(filters: ReceivingReportListFilters = {}) {
     const { rows, total } = await ReceivingReportRepository.findMany(filters)
+    const varianceLines   = await ReceivingReportRepository.varianceLineCounts(rows.map(rr => rr.id))
 
     return {
       receivingReports: rows.map<ReceivingReportSummaryDto>(rr => ({
@@ -251,6 +329,7 @@ export const ReceivingReportService = {
         receivedByName:  rr.receivedBy.name,
         receivedAt:      rr.receivedAt.toISOString(),
         lineCount:       rr._count.items,
+        varianceLineCount: varianceLines.get(rr.id) ?? 0,
       })),
       total,
     }
@@ -262,14 +341,29 @@ export const ReceivingReportService = {
       return { success: false, error: 'Receiving report not found', status: 404 }
     }
 
+    const zero = new Prisma.Decimal(0)
+
     // Accepted and its value are derived, never stored: received and rejected
     // are the facts, and storing a third column invites the three to disagree.
-    let acceptedValue = new Prisma.Decimal(0)
+    let acceptedValue = zero
+    let varianceLines = 0
+    let shortTotal    = zero
+    let overTotal     = zero
+    let refusedTotal  = zero
 
     const lines = rr.items.map<ReceivingReportLineDto>(item => {
       const accepted = item.receivedQuantity.sub(item.rejectedQuantity)
       const value    = accepted.mul(item.unitCost)
       acceptedValue  = acceptedValue.add(value)
+
+      // The stored figure, not today's outstanding: once this report is
+      // approved its own acceptance is part of outstanding, and the live
+      // number would show a matched delivery as over-delivered.
+      const variance = lineVariance(item.expectedQuantity, item.receivedQuantity, item.rejectedQuantity, item.unitCost)
+      if (variance.hasVariance) varianceLines += 1
+      shortTotal   = shortTotal.add(variance.shortValue)
+      overTotal    = overTotal.add(variance.overValue)
+      refusedTotal = refusedTotal.add(variance.refusedValue)
 
       return {
         id:                  item.id,
@@ -283,6 +377,16 @@ export const ReceivingReportService = {
         acceptedQuantity:    toDecimalString(accepted),
         unitCost:            toDecimalString(item.unitCost),
         acceptedValue:       toDecimalString(value),
+        expectedQuantity:    toDecimalString(item.expectedQuantity),
+        variance: {
+          hasVariance:      variance.hasVariance,
+          shortQuantity:    toDecimalString(variance.short),
+          shortValue:       toDecimalString(variance.shortValue),
+          overQuantity:     toDecimalString(variance.over),
+          overValue:        toDecimalString(variance.overValue),
+          rejectedQuantity: toDecimalString(variance.refused),
+          rejectedValue:    toDecimalString(variance.refusedValue),
+        },
         notes:               item.notes,
       }
     })
@@ -305,6 +409,12 @@ export const ReceivingReportService = {
         notes:           rr.notes,
         createdAt:       rr.createdAt.toISOString(),
         acceptedValue:   toDecimalString(acceptedValue),
+        variance: {
+          lineCount:     varianceLines,
+          shortValue:    toDecimalString(shortTotal),
+          overValue:     toDecimalString(overTotal),
+          rejectedValue: toDecimalString(refusedTotal),
+        },
         lines,
       },
     }
@@ -343,6 +453,7 @@ export const ReceivingReportService = {
           orderedQuantity:     toDecimalString(item.quantity),
           alreadyReceived:     toDecimalString(alreadyReceived),
           outstanding:         toDecimalString(outstanding),
+          unitCost:            toDecimalString(item.unitCost),
         })),
       },
     }

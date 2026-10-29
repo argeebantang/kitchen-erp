@@ -383,6 +383,11 @@ model ReceivingReportItem {
   materialId          String
   material            Material          @relation(fields: [materialId], references: [id])
   orderedQuantity     Decimal
+  /// What was still outstanding on the order line when this was counted —
+  /// variance is measured against it. Stored because once the report is
+  /// approved its own acceptance changes outstanding, so it cannot be derived
+  /// back. Rewritten on every draft save.
+  expectedQuantity    Decimal
   receivedQuantity    Decimal
   rejectedQuantity    Decimal           @default(0)
   unitCost            Decimal

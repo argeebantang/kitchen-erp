@@ -5,6 +5,7 @@ export type ReceivingReportLineInput = {
   purchaseOrderItemId: string
   materialId: string
   orderedQuantity: Prisma.Decimal
+  expectedQuantity: Prisma.Decimal
   receivedQuantity: Prisma.Decimal
   rejectedQuantity: Prisma.Decimal
   unitCost: Prisma.Decimal
@@ -41,6 +42,32 @@ export const ReceivingReportRepository = {
     ])
 
     return { rows, total }
+  },
+
+  /**
+   * How many lines of each report have a variance, counted by the database in
+   * one query for a whole page of reports. A line has one exactly when
+   * something was rejected or less than expected arrived: over-delivery is
+   * always entered as rejected, and with nothing rejected, short means
+   * received < expected. `fields.expectedQuantity` compares two columns of the
+   * same row, which plain values cannot. Reports with no variance are absent.
+   */
+  async varianceLineCounts(reportIds: string[]): Promise<Map<string, number>> {
+    if (reportIds.length === 0) return new Map()
+
+    const rows = await prisma.receivingReportItem.groupBy({
+      by:    ['receivingReportId'],
+      where: {
+        receivingReportId: { in: reportIds },
+        OR: [
+          { rejectedQuantity: { gt: 0 } },
+          { receivedQuantity: { lt: prisma.receivingReportItem.fields.expectedQuantity } },
+        ],
+      },
+      _count: { _all: true },
+    })
+
+    return new Map(rows.map(row => [row.receivingReportId, row._count._all]))
   },
 
   async findById(id: string): Promise<ReceivingReportWithDetail | null> {
@@ -114,6 +141,7 @@ export const ReceivingReportRepository = {
    *
    * orderedQuantity, unitCost and materialId are not rewritten: they are
    * copies of the order line, which cannot change once the order is approved.
+   * expectedQuantity is, because it is outstanding as of this save.
    */
   async updateDraft(input: {
     id: string
@@ -121,7 +149,7 @@ export const ReceivingReportRepository = {
     receivedById: string
     receivedAt: Date
     notes: string | null
-    lines: Pick<ReceivingReportLineInput, 'purchaseOrderItemId' | 'receivedQuantity' | 'rejectedQuantity' | 'notes'>[]
+    lines: Pick<ReceivingReportLineInput, 'purchaseOrderItemId' | 'expectedQuantity' | 'receivedQuantity' | 'rejectedQuantity' | 'notes'>[]
   }): Promise<{ id: string; rrNumber: string } | null> {
     return prisma.$transaction(async tx => {
       const { count } = await tx.receivingReport.updateMany({
@@ -141,6 +169,7 @@ export const ReceivingReportRepository = {
         await tx.receivingReportItem.updateMany({
           where: { receivingReportId: input.id, purchaseOrderItemId: line.purchaseOrderItemId },
           data: {
+            expectedQuantity: line.expectedQuantity,
             receivedQuantity: line.receivedQuantity,
             rejectedQuantity: line.rejectedQuantity,
             notes:            line.notes,

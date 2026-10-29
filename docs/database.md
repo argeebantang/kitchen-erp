@@ -22,6 +22,7 @@ Migrations are tracked in `prisma/migrations/`, baselined from the original `db 
 | `20260902113746_week3_procurement_workflow` | `ACCOUNTING` role, PO approval states, polymorphic `Approval`, `Notification`, `pr_number_seq` / `po_number_seq`, procurement indexes |
 | `20261023055715_po_submitted_by` | `PurchaseOrder.submittedById` |
 | `20261029065124_week4_receiving_report` | `RRStatus` reshaped; `branchId` + `receivedById` on `ReceivingReport`; `purchaseOrderItemId` on RR lines; `branchId` on `StockMovement`; `rr_number_seq`; RR and ledger indexes |
+| `20261029220219_rr_expected_quantity` | `ReceivingReportItem.expectedQuantity` — hand-written add nullable → backfill → `NOT NULL` |
 
 Workflow for a schema change:
 
@@ -43,7 +44,7 @@ The schema (24 models) groups into these domain areas — see [architecture.md](
 * **Procurement chain**: `PurchaseRequest (1:N) → PurchaseOrder (purchaseRequestId nullable) (1:N) → ReceivingReport`. Each stage has its own line table and status enum; transitions are enforced in the service layer, not by the database.
   * `PRStatus`: `DRAFT → PENDING_APPROVAL → CONVERTED_TO_PO | REJECTED`. Approval generates the draft order in the same transaction, so a request goes straight to `CONVERTED_TO_PO`; `APPROVED` exists in the enum but is never left standing.
   * `POStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`, then `SENT → PARTIALLY_RECEIVED → FULLY_RECEIVED`; `CANCELLED` exists but is not yet used. `supplierId` is null on a freshly generated draft; `submittedById` records who submitted it.
-  * `RRStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`. `ReceivingReport.branchId` is where the delivery arrived; `receivedById` is who counted it (whoever last saved it). Each `ReceivingReportItem` links to its `PurchaseOrderItem`; `orderedQuantity` and `unitCost` are copied from the PO line. Stock in = `receivedQuantity − rejectedQuantity`. Outstanding per PO line = ordered − accepted across **approved** RRs only.
+  * `RRStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`. `ReceivingReport.branchId` is where the delivery arrived; `receivedById` is who counted it (whoever last saved it). Each `ReceivingReportItem` links to its `PurchaseOrderItem`; `orderedQuantity` and `unitCost` are copied from the PO line. `expectedQuantity` is what was outstanding on the PO line when the line was saved — variance (short / over-delivered / rejected) is measured against it and derived, never stored. Stock in = `receivedQuantity − rejectedQuantity`. Outstanding per PO line = ordered − accepted across **approved** RRs only.
   * `REJECTED` is terminal for all three.
 * **Inventory**: `InventoryLevel` is current-state (one row per `materialId` + `branchId`, `@@unique`). `StockMovement` is an append-only ledger, also per material + branch, keyed loosely to its source document via `referenceType`/`referenceId` (polymorphic, not a real FK — no DB-level guarantee it points at a valid row). Any code that writes inventory must update `InventoryLevel.quantity` and insert a `StockMovement` row **in the same transaction**, never one without the other. (No code writes stock yet; the first is RR approval, Week 4 task 4.)
 * **Production**: `ProductionOrder` pins `finishedGoodId` + `bomId` + `branchId` + `requestedById` together, so a production run always records exactly which BOM version was used.
@@ -76,7 +77,7 @@ Not yet indexed, add with the feature that queries them: `ProductionOrder(status
 * Paginate any list over a table that grows unboundedly. Repository list methods take `skip`/`take` (default `take: 50`) and return rows plus a count from one `$transaction` (`MaterialRepository`, `PurchaseOrderRepository`, `ReceivingReportRepository`).
 * Batch bulk writes — `createMany`, nested `create` on a parent, or one `$transaction` — instead of one query per row.
 * Use background jobs (BullMQ, see [architecture.md](architecture.md#infrastructure)) for anything that scans many rows or calls an external service: low-stock checks, escalations, report generation.
-* Aggregate in the database (`aggregate`/`groupBy`) rather than pulling rows into Node — e.g. accepted quantity per PO line is one `groupBy` over approved RR lines.
+* Aggregate in the database (`aggregate`/`groupBy`) rather than pulling rows into Node — e.g. accepted quantity per PO line is one `groupBy` over approved RR lines, and variance lines per report one `groupBy` per list page. To compare two columns of the same row in a filter, use a Prisma field reference (`prisma.receivingReportItem.fields.expectedQuantity`).
 
 ## Multi-Tenant
 

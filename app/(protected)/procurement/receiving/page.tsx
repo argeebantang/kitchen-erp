@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { VarianceBadge } from '@/components/procurement/VarianceChips'
 
 export default async function ReceivingReportListPage() {
   // No getSession(), like the purchase order list: reports are not scoped to a
@@ -38,6 +39,7 @@ export default async function ReceivingReportListPage() {
                 <th className="px-4 py-3 font-medium">Supplier</th>
                 <th className="px-4 py-3 font-medium">Branch</th>
                 <th className="px-4 py-3 font-medium">Lines</th>
+                <th className="px-4 py-3 font-medium">Variance</th>
                 <th className="px-4 py-3 font-medium">Received</th>
                 <th className="px-4 py-3 font-medium">Received by</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -65,6 +67,9 @@ export default async function ReceivingReportListPage() {
                   <td className="px-4 py-3 text-gray-700">{row.supplierName ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{row.branchName}</td>
                   <td className="px-4 py-3 text-gray-500">{row.lineCount}</td>
+                  <td className="px-4 py-3">
+                    <VarianceBadge varianceLineCount={row.varianceLineCount} />
+                  </td>
                   <td className="px-4 py-3 text-gray-500">{row.receivedAt.slice(0, 10)}</td>
                   <td className="px-4 py-3 text-gray-500">{row.receivedByName}</td>
                   <td className="px-4 py-3">
