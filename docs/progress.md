@@ -126,7 +126,11 @@ unrelated to Week 2 and both invisible in `next dev`:
       approves their own submission, ADMIN included. Decisions are race-guarded in the UPDATE,
       and show on the order with who decided and why. The approvals inbox lists pending
       orders under pending requests.
-- [ ] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see change note)
+- [x] PO PDF export — via `@react-pdf/renderer`, not Puppeteer (no Chromium binary; see
+      change note). `GET /api/purchase-orders/[id]/pdf` renders an A4 document (header,
+      supplier, line table, total, notes, approver and date, page numbers) for `APPROVED`
+      and `SENT` orders only; any other status gets a 409. A "Download PDF" button on the
+      order page opens it in a new tab. Rendered inline in the request — no queue.
 
 **Note (2026-09-03):** four schema blockers found while planning Week 3 are now resolved —
 there was no `ACCOUNTING` role, `POStatus` had no approval states, `Approval` was PR-only, and

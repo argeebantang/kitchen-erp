@@ -993,3 +993,77 @@ The self-approval and race checks were run against the real endpoints with real 
   shared if a third document type needs it.
 - Two throwaway orders (`PO-000004`, `PO-000005`) were created in the dev database while
   testing the guards above.
+
+---
+
+## Commit 11 — purchase order PDF export
+
+An approved purchase order can be downloaded as an A4 PDF. This closes Week 3.
+
+**What changed**
+
+- `GET /api/purchase-orders/[id]/pdf` renders the document with `renderToBuffer` and returns
+  it inline as `application/pdf`, filename `<poNumber>.pdf`.
+- `PurchaseOrderService.getForPdf(id)` reuses `getById` and refuses anything that is not
+  `APPROVED` or `SENT` with a 409.
+- `components/pdf/PurchaseOrderDocument.tsx` — the document: header (company name, PO number,
+  date, source request), supplier and delivery blocks, line table, order total, notes,
+  "Approved by X on date" with the approver's remarks, and a page-numbered footer.
+- A "Download PDF" button on the order page, shown for `APPROVED` and `SENT` only.
+- Dependency added: `@react-pdf/renderer` ^4.9.0 (declares React 19 support).
+
+**Why**
+
+| Decision | Chosen | Why |
+|---|---|---|
+| Library | `@react-pdf/renderer`, not Puppeteer | Settled before Week 3: no Chromium binary, fast enough to render in the request. A PO is a header, a supplier block, a table and a total. |
+| Which statuses | `APPROVED`, `SENT` | A draft's prices can still change and a pending order may be rejected; a PDF of either would circulate as if authorised. Enforced in the service, so a hand-typed URL gets a 409; the page hides the button for the same statuses. |
+| Peso sign | Money printed as `PHP 1,420.00` | The built-in PDF fonts cannot draw `₱`. Bundling a font file for one glyph was not worth the asset. Revisit if the symbol matters. |
+| Rendering | In the request, no BullMQ job | One small document renders in well under a second. |
+| Route file | `route.tsx` with `runtime = 'nodejs'` | JSX in a route handler needs `.tsx`; react-pdf needs Node, so the runtime is stated rather than left to a default. |
+
+**Files affected**
+
+`package.json`, `package-lock.json`, `app/api/purchase-orders/[id]/pdf/route.tsx` (new),
+`components/pdf/PurchaseOrderDocument.tsx` (new), `services/purchase-order.service.ts`,
+`app/(protected)/procurement/orders/[id]/page.tsx`.
+
+**Database changes**
+
+None.
+
+**API changes**
+
+New: `GET /api/purchase-orders/[id]/pdf`. 200 `application/pdf` · 404 unknown order · 409 not
+yet approved · redirect for roles middleware excludes (the existing `/api/purchase-orders`
+guard: ADMIN, PROCUREMENT_MANAGER, ACCOUNTING).
+
+**UI changes**
+
+"Download PDF" button (orange) in the order header for approved and sent orders.
+
+**Configuration changes**
+
+None. `next.config.ts` needed no `serverExternalPackages` entry in dev.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run build        # stop `npm run dev` first; it clobbers .next
+```
+
+Open an approved or sent order and click Download PDF: the supplier, lines and total match the
+page, and the approver and date appear at the bottom. A rejected or draft order's PDF URL
+returns 409 JSON; an unknown id returns 404.
+
+**Risks / assumptions / follow-up**
+
+- The PDF layout was checked by eye, not by an automated test; a long order (many lines,
+  several pages) was not exercised.
+- The company name is a constant in the component. There is no company-details setting, no
+  address and no logo.
+- `₱` is written `PHP`; see above.
+- The 'only approved or sent' rule exists twice — the page's `canDownload` and the service's
+  `getForPdf`. The service is the one that holds; they could share a constant.
+- Nothing records that a PDF was downloaded or sent to the supplier.

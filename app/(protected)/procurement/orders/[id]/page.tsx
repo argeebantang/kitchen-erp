@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 import { PurchaseOrderActions } from '@/components/procurement/PurchaseOrderActions'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Download } from 'lucide-react'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { formatPeso, trimDecimal } from '@/lib/format'
@@ -28,6 +28,9 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
   const isDraft = po.status === 'DRAFT'
   const isPending     = po.status === 'PENDING_APPROVAL'
   const isApproved    = po.status === 'APPROVED'
+  // A draft or pending order is not yet a document anyone should act on, so
+  // there is nothing to print. The endpoint will enforce the same rule.
+  const canDownload   = po.status === 'APPROVED' || po.status === 'SENT'
   const isProcurement = session.role === 'PROCUREMENT_MANAGER' || session.role === 'ADMIN'
   const isApprover    = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
   const suppliers = isDraft ? await SupplierRepository.findAllActive() : []
@@ -47,6 +50,17 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-2xl font-bold text-gray-800">{po.poNumber}</h1>
           <StatusBadge status={po.status} />
+          {canDownload && (
+            <a
+              href={`/api/purchase-orders/${po.id}/pdf`}
+              target="_blank"
+              rel="noopener"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-700"
+            >
+              <Download size={15} />
+              Download PDF
+            </a>
+          )}
         </div>
         <p className="mt-1 text-sm text-gray-400">
           Created {po.createdAt.slice(0, 10)}

@@ -150,6 +150,28 @@ export const PurchaseOrderService = {
   },
 
   /**
+   * The data for the PDF. Only an approved (or already sent) order is a
+   * document worth printing: a draft's supplier and prices can still change, a
+   * pending one may be rejected, and a PDF of either would circulate as if it
+   * were authorised. The detail page hides the download link for the same
+   * statuses; this is the check that holds when the URL is typed by hand.
+   */
+  async getForPdf(id: string): Promise<PurchaseOrderResult<PurchaseOrderDetailDto>> {
+    const result = await PurchaseOrderService.getById(id)
+    if (!result.success) return result
+
+    if (result.data.status !== POStatus.APPROVED && result.data.status !== POStatus.SENT) {
+      return {
+        success: false,
+        error:   `This order is ${statusText(result.data.status)} — only an approved order can be exported`,
+        status:  409,
+      }
+    }
+
+    return result
+  },
+
+  /**
    * Edits a DRAFT order and re-prices every line for the chosen supplier.
    *
    * The role check lives here rather than in middleware because it is not a
