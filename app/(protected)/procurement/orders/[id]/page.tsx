@@ -3,13 +3,14 @@ import { notFound, redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 import { PurchaseOrderActions } from '@/components/procurement/PurchaseOrderActions'
-import { ArrowLeft, Download } from 'lucide-react'
+import { ArrowLeft, Download, Truck } from 'lucide-react'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { SupplierRepository } from '@/repositories/supplier.repository'
 import { PurchaseOrderForm } from '@/components/procurement/PurchaseOrderForm'
 import { DecisionHistory } from '@/components/procurement/DecisionHistory'
+import { ReceivingReportService } from '@/services/receiving-report.service'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -35,6 +36,12 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
   const isApprover    = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
   const suppliers = isDraft ? await SupplierRepository.findAllActive() : []
   const isOwnSubmission = po.submittedById !== null && po.submittedById === session.userId
+  // Same roles middleware lets onto /procurement/receiving.
+  const canReceive = isProcurement && (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED')
+  // Accounting sees the reports listed but cannot open them yet: middleware
+  // keeps /procurement/receiving to procurement until RR approval (Task 3).
+  const canOpenReceiving = isProcurement
+  const { receivingReports } = await ReceivingReportService.list({ purchaseOrderId: po.id, take: 50 })
 
   return (
     <div>
@@ -50,17 +57,28 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-2xl font-bold text-gray-800">{po.poNumber}</h1>
           <StatusBadge status={po.status} />
-          {canDownload && (
-            <a
-              href={`/api/purchase-orders/${po.id}/pdf`}
-              target="_blank"
-              rel="noopener"
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-700"
-            >
-              <Download size={15} />
-              Download PDF
-            </a>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {canReceive && (
+              <Link
+                href={`/procurement/receiving/new?po=${po.id}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-600 transition-colors hover:bg-orange-50"
+              >
+                <Truck size={15} />
+                Receive delivery
+              </Link>
+            )}
+            {canDownload && (
+              <a
+                href={`/api/purchase-orders/${po.id}/pdf`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-700"
+              >
+                <Download size={15} />
+                Download PDF
+              </a>
+            )}
+          </div>
         </div>
         <p className="mt-1 text-sm text-gray-400">
           Created {po.createdAt.slice(0, 10)}
@@ -121,6 +139,34 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
       )}
       {isApproved && isProcurement && (
          <PurchaseOrderActions mode="send" purchaseOrderId={po.id} blockedReason={null} />
+      )}
+
+      {receivingReports.length > 0 && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+            Receiving {receivingReports.length === 1 ? 'report' : 'reports'}
+          </p>
+          <ul className="space-y-1">
+            {receivingReports.map(rr => (
+              <li key={rr.id} className="flex items-center gap-2 text-sm">
+                {canOpenReceiving ? (
+                  <Link
+                    href={`/procurement/receiving/${rr.id}`}
+                    className="font-mono text-blue-600 hover:underline"
+                  >
+                    {rr.rrNumber}
+                  </Link>
+                ) : (
+                  <span className="font-mono text-gray-700">{rr.rrNumber}</span>
+                )}
+                <StatusBadge status={rr.status} />
+                <span className="text-gray-400">
+                  {rr.receivedAt.slice(0, 10)} · {rr.branchName}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {po.notes && (

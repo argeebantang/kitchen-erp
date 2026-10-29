@@ -1,0 +1,130 @@
+import Link from 'next/link'
+import { notFound, redirect } from 'next/navigation'
+import { ArrowLeft, Pencil } from 'lucide-react'
+import { getSession } from '@/lib/session'
+import { ReceivingReportService } from '@/services/receiving-report.service'
+import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { formatPeso, trimDecimal } from '@/lib/format'
+
+type PageProps = {
+  params: Promise<{ id: string }>
+}
+
+export default async function ReceivingReportDetailPage({ params }: PageProps) {
+  const session = await getSession()
+  if (!session) redirect('/login')
+  const { id } = await params
+
+  const result = await ReceivingReportService.getById(id)
+  if (!result.success) notFound()
+
+  const rr = result.data
+  // Same roles ReceivingReportService.update accepts. Middleware already
+  // keeps everyone else off this page; this is ready for Task 3, when
+  // accounting is let in to approve.
+  const canEdit = rr.status === 'DRAFT' && (session.role === 'PROCUREMENT_MANAGER' || session.role === 'ADMIN')
+
+  return (
+    <div>
+      <Link
+        href="/procurement/receiving"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 transition-colors hover:text-gray-700"
+      >
+        <ArrowLeft size={15} />
+        Receiving
+      </Link>
+
+      <div className="mb-6">
+        <div className="flex items-center gap-3">
+          <h1 className="font-mono text-2xl font-bold text-gray-800">{rr.rrNumber}</h1>
+          <StatusBadge status={rr.status} />
+          {canEdit && (
+            <Link
+              href={`/procurement/receiving/${rr.id}/edit`}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-600 transition-colors hover:bg-orange-50"
+            >
+              <Pencil size={15} />
+              Edit
+            </Link>
+          )}
+        </div>
+        <p className="mt-1 text-sm text-gray-400">
+          {'Against '}
+          <Link href={`/procurement/orders/${rr.purchaseOrderId}`} className="font-mono text-orange-600 hover:underline">
+            {rr.poNumber}
+          </Link>
+          {' '}<StatusBadge status={rr.poStatus} />
+          {rr.supplierName && <> · {rr.supplierName}</>}
+        </p>
+      </div>
+
+      <div className="mb-6 grid gap-4 rounded-xl border border-gray-200 bg-white p-4 text-sm sm:grid-cols-3">
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Received at</p>
+          <p className="text-gray-800">{rr.branchName}</p>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Received on</p>
+          <p className="text-gray-800">{rr.receivedAt.slice(0, 10)}</p>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Counted by</p>
+          <p className="text-gray-800">{rr.receivedByName}</p>
+        </div>
+      </div>
+
+      {rr.notes && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-gray-500">Notes</p>
+          <p className="text-sm text-gray-700">{rr.notes}</p>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+        <table className="w-full text-sm">
+          <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+            <tr>
+              <th className="px-4 py-3 font-medium">Material</th>
+              <th className="px-4 py-3 text-right font-medium">Ordered</th>
+              <th className="px-4 py-3 text-right font-medium">Received</th>
+              <th className="px-4 py-3 text-right font-medium">Rejected</th>
+              <th className="px-4 py-3 text-right font-medium">Accepted</th>
+              <th className="px-4 py-3 text-right font-medium">Unit cost</th>
+              <th className="px-4 py-3 text-right font-medium">Accepted value</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rr.lines.map(line => {
+              const unit = <span className="text-gray-400">{line.unitAbbreviation}</span>
+              return (
+                <tr key={line.id}>
+                  <td className="px-4 py-3">
+                    <p className="text-gray-700">{line.materialName}</p>
+                    <p className="font-mono text-xs text-gray-400">{line.materialCode}</p>
+                    {line.notes && <p className="mt-1 text-xs text-gray-500">{line.notes}</p>}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-500">{trimDecimal(line.orderedQuantity)} {unit}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{trimDecimal(line.receivedQuantity)} {unit}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{trimDecimal(line.rejectedQuantity)} {unit}</td>
+                  <td className="px-4 py-3 text-right font-medium text-gray-800">{trimDecimal(line.acceptedQuantity)} {unit}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{formatPeso(line.unitCost)}</td>
+                  <td className="px-4 py-3 text-right text-gray-700">{formatPeso(line.acceptedValue)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot className="border-t border-gray-200 bg-gray-50">
+            <tr>
+              <td colSpan={6} className="px-4 py-3 text-right text-sm text-gray-500">
+                Value accepted into stock on approval
+              </td>
+              <td className="px-4 py-3 text-right text-sm font-semibold text-gray-800">
+                {formatPeso(rr.acceptedValue)}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  )
+}

@@ -91,7 +91,7 @@ const plan = {
           title: "Receiving Report & Stock Update",
           tag: null,
           tasks: [
-            "RR form: linked to approved PO, actual received quantities per line",
+            { t: "RR form: linked to approved PO, actual received quantities per line", done: true },
             "Variance detection: flag when received differs from ordered",
             "RR approval by accounting",
             "On RR approval: inventory_ledger entry written, stock levels updated",

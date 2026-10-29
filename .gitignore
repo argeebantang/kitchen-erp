@@ -38,6 +38,10 @@ yarn-error.log*
 cookies.txt
 *.cookies
 
+# local task trackers (Excel workbooks) and Excel's ~$ lock files
+*.xlsx
+~$*
+
 # vercel
 .vercel
 

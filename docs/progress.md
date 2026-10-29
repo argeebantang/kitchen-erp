@@ -138,7 +138,15 @@ there was no `ACCOUNTING` role, `POStatus` had no approval states, `Approval` wa
 for the decisions and their rationale.
 
 ### Week 4 — Receiving Report & Stock Update
-- [ ] RR form linked to approved PO
+- [x] RR form linked to approved PO — `/procurement/receiving/new?po=<id>`, opened from
+      **Receive delivery** on a `SENT` or `PARTIALLY_RECEIVED` order. Every PO line shows
+      ordered, already received and outstanding; procurement enters received and rejected
+      (accepted = received − rejected, never more than outstanding — extra goes under
+      rejected). Saved as a `DRAFT` (`RR-000001`, from `rr_number_seq`) with its branch and
+      counter; one open RR per order. List, detail and draft edit pages; whoever saves an
+      edit becomes the counter, so the no-self-approval rule holds. No stock moves until
+      approval. Migration `20261029065124_week4_receiving_report` adds `branchId` to
+      `ReceivingReport` and `StockMovement` and links RR lines to PO lines.
 - [ ] Variance detection
 - [ ] RR approval
 - [ ] Inventory ledger entry + stock update on RR approval

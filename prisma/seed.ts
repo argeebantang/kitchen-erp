@@ -214,6 +214,15 @@ async function main() {
   }
   console.log(`  ✓ 1 supplier`)
 
+  // ── Branches ───────────────────────────────────────────────────────────────
+  // The default receiving location for supplier deliveries. Branch.name is not
+  // unique, so this is find-then-create rather than upsert, like the supplier.
+  const commissary = await prisma.branch.findFirst({ where: { name: 'Main Commissary' } })
+  if (!commissary) {
+    await prisma.branch.create({ data: { name: 'Main Commissary' } })
+  }
+  console.log(`  ✓ 1 branch`)
+
   // ── Materials ──────────────────────────────────────────────────────────────
   console.log('\nSeeding materials...')
 

@@ -29,6 +29,7 @@ const ROLE_GUARDS: { path: string; roles: Role[] }[] = [
   { path: '/api/purchase-requests', roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   { path: '/api/purchase-orders',   roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
   { path: '/api/approvals',         roles: ['ADMIN', 'ACCOUNTING'] },
+  { path: '/api/receiving-reports', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
   { path: '/production',            roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },

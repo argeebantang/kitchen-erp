@@ -37,10 +37,13 @@ enum POStatus {
   CANCELLED
 }
 
+/// Variance is not a status: it is derived from the lines, and a report can
+/// carry one while it is still pending.
 enum RRStatus {
   DRAFT
-  CONFIRMED
-  DISCREPANCY_FLAGGED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
 }
 
 enum ProductionStatus {
@@ -71,27 +74,30 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  approvals        Approval[]
-  submittedPurchaseOrders PurchaseOrder[] @relation("PurchaseOrderSubmitter")  
-  purchaseRequests PurchaseRequest[]
-  productionOrders ProductionOrder[]
-  notifications    Notification[] 
+  approvals               Approval[]
+  submittedPurchaseOrders PurchaseOrder[]   @relation("PurchaseOrderSubmitter")
+  purchaseRequests        PurchaseRequest[]
+  productionOrders        ProductionOrder[]
+  notifications           Notification[]
+  receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
 }
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
 
 model Branch {
-  id       String  @id @default(cuid())
-  name     String
-  address  String?
-  isActive Boolean @default(true)
+  id        String   @id @default(cuid())
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
   users             User[]
   inventoryLevels   InventoryLevel[]
-  stockTransfersOut StockTransfer[]  @relation("TransferFrom")
-  stockTransfersIn  StockTransfer[]  @relation("TransferTo")
+  stockTransfersOut StockTransfer[]   @relation("TransferFrom")
+  stockTransfersIn  StockTransfer[]   @relation("TransferTo")
   productionOrders  ProductionOrder[]
+  receivingReports  ReceivingReport[]
+  stockMovements    StockMovement[]
 }
 
 // ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
@@ -336,6 +342,8 @@ model PurchaseOrderItem {
   unitCost        Decimal
   totalCost       Decimal
 
+  receivingItems ReceivingReportItem[]
+
   @@index([purchaseOrderId])
 }
 
@@ -346,25 +354,42 @@ model ReceivingReport {
   rrNumber        String        @unique
   purchaseOrderId String
   purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  /// Where the delivery physically arrived — the branch whose stock it raises.
+  branchId        String
+  branch          Branch        @relation(fields: [branchId], references: [id])
+  /// Who counted it. Never the approver: nobody approves their own work.
+  receivedById    String
+  receivedBy      User          @relation("ReceivingReportReceiver", fields: [receivedById], references: [id])
   status          RRStatus      @default(DRAFT)
   receivedAt      DateTime      @default(now())
   notes           String?
   createdAt       DateTime      @default(now())
 
   items ReceivingReportItem[]
+
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@index([branchId])
 }
 
 model ReceivingReportItem {
-  id                String          @id @default(cuid())
-  receivingReportId String
-  receivingReport   ReceivingReport @relation(fields: [receivingReportId], references: [id])
-  materialId        String
-  material          Material        @relation(fields: [materialId], references: [id])
-  orderedQuantity   Decimal
-  receivedQuantity  Decimal
-  rejectedQuantity  Decimal         @default(0)
-  unitCost          Decimal
-  notes             String?
+  id                  String            @id @default(cuid())
+  receivingReportId   String
+  receivingReport     ReceivingReport   @relation(fields: [receivingReportId], references: [id])
+  /// The order line this counts against. Outstanding is tracked per PO line,
+  /// and a PO may list the same material twice, so materialId cannot stand in.
+  purchaseOrderItemId String
+  purchaseOrderItem   PurchaseOrderItem @relation(fields: [purchaseOrderItemId], references: [id])
+  materialId          String
+  material            Material          @relation(fields: [materialId], references: [id])
+  orderedQuantity     Decimal
+  receivedQuantity    Decimal
+  rejectedQuantity    Decimal           @default(0)
+  unitCost            Decimal
+  notes               String?
+
+  @@index([receivingReportId])
+  @@index([purchaseOrderItemId])
 }
 
 // ─── INVENTORY ───────────────────────────────────────────────────────────────
@@ -385,12 +410,19 @@ model StockMovement {
   id            String       @id @default(cuid())
   materialId    String
   material      Material     @relation(fields: [materialId], references: [id])
+  /// InventoryLevel is per material + branch, so the ledger must be too or the
+  /// two cannot be reconciled.
+  branchId      String
+  branch        Branch       @relation(fields: [branchId], references: [id])
   type          MovementType
   quantity      Decimal
   referenceId   String?
   referenceType String?
   notes         String?
   createdAt     DateTime     @default(now())
+
+  @@index([materialId, branchId, createdAt])
+  @@index([referenceType, referenceId])
 }
 
 model StockTransfer {
