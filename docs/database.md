@@ -1,60 +1,96 @@
 # Database
 
-PostgreSQL 16, accessed exclusively through Prisma (`prisma/schema.prisma`, client singleton at `lib/prisma.ts`). Only files under `repositories/` may import the Prisma client — see [architecture.md](architecture.md).
+PostgreSQL 16, accessed exclusively through Prisma 5.22 (`prisma/schema.prisma`, client singleton at `lib/prisma.ts`). Only files under `repositories/` may import the Prisma client — see [architecture.md](architecture.md).
 
 ## General Principles
 
 * Verify the schema before making assumptions — read `prisma/schema.prisma`, don't infer table shape from a UI mockup or an old memory of the project.
 * Preserve existing production data. This is a financial/inventory system (purchase orders, stock levels, costs) — never write a change that silently drops or truncates data.
 * Prefer additive changes over destructive changes: add a nullable column or a new table before renaming/dropping an existing one; deprecate in two steps (add new, migrate data, remove old) rather than one.
-* Use migrations whenever possible.
-  * **Current state**: there is no `prisma/migrations/` directory in this repo yet — the schema has only been applied via `prisma db push`, so there's no tracked migration history. `prisma db push` is fine for local iteration, but any change bound for a shared/production database should switch to `prisma migrate dev` (which generates a reviewable SQL migration file) rather than continuing to push schema drift with no history. Establishing real migrations before the first deploy is worth doing proactively.
 * IDs are `cuid()` strings everywhere (no auto-increment integers) — follow this for any new model.
-* Money and quantity fields use Prisma `Decimal` (e.g. `unitCost`, `quantity`, `standardCost`), never `Float` — floating point is unacceptable for currency/inventory math. Keep this for any new numeric field that represents cost or quantity.
+* Money and quantity fields use Prisma `Decimal` (e.g. `unitCost`, `quantity`, `standardCost`), never `Float` — floating point is unacceptable for currency/inventory math. Do arithmetic with Decimal methods (`.add`, `.sub`, `.mul`, `.greaterThan`), not `Number(...)`.
+* Date-only values (a delivery date, a needed-by date) are stored as UTC midnight (`new Date('YYYY-MM-DD')`) and displayed with `.slice(0, 10)`. "Today" for business rules is computed in Asia/Manila (`lib/dates.ts`).
+
+## Migrations
+
+Migrations are tracked in `prisma/migrations/`, baselined from the original `db push` schema as `0_init` (see `docs/2026-09-01-secret-hygiene-prisma-config-migration-baseline.md`). **Never run `prisma db push`** — it changes the schema with no migration and creates drift.
+
+| Migration | What |
+|---|---|
+| `0_init` | Baseline of the Week 1 schema |
+| `20260901101054_week2_item_prices_and_bom_batch` | `ItemPrice`, `BOM.batchSize`, BOM version uniqueness, first item-master indexes |
+| `20260902113746_week3_procurement_workflow` | `ACCOUNTING` role, PO approval states, polymorphic `Approval`, `Notification`, `pr_number_seq` / `po_number_seq`, procurement indexes |
+| `20261023055715_po_submitted_by` | `PurchaseOrder.submittedById` |
+| `20261029065124_week4_receiving_report` | `RRStatus` reshaped; `branchId` + `receivedById` on `ReceivingReport`; `purchaseOrderItemId` on RR lines; `branchId` on `StockMovement`; `rr_number_seq`; RR and ledger indexes |
+
+Workflow for a schema change:
+
+1. Edit `schema.prisma`.
+2. Generate the SQL: `npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --script` into a new `prisma/migrations/<timestamp>_<name>/migration.sql` (or `prisma migrate dev --create-only` when the SQL needs hand edits).
+3. **Read the SQL** before applying it.
+4. `npx prisma migrate deploy`, then `npx prisma generate`.
+5. Restart `npm run dev` **and** `npm run worker` — both hold the old generated client.
+
+Things Prisma's schema language cannot express — standalone sequences, partial indexes — are hand-appended to the migration SQL with a comment. `migrate diff` ignores sequences, so they cause no drift.
 
 ## Relationships
 
-The schema (22 models) groups into these domain areas — see [architecture.md](architecture.md#data-model) for the narrative version:
+The schema (24 models) groups into these domain areas — see [architecture.md](architecture.md#data-model) for the narrative version:
 
 * **Identity**: `User.branchId → Branch` (optional — a user isn't necessarily tied to one branch, e.g. `ADMIN`/`PROCUREMENT_MANAGER`).
-* **Item master**: `Material` and `FinishedGood` both reference `Category` and `Unit`. `Category.type` is a free-text field (`'RAW_MATERIAL' | 'FINISHED_GOOD' | 'PACKAGING'`) rather than an enum — treat those three strings as the fixed set until it's formalized.
-* **BOM**: `FinishedGood → BOM (1:N, versioned via BOM.version + isActive) → BOMItem (1:N) → Material`. Old BOM versions are kept (`isActive = false`), not deleted — never hard-delete a `BOM` row; supersede it.
-* **Procurement chain**: `PurchaseRequest (1:N) → PurchaseOrder (optional link back via purchaseRequestId) (1:N) → ReceivingReport`. A single PR can produce multiple POs; a PO's `purchaseRequestId` is nullable (POs can be created without a PR). Each stage has its own item line table (`PurchaseRequestItem`, `PurchaseOrderItem`, `ReceivingReportItem`) and its own status enum (`PRStatus`, `POStatus`, `RRStatus`) — status transitions are enforced in the service layer, not by the database.
-* **Inventory**: `InventoryLevel` is current-state (one row per `materialId` + `branchId`, enforced by `@@unique([materialId, branchId])`); `StockMovement` is an append-only ledger keyed loosely to its source document via `referenceId`/`referenceType` (polymorphic reference, not a real FK — there's no DB-level guarantee it points at a valid row). Any code that writes inventory changes must keep these two in sync in the same transaction: update `InventoryLevel.quantity` and insert a `StockMovement` row together, never one without the other.
+* **Item master**: `Material` and `FinishedGood` both reference `Category` and `Unit`. `Category.type` is a free-text field (`'RAW_MATERIAL' | 'FINISHED_GOOD' | 'PACKAGING'`, listed as `CATEGORY_TYPES` in `category.repository.ts`) rather than an enum. `ItemPrice` holds dated reference prices per material, optionally per supplier; the effective price is the newest row on or before the date asked.
+* **BOM**: `FinishedGood → BOM (1:N, versioned via BOM.version + isActive, unique per finished good + version) → BOMItem (1:N) → Material`. Quantities are per batch of `batchSize`. Old versions are kept (`isActive = false`), never deleted — supersede, don't hard-delete.
+* **Procurement chain**: `PurchaseRequest (1:N) → PurchaseOrder (purchaseRequestId nullable) (1:N) → ReceivingReport`. Each stage has its own line table and status enum; transitions are enforced in the service layer, not by the database.
+  * `PRStatus`: `DRAFT → PENDING_APPROVAL → CONVERTED_TO_PO | REJECTED`. Approval generates the draft order in the same transaction, so a request goes straight to `CONVERTED_TO_PO`; `APPROVED` exists in the enum but is never left standing.
+  * `POStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`, then `SENT → PARTIALLY_RECEIVED → FULLY_RECEIVED`; `CANCELLED` exists but is not yet used. `supplierId` is null on a freshly generated draft; `submittedById` records who submitted it.
+  * `RRStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED`. `ReceivingReport.branchId` is where the delivery arrived; `receivedById` is who counted it (whoever last saved it). Each `ReceivingReportItem` links to its `PurchaseOrderItem`; `orderedQuantity` and `unitCost` are copied from the PO line. Stock in = `receivedQuantity − rejectedQuantity`. Outstanding per PO line = ordered − accepted across **approved** RRs only.
+  * `REJECTED` is terminal for all three.
+* **Inventory**: `InventoryLevel` is current-state (one row per `materialId` + `branchId`, `@@unique`). `StockMovement` is an append-only ledger, also per material + branch, keyed loosely to its source document via `referenceType`/`referenceId` (polymorphic, not a real FK — no DB-level guarantee it points at a valid row). Any code that writes inventory must update `InventoryLevel.quantity` and insert a `StockMovement` row **in the same transaction**, never one without the other. (No code writes stock yet; the first is RR approval, Week 4 task 4.)
 * **Production**: `ProductionOrder` pins `finishedGoodId` + `bomId` + `branchId` + `requestedById` together, so a production run always records exactly which BOM version was used.
 * **Distribution**: `StockTransfer` has two named relations to `Branch` (`TransferFrom`/`TransferTo`) — when querying, be explicit about which side you mean.
-* **Conversions**: `Conversion` similarly has two named relations to `FinishedGood` (`ConversionSource`/`ConversionOutput`).
-* **Approvals**: `Approval` currently links only to `PurchaseRequest` — there is no generic/polymorphic approval table covering `PurchaseOrder`, `ReceivingReport`, `ProductionOrder`, or `Conversion` yet, even though those all have status enums that imply an approval step. If those workflows need tracked approvals, decide whether to extend `Approval` to be polymorphic (`referenceId`/`referenceType`, matching the `StockMovement` pattern) or add per-entity approval tables — don't assume `Approval` already covers them.
+* **Conversions**: `Conversion` has two named relations to `FinishedGood` (`ConversionSource`/`ConversionOutput`). It has no cost, status or approver columns yet (Week 7).
+* **Approvals**: `Approval` is polymorphic — `referenceType` (`'PurchaseRequest' | 'PurchaseOrder'`, plus `'ReceivingReport'` from Week 4 task 3) + `referenceId`, one row per decision, with the approver, `decision`, `remarks`, `decidedAt`. The document's own status column says where it is now; `Approval` says who decided and why.
+* **Notifications**: `Notification.userId → User`, with an optional polymorphic reference to the document; unread while `readAt` is null.
+
+## Document numbers
+
+`prNumber`, `poNumber` and `rrNumber` come from Postgres sequences — `pr_number_seq`, `po_number_seq`, `rr_number_seq` — read with ``tx.$queryRaw`SELECT nextval('…')` `` inside the creating transaction and formatted `XX-000001` in the app. Sequences are gap-tolerant (a rolled-back transaction burns a number); uniqueness matters, contiguity does not. Never use `count() + 1`.
 
 ## Indexing
 
-Today the schema has exactly one explicit index: `InventoryLevel.@@unique([materialId, branchId])`. Every other foreign key (`Material.categoryId`, `PurchaseOrderItem.purchaseOrderId`, `StockMovement.materialId`, etc.) has **no** `@@index`. Unlike MySQL, Prisma does not auto-index foreign key columns on PostgreSQL — so joins and filtered lookups on any of those columns currently do a sequential scan. Before adding query-heavy features (dashboards, reports, lookups by branch/material/status), add indexes for:
+Postgres does not auto-index foreign keys, so every join or filter column needs an explicit `@@index`. Current indexes beyond the `@unique` keys:
 
-* Frequently filtered columns — especially status enums used in "pending approval" style inbox queries (`PurchaseRequest.status`, `PurchaseOrder.status`, `ProductionOrder.status`).
-* Join/foreign-key columns used in lookups — e.g. `StockMovement.materialId`, `PurchaseOrderItem.purchaseOrderId`, `ProductionOrder.branchId`.
-* Natural lookup keys already marked `@unique` (`Material.code`, `PurchaseRequest.prNumber`, etc.) are already indexed by the unique constraint — no action needed there.
-* Composite indexes where queries always filter on the same pair, mirroring the existing `InventoryLevel` pattern (e.g. a future `StockMovement.@@index([materialId, createdAt])` for per-item ledger history queries).
+* `Material(categoryId)`; `ItemPrice(materialId, effectiveDate)` and `(materialId, supplierId, effectiveDate)`
+* `BOM(finishedGoodId, isActive)`, `@@unique(finishedGoodId, version)`; `BOMItem(bomId)`
+* `PurchaseRequest(status)`, `(requestedById)`; `PurchaseRequestItem(purchaseRequestId)`
+* `PurchaseOrder(status)`, `(supplierId)`, `(purchaseRequestId)`; `PurchaseOrderItem(purchaseOrderId)`
+* `ReceivingReport(purchaseOrderId)`, `(status)`, `(branchId)`; `ReceivingReportItem(receivingReportId)`, `(purchaseOrderItemId)`
+* `InventoryLevel @@unique(materialId, branchId)`
+* `StockMovement(materialId, branchId, createdAt)` for per-item ledger history, `(referenceType, referenceId)` for a document's movements
+* `Approval(referenceType, referenceId)`; `Notification(userId, readAt)`
+
+Not yet indexed, add with the feature that queries them: `ProductionOrder(status)`, `(branchId)`; `StockTransfer` from/to branch.
 
 ## Large Data
 
-* Use pagination for any list endpoint over a table that grows unboundedly — `StockMovement`, `Approval`, and the procurement/production tables will all accumulate indefinitely. None of the current repositories implement pagination yet (only single-record lookups exist in `UserRepository`); add `skip`/`take` (or cursor pagination) when building the first list query rather than fetching whole tables.
-* Use chunking for bulk writes (e.g. seeding or importing large BOMs/materials) via `createMany` or batched `$transaction` calls instead of one query per row.
-* Use background jobs (BullMQ is already a dependency, not yet wired to a queue — see [architecture.md](architecture.md#infrastructure)) for expensive operations: low-stock checks, report generation, PDF export, anything that scans many rows or calls an external API.
-* Avoid loading entire tables into memory — this matters especially for `StockMovement` and any future costing/reporting queries that touch full production history; aggregate in the database (Prisma `aggregate`/`groupBy`) rather than pulling rows into Node to sum/average.
+* Paginate any list over a table that grows unboundedly. Repository list methods take `skip`/`take` (default `take: 50`) and return rows plus a count from one `$transaction` (`MaterialRepository`, `PurchaseOrderRepository`, `ReceivingReportRepository`).
+* Batch bulk writes — `createMany`, nested `create` on a parent, or one `$transaction` — instead of one query per row.
+* Use background jobs (BullMQ, see [architecture.md](architecture.md#infrastructure)) for anything that scans many rows or calls an external service: low-stock checks, escalations, report generation.
+* Aggregate in the database (`aggregate`/`groupBy`) rather than pulling rows into Node — e.g. accepted quantity per PO line is one `groupBy` over approved RR lines.
 
 ## Multi-Tenant
 
 This is not a multi-tenant system in the SaaS sense (no per-customer data isolation) — it's a single organization with multiple **branches**. Branch is a data-partitioning dimension, not a security boundary enforced at the database level:
 
-* `InventoryLevel`, `StockTransfer` (from/to), and `ProductionOrder` are branch-scoped via `branchId`.
-* There is no row-level security or Prisma middleware restricting queries by branch — a `BRANCH_MANAGER`'s data access is currently gated only by `middleware.ts` role guards on routes (e.g. `/dashboard/branches`), not by filtering query results to the user's own `branchId`.
-* If branch-level data isolation becomes a real requirement (a branch manager should only ever see their own branch's inventory/production), that filter needs to be added explicitly in the service/repository layer — don't assume the route guard alone prevents a `BRANCH_MANAGER` from reading another branch's data if a handler queries broadly.
+* `InventoryLevel`, `StockMovement`, `ReceivingReport`, `StockTransfer` (from/to), and `ProductionOrder` are branch-scoped via `branchId`.
+* There is no row-level security or Prisma middleware restricting queries by branch — data access is gated by `middleware.ts` role guards and service rules, not by filtering results to the user's own `branchId`.
+* If branch-level isolation becomes a requirement (a branch manager sees only their branch's inventory), add that filter explicitly in the service/repository layer — a route guard alone does not stop a broad query.
 
 ## Migration Checklist
 
 Before creating a migration:
 
-* **Backward compatibility** — will existing running code (or a mid-deploy old instance) still work against the new schema? Prefer nullable-then-backfill-then-required over adding a `NOT NULL` column directly to a table with existing rows.
-* **Existing data impact** — check row counts and current values for any column being altered/dropped; a `Decimal` or enum change can silently truncate or fail on real data (e.g. narrowing `MovementType` or `PRStatus` would break existing rows using a removed value).
-* **Rollback strategy** — Prisma migrations are forward-only by default; know how you'd write the down-migration or restore-from-backup before running an irreversible change (dropping a column, renaming a table) against real data.
-* **Performance impact** — adding an index or `NOT NULL` constraint to a large existing table (`StockMovement` once populated) can lock it during the migration; check whether it needs to run outside peak hours or use a concurrent index build.
+* **Backward compatibility** — will existing running code (or a mid-deploy old instance) still work against the new schema? Prefer nullable-then-backfill-then-required over adding a `NOT NULL` column directly to a table with existing rows. (The Week 3 and Week 4 migrations added `NOT NULL` columns directly only because the tables were verified empty first.)
+* **Existing data impact** — check row counts and current values for any column being altered/dropped; a `Decimal` or enum change can silently truncate or fail on real data (e.g. removing an enum value breaks rows that use it).
+* **Rollback strategy** — Prisma migrations are forward-only; know how you'd write the down-migration or restore from backup before running an irreversible change against real data.
+* **Performance impact** — adding an index or `NOT NULL` constraint to a large table (`StockMovement` once populated) can lock it during the migration; check whether it needs to run outside peak hours or use a concurrent index build.

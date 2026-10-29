@@ -4,11 +4,12 @@
 
 ## 1. Current State
 
-* **CI**: `.github/workflows/ci.yml` runs on push to `main`/`develop` and on PRs into `main` — `npm ci`, `tsc --noEmit`, `npm run lint`, `prisma validate`. No build, test, or deploy step exists yet.
-* **Local dev infra**: `docker-compose.yml` runs Postgres 16 and Redis 7 for local development only. The Next.js app itself runs via `npm run dev`/`next start`, not in a container.
-* **Config**: `lib/config.ts` requires `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `NEXT_PUBLIC_APP_URL` at startup (throws immediately if any are missing) — see `.env.example`. Any deploy target must supply these.
-* **Database migrations**: none exist yet (`prisma/migrations/` is absent — schema has only been applied via `prisma db push`). This must be resolved (switch to `prisma migrate deploy`-driven history) before there's a real production database to protect. See [database.md](database.md).
-* **Background jobs**: BullMQ and `ioredis` are dependencies but no queue/worker is implemented yet, so there's currently nothing that needs a separate worker process.
+* **CI**: `.github/workflows/ci.yml` runs on push to `main`/`develop` and on PRs into `main` — `npm ci`, `tsc --noEmit`, `npm run lint`, `prisma validate`, and `npm run build` (with placeholder env vars; no query runs during the build). No test or deploy step exists yet.
+* **Local dev infra**: `docker-compose.yml` runs Postgres 16 and Redis 7 for local development only. The Next.js app runs via `npm run dev`/`next start`, and the worker via `npm run worker`/`npm run worker:start` — neither in a container.
+* **Config**: `lib/config.ts` requires `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `NEXT_PUBLIC_APP_URL` at startup (throws immediately if any are missing) — see `.env.example`. Any deploy target must supply these to both the app and the worker.
+* **Database migrations**: tracked in `prisma/migrations/`, baselined as `0_init` and applied with `prisma migrate deploy` (see [database.md](database.md#migrations)). A deploy runs the same command.
+* **Background jobs**: a BullMQ worker exists (`worker/index.ts`, notification job on PR submission) and must run as its **own process** next to the app. It is not part of `next start`.
+* **PDF export** renders in the request with `@react-pdf/renderer` (Node runtime) — no Chromium, no file storage.
 
 ## 2. Target Approach: AWS + GitHub Actions
 
@@ -16,25 +17,25 @@ This aligns with the project's stack (Next.js, Postgres, Redis/BullMQ) and the d
 
 ### Compute
 * **App**: containerize the Next.js app (`next build` → `output: 'standalone'`, run behind a small Node process) and run it on **ECS Fargate** rather than raw EC2 — no servers to patch, scales to zero-effort for a project this size, and GitHub Actions can push directly to it. (EC2 is a reasonable fallback if ECS is judged unnecessary complexity, but it means owning OS patching, process supervision, and zero-downtime deploys by hand — worth deciding deliberately rather than defaulting to it.)
-* **Background jobs** (once BullMQ workers exist): a second small ECS service/task running the worker process, sharing the same image, pointed at the same Redis.
+* **Background jobs**: a second small ECS service/task running the worker process, sharing the same image, pointed at the same Redis. Today `npm run worker:start` runs `worker/index.ts` through `tsx` (a devDependency) with `--env-file=.env`; a container gets its environment injected, so the production command needs deciding — compile the worker, or keep `tsx` and drop the env-file flag.
 
 ### Data
 * **Database**: **RDS for PostgreSQL** (matching the local `postgres:16` version), Multi-AZ only once there's a real availability requirement — start single-AZ to control cost.
 * **Cache/queue**: **ElastiCache for Redis**, matching local `redis:7`.
-* **File storage** (when needed — PDF exports, receipts, etc.): **S3**, accessed via presigned URLs rather than proxying files through the app server.
+* **File storage** (when needed — receipts, attachments; PDFs are currently rendered on demand, not stored): **S3**, accessed via presigned URLs rather than proxying files through the app server.
 
 ### Networking
 * App and worker in private subnets; RDS and ElastiCache in private subnets with security groups scoped to the app's security group only (never publicly reachable).
 * An Application Load Balancer (or ECS-managed ingress) in front of the app service for TLS termination.
 
 ### CI/CD (GitHub Actions)
-Extend the existing `ci.yml` rather than replacing it — keep typecheck/lint/`prisma validate` as required checks, and add a deploy workflow gated on merge to `main`:
+Extend the existing `ci.yml` rather than replacing it — keep typecheck/lint/`prisma validate`/build as required checks, and add a deploy workflow gated on merge to `main`:
 
 1. Run the existing CI checks (fail fast, same as today).
 2. Build and push a Docker image to **ECR**, tagged with the commit SHA.
 3. Run `prisma migrate deploy` against the target database as a distinct step *before* the new app version goes live — migrations and app deploys should not be bundled into one implicit step, so a failed migration blocks the deploy instead of partially rolling out.
 4. Update the ECS service to the new image (`aws ecs update-service --force-new-deployment` or an action like `aws-actions/amazon-ecs-deploy-task-definition`), relying on ECS's rolling deployment for zero-downtime rollout.
-5. Deploy the worker service (if/when it exists) the same way, from the same image.
+5. Deploy the worker service the same way, from the same image, after the app — both must run against the migrated schema with a freshly generated Prisma client.
 
 ### Environments
 * At minimum: **staging** (auto-deploy on merge to `main`) and **production** (manual approval / tag-triggered), each with its own RDS instance, ElastiCache instance, and secrets — never share a database between environments.
@@ -51,7 +52,7 @@ Extend the existing `ci.yml` rather than replacing it — keep typecheck/lint/`p
 ## 3. Rollback
 
 * Because deploys are image-tagged by commit SHA, rolling back the app is redeploying the previous task definition/image — keep this fast and documented once the pipeline exists.
-* Migrations are the harder part of rollback: since there's no migration history yet, establishing `prisma migrate deploy` with reviewed, additive-first migrations (per [database.md](database.md)) is what makes rollback actually feasible later — a destructive migration with no down-migration plan can make an app rollback pointless if the schema no longer matches.
+* Migrations are the harder part of rollback: Prisma migrations are forward-only, so keep them reviewed and additive-first (per [database.md](database.md#migration-checklist)) — a destructive migration with no down-migration plan can make an app rollback pointless if the schema no longer matches.
 
 ## 4. Open Decisions
 
@@ -59,4 +60,3 @@ These need a decision before implementation starts, not assumptions baked into a
 
 * ECS Fargate vs. plain EC2 (cost vs. operational simplicity trade-off).
 * Whether `develop` deploys anywhere (a second staging-like environment) or is purely a pre-`main` integration branch.
-* When to introduce a true migration history (`prisma migrate deploy`) — this should happen before any shared/production database exists, not after.

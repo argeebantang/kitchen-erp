@@ -4,41 +4,48 @@
 
 KitchenERP is a production and inventory management system for a food kitchen/commissary operation with multiple branches. It manages the full lifecycle from raw material procurement through production and distribution: Purchase Requests → Purchase Orders → Receiving Reports → stock updates, BOM-driven production of finished goods, inter-branch stock transfers, and conversions of unsold goods into other products. It solves the business problem of tracking inventory accurately across locations, enforcing approval workflows for spend and stock movement, and giving management visibility into costs and stock levels without relying on manual spreadsheets.
 
+Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenERP-sprint-v3.jsx`, rendered at `/roadmap`. Each change has a dated note in `docs/YYYY-MM-DD-*.md`.
+
 ## Main Features
 
-* Role-based authentication (Admin, Procurement Manager, Production Manager, Branch Manager, Viewer) with protected routes
-* Item master data: materials, finished goods, categories, and units
-* Bill of Materials (BOM) for finished goods, driving raw-material requirements for production
-* Procurement workflow: Purchase Request → Purchase Order → Receiving Report, each with its own status lifecycle and an approval step
-* Production Orders that consume materials per BOM and yield finished goods, tracked through a status lifecycle
-* Inventory tracking via per-branch inventory levels and an auditable stock movement ledger
-* Stock Transfers between branches
-* Conversions (e.g., turning unsold finished goods into another product)
-* Centralized Approval records for procurement and production actions
+Built (Weeks 1–4 so far):
+
+* Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
+* Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
+* Versioned Bills of Materials, stated per batch and scalable to a target quantity
+* Purchase Requests: draft → submit → approve/reject by accounting; approval auto-creates a draft Purchase Order
+* Purchase Orders: sourcing (supplier, delivery date, re-pricing), submit → approve/reject → mark sent, PDF export
+* Receiving Reports (Week 4, in progress): record a delivery line by line against a sent order, as an editable draft
+* Approvals inbox for accounting; nobody approves their own work, ADMIN included
+* In-app notification rows written by a BullMQ worker when a request is submitted
+
+Planned (see the roadmap): RR approval with stock update and ledger, stock map, low-stock job, production orders, transfers, conversions, costing, AI features.
 
 ## Tech Stack
 
-* Backend: Next.js 15 API routes (App Router), TypeScript, Node.js
-* Frontend: Next.js 15 (App Router), React 19, Tailwind CSS 4
-* Database: PostgreSQL 16, accessed via Prisma ORM 5
-* Cache: Redis 7 (ioredis)
-* Queue: BullMQ (Redis-backed)
-* Storage: Not yet configured
-* Infrastructure: Docker Compose (Postgres + Redis) for local development
+* Backend: Next.js 15 route handlers (App Router), TypeScript, Node.js 22
+* Frontend: Next.js 15 (App Router), React 19, Tailwind CSS 4, `lucide-react` icons
+* Database: PostgreSQL 16, accessed via Prisma ORM 5.22, with tracked migrations
+* Queue: BullMQ on Redis 7, consumed by a separate worker process (`npm run worker`)
+* PDF: `@react-pdf/renderer`, rendered in the request
+* Validation: `zod`; auth: `jose` (JWT) + `bcryptjs`
+* Storage: not yet configured
+* Infrastructure: Docker Compose (Postgres + Redis) for local development; GitHub Actions CI
 
 ## Project Structure
 
-* `app/` — Next.js App Router pages and API routes
-  * `app/login/` — public login page
-  * `app/(protected)/` — authenticated route group (layout enforces session/role checks); contains `dashboard/`
-  * `app/api/auth/` — authentication endpoints (login, logout, register, me)
-* `components/` — shared React components (e.g., `components/dashboard/Sidebar.tsx`)
-* `lib/` — cross-cutting utilities: `auth.ts`, `session.ts`, `config.ts`, `prisma.ts` (Prisma client singleton), `navigation.ts`
-* `repositories/` — data-access layer, one repository per domain entity (e.g., `user.repository.ts`), wrapping Prisma queries
-* `services/` — business-logic layer sitting above repositories (e.g., `auth.service.ts`)
-* `hooks/` — client-side React hooks (e.g., `useUser.ts`)
-* `prisma/` — `schema.prisma` (22 models covering users, branches, items, BOM, procurement, production, inventory, and approvals) and `seed.ts`
-* `middleware.ts` — request-level route protection
+* `app/` — Next.js App Router pages and route handlers
+  * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
+  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `production/bom`, `admin/master`
+  * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`
+* `components/` — `dashboard/` (Sidebar, Topbar), `master/`, `bom/`, `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`)
+* `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
+* `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
+* `services/` — business rules above the repositories
+* `worker/` — the BullMQ consumer, a standalone process; never imported from `app/`
+* `hooks/` — client-side React hooks (`useUser.ts`)
+* `prisma/` — `schema.prisma` (24 models), `migrations/`, `seed.ts`
+* `middleware.ts` — authentication and role guards for every request
 * `docker-compose.yml` — local Postgres + Redis services
 
 ## Coding Philosophy
