@@ -9,6 +9,7 @@ import {
 } from '@/repositories/receiving-report.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
+import { InventoryRepository } from '@/repositories/inventory.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
 
 /** One purchase order line as the receiving form shows it. */
@@ -137,6 +138,21 @@ export type ReceivingReportDetailDto = {
   lines: ReceivingReportLineDto[]
   /** Newest first. Empty until accounting decides. */
   decisions: ApprovalDto[]
+  /** What approving this report put into stock. Empty until it is approved. */
+  stockMovements: StockMovementDto[]
+}
+
+export type StockMovementDto = {
+  id: string
+  materialCode: string
+  materialName: string
+  unitAbbreviation: string
+  branchName: string
+  type: string
+  quantity: string
+  /** Per unit, from the receiving line. Null on movements with no cost yet. */
+  unitCost: string | null
+  createdAt: string
 }
 
 export type ReceivingReportResult<T> =
@@ -353,7 +369,10 @@ export const ReceivingReportService = {
     }
 
     const zero      = new Prisma.Decimal(0)
-    const decisions = await ApprovalRepository.findByReference('ReceivingReport', rr.id)
+    const [decisions, movements] = await Promise.all([
+      ApprovalRepository.findByReference('ReceivingReport', rr.id),
+      InventoryRepository.findMovementsByReference('ReceivingReport', rr.id),
+    ])
 
     // Accepted and its value are derived, never stored: received and rejected
     // are the facts, and storing a third column invites the three to disagree.
@@ -434,6 +453,17 @@ export const ReceivingReportService = {
           remarks:      decision.remarks,
           approverName: decision.approver.name,
           decidedAt:    decision.decidedAt.toISOString(),
+        })),
+        stockMovements: movements.map(movement => ({
+          id:               movement.id,
+          materialCode:     movement.material.code,
+          materialName:     movement.material.name,
+          unitAbbreviation: movement.material.unit.abbreviation,
+          branchName:       movement.branch.name,
+          type:             movement.type,
+          quantity:         toDecimalString(movement.quantity),
+          unitCost:         movement.unitCost === null ? null : toDecimalString(movement.unitCost),
+          createdAt:        movement.createdAt.toISOString(),
         })),
       },
     }
@@ -672,10 +702,16 @@ export const ReceivingReportService = {
     }
 
     const decided = await ReceivingReportRepository.decide({ id, approverId: viewer.userId, decision, remarks })
-    if (!decided) {
-      return { success: false, error: 'This report was decided by someone else just now', status: 409 }
+    if (!decided.ok) {
+      return {
+        success: false,
+        error:   decided.reason === 'not-pending'
+          ? 'This report was decided by someone else just now'
+          : `${decided.message} — nothing was changed. Reject it and record a fresh count.`,
+        status:  409,
+      }
     }
 
-    return { success: true, data: decided }
+    return { success: true, data: decided.report }
   },
 }

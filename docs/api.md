@@ -89,7 +89,7 @@ The browser is the only client. Server Components read through services directly
 |---|---|---|---|---|
 | POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }` or `{ receivingReport: { id, rrNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
 
-The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`); approving one moves only its status until Week 4 task 4 adds the stock update to the same transaction.
+The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`). Approving one also posts its stock and moves the order to `PARTIALLY_RECEIVED` / `FULLY_RECEIVED`, in one transaction under a lock on the order; it returns 409 and changes nothing if the order can no longer take a delivery or a line would end up received beyond what was ordered.
 
 ## Receiving reports
 

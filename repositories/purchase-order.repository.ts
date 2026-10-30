@@ -177,6 +177,35 @@ export const PurchaseOrderRepository = {
     })
   },
 
+  /**
+   * Locks the order row until the caller's transaction ends and returns its
+   * status and line quantities as of the lock. A second approval on the same
+   * order blocks here until the first commits, then reads what it wrote —
+   * under Postgres's default READ COMMITTED, every statement after the lock
+   * sees the other transaction's committed rows. Null if the order is gone.
+   */
+  async lockForReceiving(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<{ status: POStatus; items: { id: string; quantity: Prisma.Decimal }[] } | null> {
+    // Raw SQL because Prisma has no SELECT … FOR UPDATE. Tagged template, so
+    // id is a bind parameter.
+    const rows = await tx.$queryRaw<{ status: POStatus }[]>`
+      SELECT status FROM "PurchaseOrder" WHERE id = ${id} FOR UPDATE
+    `
+    if (rows.length === 0) return null
+
+    const items = await tx.purchaseOrderItem.findMany({
+      where:  { purchaseOrderId: id },
+      select: { id: true, quantity: true },
+    })
+    return { status: rows[0].status, items }
+  },
+
+  /** Sets PARTIALLY_RECEIVED / FULLY_RECEIVED. Only under lockForReceiving. */
+  async setReceivingStatus(tx: Prisma.TransactionClient, id: string, status: POStatus): Promise<void> {
+    await tx.purchaseOrder.update({ where: { id }, data: { status } })
+  },
 }
 
 /**

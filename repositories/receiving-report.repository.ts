@@ -1,5 +1,7 @@
-import { Prisma, RRStatus } from '@prisma/client'
+import { POStatus, Prisma, RRStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { InventoryRepository } from '@/repositories/inventory.repository'
+import { PurchaseOrderRepository } from '@/repositories/purchase-order.repository'
 
 export type ReceivingReportLineInput = {
   purchaseOrderItemId: string
@@ -19,6 +21,21 @@ export type CreateReceivingReportInput = {
   receivedAt: Date
   notes: string | null
   lines: ReceivingReportLineInput[]
+}
+
+/** Orders that can still take a delivery — the service's RECEIVABLE_STATUSES. */
+const RECEIVABLE_PO_STATUSES: POStatus[] = [POStatus.SENT, POStatus.PARTIALLY_RECEIVED]
+
+export type DecideResult =
+  | { ok: true; report: { id: string; rrNumber: string } }
+  | { ok: false; reason: 'not-pending' }
+  | { ok: false; reason: 'not-receivable' | 'over-received'; message: string }
+
+/** Aborts an approval from inside its transaction, rolling everything back. */
+class ReceivingConflict extends Error {
+  constructor(readonly reason: 'not-receivable' | 'over-received', message: string) {
+    super(message)
+  }
 }
 
 /** A report that still counts as "in progress" on its order. */
@@ -100,10 +117,14 @@ export const ReceivingReportRepository = {
    * over APPROVED reports only. A draft or pending report has not moved any
    * stock, and a rejected one never will, so neither reduces what is owed.
    *
-   * One grouped query for the whole order, rather than one per line.
+   * One grouped query for the whole order, rather than one per line. Takes a
+   * transaction client when it must read inside one (decide, under the lock).
    */
-  async acceptedByLine(purchaseOrderId: string): Promise<Map<string, Prisma.Decimal>> {
-    const groups = await prisma.receivingReportItem.groupBy({
+  async acceptedByLine(
+    purchaseOrderId: string,
+    db: Prisma.TransactionClient = prisma,
+  ): Promise<Map<string, Prisma.Decimal>> {
+    const groups = await db.receivingReportItem.groupBy({
       by:    ['purchaseOrderItemId'],
       where: { receivingReport: { purchaseOrderId, status: RRStatus.APPROVED } },
       _sum:  { receivedQuantity: true, rejectedQuantity: true },
@@ -217,38 +238,115 @@ export const ReceivingReportRepository = {
   },
 
   /**
-   * PENDING_APPROVAL → APPROVED | REJECTED, and the Approval row, in one
-   * transaction. The status moves first: if another decision got there
-   * before us, moveStatus returns null and no Approval row is written — the
-   * same order as PurchaseOrderRepository.decide.
+   * PENDING_APPROVAL → APPROVED | REJECTED in one transaction: the status,
+   * the Approval row and — on approval — everything the delivery changes:
    *
-   * Approving moves only the status for now. Week 4 task 4 adds the stock
-   * movements, inventory levels and the order's status to this transaction.
+   *   1. lock the order row, so approvals on one order run one at a time
+   *   2. move the report's status (WHERE PENDING_APPROVAL — the race guard)
+   *   3. write the Approval row
+   *   4. re-check, under the lock, that no order line has now been accepted
+   *      beyond what was ordered
+   *   5. one IN movement + level increase per line with something accepted
+   *   6. the order's status from everything accepted so far
+   *
+   * Any failure rolls back all of it. A rejection does steps 2–3 only.
    */
   async decide(input: {
     id: string
     approverId: string
     decision: 'APPROVED' | 'REJECTED'
     remarks: string | null
-  }): Promise<{ id: string; rrNumber: string } | null> {
-    return prisma.$transaction(async tx => {
-      const moved = await moveStatus(tx, input.id, RRStatus.PENDING_APPROVAL, {
-        status: input.decision === 'APPROVED' ? RRStatus.APPROVED : RRStatus.REJECTED,
-      })
-      if (moved === null) return null
+  }): Promise<DecideResult> {
+    try {
+      return await prisma.$transaction(async tx => {
+        const report = await tx.receivingReport.findUniqueOrThrow({
+          where:  { id: input.id },
+          select: {
+            purchaseOrderId: true,
+            branchId:        true,
+            rrNumber:        true,
+            items: {
+              select: {
+                purchaseOrderItemId: true,
+                materialId:          true,
+                receivedQuantity:    true,
+                rejectedQuantity:    true,
+                unitCost:            true,
+                material:            { select: { name: true } },
+              },
+            },
+          },
+        })
+        const approving = input.decision === 'APPROVED'
 
-      await tx.approval.create({
-        data: {
-          referenceType: 'ReceivingReport',
-          referenceId:   input.id,
-          approverId:    input.approverId,
-          decision:      input.decision,
-          remarks:       input.remarks,
-        },
-      })
+        // Locked before the report's own row, so every approval takes the two
+        // locks in the same order and two of them cannot deadlock.
+        const order = approving ? await PurchaseOrderRepository.lockForReceiving(tx, report.purchaseOrderId) : null
+        if (approving && (order === null || !RECEIVABLE_PO_STATUSES.includes(order.status))) {
+          throw new ReceivingConflict('not-receivable', 'The order can no longer take a delivery')
+        }
 
-      return moved
-    })
+        const moved = await moveStatus(tx, input.id, RRStatus.PENDING_APPROVAL, {
+          status: approving ? RRStatus.APPROVED : RRStatus.REJECTED,
+        })
+        if (moved === null) return { ok: false as const, reason: 'not-pending' as const }
+
+        await tx.approval.create({
+          data: {
+            referenceType: 'ReceivingReport',
+            referenceId:   input.id,
+            approverId:    input.approverId,
+            decision:      input.decision,
+            remarks:       input.remarks,
+          },
+        })
+
+        if (!approving || order === null) return { ok: true as const, report: moved }
+
+        // This report is APPROVED inside the transaction now, so the sum
+        // includes it: cumulative accepted per order line.
+        const accepted = await ReceivingReportRepository.acceptedByLine(report.purchaseOrderId, tx)
+        const zero     = new Prisma.Decimal(0)
+
+        for (const item of order.items) {
+          if ((accepted.get(item.id) ?? zero).greaterThan(item.quantity)) {
+            const name = report.items.find(line => line.purchaseOrderItemId === item.id)?.material.name ?? 'A line'
+            throw new ReceivingConflict('over-received', `${name}: approving this would receive more than was ordered`)
+          }
+        }
+
+        for (const line of report.items) {
+          const quantity = line.receivedQuantity.sub(line.rejectedQuantity)
+          if (quantity.isZero()) continue
+
+          await InventoryRepository.stockIn(tx, {
+            materialId:    line.materialId,
+            branchId:      report.branchId,
+            quantity,
+            unitCost:      line.unitCost,
+            referenceType: 'ReceivingReport',
+            referenceId:   input.id,
+            notes:         report.rrNumber,
+          })
+        }
+
+        const fullyReceived = order.items.every(item => !(accepted.get(item.id) ?? zero).lessThan(item.quantity))
+        const anyReceived   = order.items.some(item => (accepted.get(item.id) ?? zero).greaterThan(0))
+        const status =
+          fullyReceived ? POStatus.FULLY_RECEIVED
+          : anyReceived ? POStatus.PARTIALLY_RECEIVED
+          : order.status // nothing accepted yet, e.g. everything rejected: stays SENT
+        if (status !== order.status) {
+          await PurchaseOrderRepository.setReceivingStatus(tx, report.purchaseOrderId, status)
+        }
+
+        return { ok: true as const, report: moved }
+      })
+    } catch (err) {
+      // Thrown inside the callback so Prisma rolls the whole transaction back.
+      if (err instanceof ReceivingConflict) return { ok: false, reason: err.reason, message: err.message }
+      throw err
+    }
   },
 }
 

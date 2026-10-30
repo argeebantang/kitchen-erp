@@ -159,9 +159,17 @@ for the decisions and their rationale.
       `POST /api/approvals` (`referenceType: 'ReceivingReport'`), from a new "Receiving reports"
       section of the inbox showing value and variance. Nobody decides a count they made
       (`receivedById`), ADMIN included; rejecting needs a reason and is terminal. Accounting can
-      now read `/procurement/receiving` but not record or edit. Approving moves only the RR's
-      status — stock, ledger and the PO status come with the next task, in the same transaction.
-- [ ] Inventory ledger entry + stock update on RR approval
+      now read `/procurement/receiving` but not record or edit. Shipped approving the status
+      only; the next task added stock to the same transaction.
+- [x] Inventory ledger entry + stock update on RR approval — approval is one transaction:
+      lock the PO row (`SELECT … FOR UPDATE`), move the RR's status, write the `Approval` row,
+      re-check that no PO line is now accepted beyond what was ordered, then per line with
+      something accepted an `IN` `StockMovement` (quantity, branch, `unitCost`, reference = the
+      RR) and an atomic `InventoryLevel` upsert-increment, and finally the PO to
+      `PARTIALLY_RECEIVED` / `FULLY_RECEIVED` from everything accepted so far. Any failure rolls
+      all of it back (409). New `StockMovement.unitCost` (migration
+      `20261030034822_stock_movement_unit_cost`). The RR page shows what reached stock. Race,
+      partial, all-rejected, rejection and cancelled-order cases verified.
 - [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table
 - [ ] BullMQ daily low-stock check job
 

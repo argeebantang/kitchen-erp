@@ -376,3 +376,99 @@ accounting, `/procurement/receiving/new` and the edit page redirect to `/unautho
 - The self-approval check reads `receivedById` before the transaction. It cannot go stale —
   only a draft save changes it, and a pending report cannot be saved.
 - The inbox is capped at 100 pending reports per section, like PRs and POs, with no paging.
+
+---
+
+## Task 4 — On RR approval: ledger entry written, stock levels updated
+
+Approving a receiving report now puts its accepted goods into stock and moves the order to
+partially or fully received — in the same transaction as the status change and the `Approval`
+row, so either all of it happens or none of it does.
+
+Built in subtasks 4.1–4.4.
+
+**Decisions**
+
+| Area | Decision | Rationale |
+|---|---|---|
+| One transaction | Extend 3.4's `decide()`; no second endpoint | `docs/database.md`: ledger and level move together, and both belong with the decision that caused them. |
+| Lock | `SELECT status FROM "PurchaseOrder" WHERE id = … FOR UPDATE` first | Two approvals on one order queue instead of interleaving. Taken before the report's own row, so every approval locks in the same order and none can deadlock. |
+| Re-check | Under the lock, cumulative accepted ≤ ordered on every order line; else 409 and full rollback | With one open RR per order it should never fire. It closes the create-time race from Task 1, where two drafts saved at once could both count the same outstanding. |
+| Ledger rows | One `IN` per line with accepted > 0: quantity = received − rejected, the RR's branch, `referenceType 'ReceivingReport'`, `referenceId` = the RR, notes = RR number | Rejected goods never entered stock; a zero-quantity row says nothing. |
+| Cost on the ledger | New `StockMovement.unitCost`, nullable, written on receiving `IN` (option A) | The purchase cost is a fact at receipt, and one column on an empty table was the cheapest it will ever be. Following `referenceId` back to the RR line was the alternative, ambiguous when an order lists a material twice. The costing method is still Week 6's. |
+| Stock level | `InventoryLevel` upsert on (material, branch) with `increment` | Prisma issues one `INSERT … ON CONFLICT DO UPDATE` (seen in the query log), so even two first-time receipts of a material cannot lose an update. |
+| Order status | From cumulative accepted: every line full → `FULLY_RECEIVED`; some → `PARTIALLY_RECEIVED`; none (all rejected) → unchanged | Short deliveries leave the order partially received; there is no "close short" yet (Task 1). |
+| Structure | `InventoryRepository.stockIn(tx, …)`; `PurchaseOrderRepository.lockForReceiving(tx, …)` / `setReceivingStatus(tx, …)` | Week 3's transactions-across-repositories pattern: the caller's `tx` is passed down. Transfers, production and write-offs will reuse `InventoryRepository`. |
+| Rejection | No lock, no stock | Nothing was accepted. |
+
+**What changed**
+
+- *4.1 Read path.* `InventoryRepository` (new) with `findMovementsByReference`, served by the
+  `(referenceType, referenceId)` index from Task 1. The RR detail DTO gains `stockMovements`;
+  a Stock card under the line table lists them (`+4 kg Pork Belly @ ₱355.00/kg → Main
+  Commissary · IN · date`) or explains why there are none for the report's status.
+- *4.2 Cost column.* `StockMovement.unitCost Decimal?`, migration below.
+- *4.3 Approval posts stock.* `decide()`: lock → status (WHERE `PENDING_APPROVAL`) → `Approval`
+  row → re-check via `acceptedByLine(poId, tx)` (now takes the transaction client; this report
+  is already `APPROVED` inside the transaction, so the sum includes it) → `stockIn` per line →
+  order status. A failure inside throws `ReceivingConflict`, which rolls the transaction back
+  and is mapped to `{ ok: false, reason, message }`; the service returns 409 "… — nothing was
+  changed. Reject it and record a fresh count."
+- *4.4 Edge cases*, run through `applyDecision` on throwaway orders and deleted afterwards:
+  partial then complete delivery (`PARTIALLY_RECEIVED` → `FULLY_RECEIVED`, levels add up,
+  including onto an existing level row); all-rejected (no movement, order stays `SENT`); two
+  approvals started together on one order line — the second waits for the lock and is refused,
+  both when the first fills the order ("can no longer take a delivery") and when the order
+  stays receivable ("would receive more than was ordered"); rejection writes nothing; an order
+  cancelled while the report was pending refuses the approval with no `Approval` row left
+  behind. No code changes were needed.
+
+**Files affected**
+
+- `prisma/schema.prisma`, `prisma/migrations/20261030034822_stock_movement_unit_cost/migration.sql` (new)
+- `repositories/inventory.repository.ts` (new), `repositories/purchase-order.repository.ts`, `repositories/receiving-report.repository.ts`
+- `services/receiving-report.service.ts`
+- `app/(protected)/procurement/receiving/[id]/page.tsx`
+- `docs/database.md`, `docs/api.md`, `docs/architecture.md`, `docs/overview.md`, `docs/progress.md`, this note, `kitchenERP-sprint-v3.jsx`
+
+**Database changes**
+
+Migration `20261030034822_stock_movement_unit_cost`: `ALTER TABLE "StockMovement" ADD COLUMN
+"unitCost" DECIMAL(65,30);` — nullable, so additive on any table; it held 0 rows. Drift check:
+empty. From here on, approving an RR writes `StockMovement` and `InventoryLevel` rows and
+updates `PurchaseOrder.status`.
+
+**API changes**
+
+No new endpoints. `POST /api/approvals` with `referenceType: 'ReceivingReport'` and
+`decision: 'APPROVED'` now also posts stock and returns 409 when the order can no longer take a
+delivery or a line would be over-received.
+
+**UI changes**
+
+RR page: Stock card. The order page's status badge now moves to PARTIALLY / FULLY RECEIVED.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run build        # stop `npm run dev` first; it clobbers .next
+```
+
+Approve a pending RR as accounting: its Stock card lists one `+` row per line with something
+accepted; `StockMovement` has those rows (type `IN`, `unitCost` set, `referenceType
+'ReceivingReport'`); `InventoryLevel` rose by exactly those quantities at the RR's branch; the
+order is PARTIALLY or FULLY RECEIVED. RR-000001 on PO-000002 was the first: +4 kg Pork Belly
+at Main Commissary, PO-000002 fully received.
+
+**Risks / assumptions / follow-up**
+
+- Nothing yet reverses an approval. A wrong approved count needs a stock adjustment, which has
+  no screen until the write-off / adjustment work.
+- `setReceivingStatus` writes without a status guard; it is only safe because it runs under
+  `lockForReceiving` after the status was checked. Keep it that way.
+- `unitCost` is null for every future movement type until Week 6 decides costing.
+- Over-delivery still never enters stock — the extra is rejected at the door (Task 1).
+- The roadmap's next item, "Every movement writes to inventory_ledger with source document
+  reference", is true for the only movement type that exists; Task 5 decides what more it needs
+  (the ledger trail view).

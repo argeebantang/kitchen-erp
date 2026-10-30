@@ -421,6 +421,10 @@ model StockMovement {
   branch        Branch       @relation(fields: [branchId], references: [id])
   type          MovementType
   quantity      Decimal
+  /// Purchase cost per unit for stock that came in from a receiving report,
+  /// copied from its line. Null where no cost rule exists yet (outgoing,
+  /// adjustments, transfers): the costing method is Week 6's decision.
+  unitCost      Decimal?
   referenceId   String?
   referenceType String?
   notes         String?

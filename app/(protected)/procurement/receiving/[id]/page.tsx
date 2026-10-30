@@ -164,6 +164,53 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
           </tfoot>
         </table>
       </div>
+
+      <StockCard status={rr.status} movements={rr.stockMovements} />
+    </div>
+  )
+}
+
+/**
+ * What this report put into stock — the StockMovement rows its approval
+ * wrote, read back rather than inferred from the lines, so the card shows the
+ * ledger as it is.
+ */
+function StockCard({
+  status,
+  movements,
+}: {
+  status: ReceivingReportDetailDto['status']
+  movements: ReceivingReportDetailDto['stockMovements']
+}) {
+  const empty =
+    status === 'REJECTED'      ? 'Rejected — nothing was added to stock.'
+    : status === 'APPROVED'    ? 'Approved, but every line was rejected — nothing was added to stock.'
+    : 'Nothing added to stock yet — that happens when accounting approves this report.'
+
+  return (
+    <div className="mt-6 rounded-xl border border-gray-200 bg-white p-4">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Stock</p>
+      {movements.length === 0 ? (
+        <p className="text-sm text-gray-500">{empty}</p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {movements.map(movement => (
+            <li key={movement.id} className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-emerald-700">
+                +{trimDecimal(movement.quantity)} {movement.unitAbbreviation}
+              </span>
+              <span className="text-gray-700">{movement.materialName}</span>
+              {movement.unitCost !== null && (
+                <span className="text-gray-500">@ {formatPeso(movement.unitCost)}/{movement.unitAbbreviation}</span>
+              )}
+              <span className="font-mono text-xs text-gray-400">{movement.materialCode}</span>
+              <span className="text-gray-400">
+                → {movement.branchName} · {movement.type} · {movement.createdAt.slice(0, 10)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
