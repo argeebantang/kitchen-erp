@@ -13,7 +13,7 @@ type Decision = 'APPROVED' | 'REJECTED'
  * guard will cover purchase orders later without a second rule.
  */
 type ApprovalActionsProps = {
-  referenceType: 'PurchaseRequest' | 'PurchaseOrder'
+  referenceType: 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'
   referenceId:   string
 }
 
@@ -24,10 +24,10 @@ export function ApprovalActions({ referenceType, referenceId }: ApprovalActionsP
   const [error, setError]     = useState<string | null>(null)
 
   async function decide(decision: Decision) {
-    // A rejection with no reason leaves the requester guessing what to fix.
+    // A rejection with no reason leaves whoever submitted it guessing what to fix.
     // Checked here for fast feedback; the service will enforce it as well.
     if (decision === 'REJECTED' && remarks.trim() === '') {
-      setError('Give a reason when rejecting, so the requester knows what to change.')
+      setError('Give a reason when rejecting, so whoever submitted it knows what to change.')
       return
     }
 

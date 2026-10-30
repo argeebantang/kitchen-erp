@@ -93,7 +93,7 @@ const plan = {
           tasks: [
             { t: "RR form: linked to approved PO, actual received quantities per line", done: true },
             { t: "Variance detection: flag when received differs from what was still outstanding (short / over-delivered / rejected, in pesos)", done: true },
-            "RR approval by accounting",
+            { t: "RR approval by accounting", done: true },
             "On RR approval: inventory_ledger entry written, stock levels updated",
             "Every movement writes to inventory_ledger with source document reference",
             "Current stock dashboard: visual map view — branches/storage locations as a color-coded grid (🟢 healthy / 🟡 low / 🔴 stockout risk) — plus quantities on hand and reorder alerts",

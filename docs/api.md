@@ -87,9 +87,9 @@ The browser is the only client. Server Components read through services directly
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }` or `{ purchaseOrder }` | 400, 401, 403 own submission, 404, 409 already decided |
+| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }` or `{ receivingReport: { id, rrNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
 
-The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. `ReceivingReport` joins `referenceType` in Week 4 task 3.
+The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`); approving one moves only its status until Week 4 task 4 adds the stock update to the same transaction.
 
 ## Receiving reports
 
@@ -97,8 +97,9 @@ The one endpoint for every approve/reject decision. Approving a request also cre
 |---|---|---|---|---|
 | POST | `/api/receiving-reports` | `purchaseOrderId`, `branchId`, `receivedAt`, `notes?`, `items[]` of `purchaseOrderItemId`, `receivedQuantity`, `rejectedQuantity`, `notes?` — one per PO line | 201 `{ receivingReport: { id, rrNumber } }` as `DRAFT` | 400 counts/branch/date, 401, 403, 404 order, 409 order not receivable / another RR open |
 | PATCH | `/api/receiving-reports/[id]` | the same minus `purchaseOrderId` | 200 `{ receivingReport: { id, rrNumber } }`; the caller becomes `receivedById` | 400, 401, 403, 404, 409 not a draft / changed meanwhile |
+| POST | `/api/receiving-reports/[id]/submit` | — | 200 `{ receivingReport: { id, rrNumber } }` → `PENDING_APPROVAL`; `receivedById` unchanged | 400 saved counts break a rule (edit and save first), 401, 403, 404, 409 not a draft |
 
-Rules (both): the order is `SENT` or `PARTIALLY_RECEIVED`; every PO line counted once; rejected ≤ received; received − rejected ≤ outstanding; a line with rejected > 0 has a line note; date not after today (Asia/Manila); not every line zero. Outstanding at save time is stored as each line's `expectedQuantity`, which variance is measured against.
+Rules (create, edit, and re-checked on submit): the order is `SENT` or `PARTIALLY_RECEIVED`; every PO line counted once; rejected ≤ received; received − rejected ≤ outstanding; a line with rejected > 0 has a line note; date not after today (Asia/Manila); not every line zero. Outstanding at save time is stored as each line's `expectedQuantity`, which variance is measured against.
 
 ## Known gaps
 

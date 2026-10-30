@@ -50,7 +50,7 @@ The schema (24 models) groups into these domain areas — see [architecture.md](
 * **Production**: `ProductionOrder` pins `finishedGoodId` + `bomId` + `branchId` + `requestedById` together, so a production run always records exactly which BOM version was used.
 * **Distribution**: `StockTransfer` has two named relations to `Branch` (`TransferFrom`/`TransferTo`) — when querying, be explicit about which side you mean.
 * **Conversions**: `Conversion` has two named relations to `FinishedGood` (`ConversionSource`/`ConversionOutput`). It has no cost, status or approver columns yet (Week 7).
-* **Approvals**: `Approval` is polymorphic — `referenceType` (`'PurchaseRequest' | 'PurchaseOrder'`, plus `'ReceivingReport'` from Week 4 task 3) + `referenceId`, one row per decision, with the approver, `decision`, `remarks`, `decidedAt`. The document's own status column says where it is now; `Approval` says who decided and why.
+* **Approvals**: `Approval` is polymorphic — `referenceType` (`'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'`) + `referenceId`, one row per decision, with the approver, `decision`, `remarks`, `decidedAt`. The document's own status column says where it is now; `Approval` says who decided and why.
 * **Notifications**: `Notification.userId → User`, with an optional polymorphic reference to the document; unread while `readAt` is null.
 
 ## Document numbers

@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { todayIsoDate } from '@/lib/dates'
+import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ReceivingReportForm } from '@/components/procurement/ReceivingReportForm'
@@ -11,6 +12,13 @@ type PageProps = {
 }
 
 export default async function EditReceivingReportPage({ params }: PageProps) {
+  const session = await getSession()
+  if (!session) redirect('/login')
+  // Accounting may read /procurement/receiving but not change a count. A
+  // middleware prefix cannot single out [id]/edit, so the page checks; the
+  // PATCH endpoint is procurement-only in middleware regardless.
+  if (session.role !== 'PROCUREMENT_MANAGER' && session.role !== 'ADMIN') redirect('/unauthorized')
+
   const { id } = await params
 
   const report = await ReceivingReportService.getById(id)

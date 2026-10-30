@@ -33,7 +33,12 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/procurement',           roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   { path: '/procurement/orders',    roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
   { path: '/procurement/approvals', roles: ['ADMIN', 'ACCOUNTING'] },
-  { path: '/procurement/receiving', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
+  // Accounting reads receiving reports to approve them (the decision itself
+  // goes through /api/approvals); only procurement records a delivery. The
+  // edit page, /procurement/receiving/[id]/edit, cannot be matched by a prefix,
+  // so it checks the role itself.
+  { path: '/procurement/receiving', roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
+  { path: '/procurement/receiving/new', roles: ['ADMIN', 'PROCUREMENT_MANAGER'] },
   { path: '/api/purchase-requests', roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   { path: '/api/purchase-orders',   roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
   { path: '/api/approvals',         roles: ['ADMIN', 'ACCOUNTING'] },

@@ -70,6 +70,27 @@ export const ReceivingReportRepository = {
     return new Map(rows.map(row => [row.receivingReportId, row._count._all]))
   },
 
+  /**
+   * Σ (received − rejected) × unitCost per report — what each would add to
+   * stock on approval — for a whole page in one query. Raw SQL because
+   * groupBy can only sum a column, not an expression across columns.
+   * Postgres numeric comes back as Prisma.Decimal. Reports with no lines are
+   * absent.
+   */
+  async acceptedValues(reportIds: string[]): Promise<Map<string, Prisma.Decimal>> {
+    if (reportIds.length === 0) return new Map()
+
+    const rows = await prisma.$queryRaw<{ receivingReportId: string; value: Prisma.Decimal }[]>`
+      SELECT "receivingReportId",
+             SUM(("receivedQuantity" - "rejectedQuantity") * "unitCost") AS value
+      FROM "ReceivingReportItem"
+      WHERE "receivingReportId" IN (${Prisma.join(reportIds)})
+      GROUP BY "receivingReportId"
+    `
+
+    return new Map(rows.map(row => [row.receivingReportId, row.value]))
+  },
+
   async findById(id: string): Promise<ReceivingReportWithDetail | null> {
     return prisma.receivingReport.findUnique({ where: { id }, include: detailInclude })
   },
@@ -183,6 +204,70 @@ export const ReceivingReportRepository = {
       })
     })
   },
+
+  /**
+   * DRAFT → PENDING_APPROVAL. Returns null if the report stopped being a draft
+   * first — see moveStatus. receivedById is left alone: submitting does not
+   * make you the person who counted it.
+   */
+  async submit(id: string): Promise<{ id: string; rrNumber: string } | null> {
+    return prisma.$transaction(tx =>
+      moveStatus(tx, id, RRStatus.DRAFT, { status: RRStatus.PENDING_APPROVAL }),
+    )
+  },
+
+  /**
+   * PENDING_APPROVAL → APPROVED | REJECTED, and the Approval row, in one
+   * transaction. The status moves first: if another decision got there
+   * before us, moveStatus returns null and no Approval row is written — the
+   * same order as PurchaseOrderRepository.decide.
+   *
+   * Approving moves only the status for now. Week 4 task 4 adds the stock
+   * movements, inventory levels and the order's status to this transaction.
+   */
+  async decide(input: {
+    id: string
+    approverId: string
+    decision: 'APPROVED' | 'REJECTED'
+    remarks: string | null
+  }): Promise<{ id: string; rrNumber: string } | null> {
+    return prisma.$transaction(async tx => {
+      const moved = await moveStatus(tx, input.id, RRStatus.PENDING_APPROVAL, {
+        status: input.decision === 'APPROVED' ? RRStatus.APPROVED : RRStatus.REJECTED,
+      })
+      if (moved === null) return null
+
+      await tx.approval.create({
+        data: {
+          referenceType: 'ReceivingReport',
+          referenceId:   input.id,
+          approverId:    input.approverId,
+          decision:      input.decision,
+          remarks:       input.remarks,
+        },
+      })
+
+      return moved
+    })
+  },
+}
+
+/**
+ * Moves a report from one status to another in a single UPDATE whose WHERE
+ * includes the expected current status, the same race guard as
+ * PurchaseOrderRepository's moveStatus: of two concurrent transitions, the
+ * second matches zero rows and gets null instead of overwriting the first.
+ */
+async function moveStatus(
+  tx: Prisma.TransactionClient,
+  id: string,
+  from: RRStatus,
+  data: Prisma.ReceivingReportUncheckedUpdateManyInput,
+): Promise<{ id: string; rrNumber: string } | null> {
+  const { count } = await tx.receivingReport.updateMany({ where: { id, status: from }, data })
+  if (count === 0) return null
+
+  return tx.receivingReport.findUniqueOrThrow({ where: { id }, select: { id: true, rrNumber: true } })
 }
 
 /** A report is never shown without its lines, its order, or who counted it. */

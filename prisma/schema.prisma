@@ -504,7 +504,7 @@ model Conversion {
 /// StockMovement.referenceId is already treated (see docs/database.md).
 model Approval {
   id            String   @id @default(cuid())
-  referenceType String // 'PurchaseRequest' | 'PurchaseOrder'
+  referenceType String // 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'
   referenceId   String
   approverId    String
   approver      User     @relation(fields: [approverId], references: [id])

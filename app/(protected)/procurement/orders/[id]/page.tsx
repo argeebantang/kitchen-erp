@@ -39,9 +39,6 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
   const isOwnSubmission = po.submittedById !== null && po.submittedById === session.userId
   // Same roles middleware lets onto /procurement/receiving.
   const canReceive = isProcurement && (po.status === 'SENT' || po.status === 'PARTIALLY_RECEIVED')
-  // Accounting sees the reports listed but cannot open them yet: middleware
-  // keeps /procurement/receiving to procurement until RR approval (Task 3).
-  const canOpenReceiving = isProcurement
   const { receivingReports } = await ReceivingReportService.list({ purchaseOrderId: po.id, take: 50 })
 
   return (
@@ -150,16 +147,13 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
           <ul className="space-y-1">
             {receivingReports.map(rr => (
               <li key={rr.id} className="flex items-center gap-2 text-sm">
-                {canOpenReceiving ? (
-                  <Link
-                    href={`/procurement/receiving/${rr.id}`}
-                    className="font-mono text-blue-600 hover:underline"
-                  >
-                    {rr.rrNumber}
-                  </Link>
-                ) : (
-                  <span className="font-mono text-gray-700">{rr.rrNumber}</span>
-                )}
+                {/* Every role allowed onto this page may also open /procurement/receiving. */}
+                <Link
+                  href={`/procurement/receiving/${rr.id}`}
+                  className="font-mono text-blue-600 hover:underline"
+                >
+                  {rr.rrNumber}
+                </Link>
                 <StatusBadge status={rr.status} />
                 <VarianceBadge varianceLineCount={rr.varianceLineCount} />
                 <span className="text-gray-400">

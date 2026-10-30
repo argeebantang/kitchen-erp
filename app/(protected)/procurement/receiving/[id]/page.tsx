@@ -5,6 +5,9 @@ import { getSession } from '@/lib/session'
 import { ReceivingReportService, type ReceivingReportDetailDto } from '@/services/receiving-report.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { VarianceChips } from '@/components/procurement/VarianceChips'
+import { ReceivingReportActions } from '@/components/procurement/ReceivingReportActions'
+import { ApprovalActions } from '@/components/procurement/ApprovalActions'
+import { DecisionHistory } from '@/components/procurement/DecisionHistory'
 import { formatPeso, trimDecimal } from '@/lib/format'
 
 type PageProps = {
@@ -20,10 +23,15 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
   if (!result.success) notFound()
 
   const rr = result.data
-  // Same roles ReceivingReportService.update accepts. Middleware already
-  // keeps everyone else off this page; this is ready for Task 3, when
+  // Same roles ReceivingReportService.update and submit accept. Middleware
+  // already keeps everyone else off this page; this is ready for Task 3, when
   // accounting is let in to approve.
   const canEdit = rr.status === 'DRAFT' && (session.role === 'PROCUREMENT_MANAGER' || session.role === 'ADMIN')
+  // The roles middleware lets onto /api/approvals. Nobody decides their own
+  // count, ADMIN included — the service refuses it too.
+  const isPending  = rr.status === 'PENDING_APPROVAL'
+  const isApprover = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
+  const isOwnCount = rr.receivedById === session.userId
 
   return (
     <div>
@@ -73,6 +81,24 @@ export default async function ReceivingReportDetailPage({ params }: PageProps) {
           <p className="text-gray-800">{rr.receivedByName}</p>
         </div>
       </div>
+
+      {canEdit && <ReceivingReportActions receivingReportId={rr.id} />}
+
+      {isPending && isApprover && !isOwnCount && (
+        <ApprovalActions referenceType="ReceivingReport" referenceId={rr.id} />
+      )}
+      {isPending && isApprover && isOwnCount && (
+        <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+          You counted this delivery, so someone else has to decide it.
+        </p>
+      )}
+      {isPending && !isApprover && (
+        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Submitted — waiting for accounting&apos;s decision. Nothing reaches stock until it is approved.
+        </p>
+      )}
+
+      <DecisionHistory decisions={rr.decisions} />
 
       {rr.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">

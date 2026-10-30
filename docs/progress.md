@@ -154,7 +154,13 @@ for the decisions and their rationale.
       rejected with peso values, shown on the RR page, live in the form, and as a "Match" /
       "Variance · N lines" badge on the receiving list and the order page. A rejected quantity
       needs a line note. A flag, not a block — accounting decides on approval.
-- [ ] RR approval
+- [x] RR approval — procurement submits a draft (`POST /api/receiving-reports/[id]/submit`,
+      re-checking the saved counts first); accounting approves or rejects through the shared
+      `POST /api/approvals` (`referenceType: 'ReceivingReport'`), from a new "Receiving reports"
+      section of the inbox showing value and variance. Nobody decides a count they made
+      (`receivedById`), ADMIN included; rejecting needs a reason and is terminal. Accounting can
+      now read `/procurement/receiving` but not record or edit. Approving moves only the RR's
+      status — stock, ledger and the PO status come with the next task, in the same transaction.
 - [ ] Inventory ledger entry + stock update on RR approval
 - [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table
 - [ ] BullMQ daily low-stock check job

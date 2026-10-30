@@ -15,11 +15,11 @@ Built (Weeks 1–4 so far):
 * Versioned Bills of Materials, stated per batch and scalable to a target quantity
 * Purchase Requests: draft → submit → approve/reject by accounting; approval auto-creates a draft Purchase Order
 * Purchase Orders: sourcing (supplier, delivery date, re-pricing), submit → approve/reject → mark sent, PDF export
-* Receiving Reports (Week 4, in progress): record a delivery line by line against a sent order, as an editable draft
+* Receiving Reports (Week 4, in progress): record a delivery line by line against a sent order, with variance (short / over-delivered / rejected) against what was outstanding; submit it, and accounting approves or rejects
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * In-app notification rows written by a BullMQ worker when a request is submitted
 
-Planned (see the roadmap): RR approval with stock update and ledger, stock map, low-stock job, production orders, transfers, conversions, costing, AI features.
+Planned (see the roadmap): stock update and ledger on RR approval, stock map, low-stock job, production orders, transfers, conversions, costing, AI features.
 
 ## Tech Stack
 

@@ -8,6 +8,8 @@ import {
   ReceivingReportRepository,
 } from '@/repositories/receiving-report.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { ApprovalRepository } from '@/repositories/approval.repository'
+import type { ApprovalDto } from '@/services/purchase-request.service'
 
 /** One purchase order line as the receiving form shows it. */
 export type ReceivingLineDto = {
@@ -64,6 +66,8 @@ export type ReceivingReportSummaryDto = {
   lineCount: number
   /** Lines whose count differs from what was expected; 0 is a match. */
   varianceLineCount: number
+  /** What the report adds to stock on approval: Σ accepted × unit cost. */
+  acceptedValue: string
 }
 
 export type ReceivingReportLineDto = {
@@ -131,6 +135,8 @@ export type ReceivingReportDetailDto = {
   acceptedValue: string
   variance: ReportVarianceDto
   lines: ReceivingReportLineDto[]
+  /** Newest first. Empty until accounting decides. */
+  decisions: ApprovalDto[]
 }
 
 export type ReceivingReportResult<T> =
@@ -315,7 +321,11 @@ export const ReceivingReportService = {
    */
   async list(filters: ReceivingReportListFilters = {}) {
     const { rows, total } = await ReceivingReportRepository.findMany(filters)
-    const varianceLines   = await ReceivingReportRepository.varianceLineCounts(rows.map(rr => rr.id))
+    const ids             = rows.map(rr => rr.id)
+    const [varianceLines, acceptedValues] = await Promise.all([
+      ReceivingReportRepository.varianceLineCounts(ids),
+      ReceivingReportRepository.acceptedValues(ids),
+    ])
 
     return {
       receivingReports: rows.map<ReceivingReportSummaryDto>(rr => ({
@@ -330,6 +340,7 @@ export const ReceivingReportService = {
         receivedAt:      rr.receivedAt.toISOString(),
         lineCount:       rr._count.items,
         varianceLineCount: varianceLines.get(rr.id) ?? 0,
+        acceptedValue:     toDecimalString(acceptedValues.get(rr.id) ?? new Prisma.Decimal(0)),
       })),
       total,
     }
@@ -341,7 +352,8 @@ export const ReceivingReportService = {
       return { success: false, error: 'Receiving report not found', status: 404 }
     }
 
-    const zero = new Prisma.Decimal(0)
+    const zero      = new Prisma.Decimal(0)
+    const decisions = await ApprovalRepository.findByReference('ReceivingReport', rr.id)
 
     // Accepted and its value are derived, never stored: received and rejected
     // are the facts, and storing a third column invites the three to disagree.
@@ -416,6 +428,13 @@ export const ReceivingReportService = {
           rejectedValue: toDecimalString(refusedTotal),
         },
         lines,
+        decisions: decisions.map(decision => ({
+          id:           decision.id,
+          decision:     decision.decision,
+          remarks:      decision.remarks,
+          approverName: decision.approver.name,
+          decidedAt:    decision.decidedAt.toISOString(),
+        })),
       },
     }
   },
@@ -557,5 +576,106 @@ export const ReceivingReportService = {
     }
 
     return { success: true, data: updated }
+  },
+
+  /**
+   * DRAFT → PENDING_APPROVAL. Procurement only, like recording and editing.
+   *
+   * The saved counts go through validateCounts again first. A draft can have
+   * been saved under an earlier rule (a rejected quantity without a note
+   * predates subtask 2.4), or its branch deactivated since; accounting should
+   * never be asked to approve a report the form would refuse today.
+   */
+  async submit(id: string, viewer: Viewer): Promise<ReceivingReportResult<{ id: string; rrNumber: string }>> {
+    if (!canReceive(viewer.role)) {
+      return { success: false, error: 'Only procurement can submit a receiving report', status: 403 }
+    }
+
+    const rr = await ReceivingReportRepository.findById(id)
+    if (!rr) {
+      return { success: false, error: 'Receiving report not found', status: 404 }
+    }
+
+    if (rr.status !== RRStatus.DRAFT) {
+      return {
+        success: false,
+        error:   `This report is already ${rr.status.replace(/_/g, ' ').toLowerCase()} and cannot be submitted again`,
+        status:  409,
+      }
+    }
+
+    const po = await PurchaseOrderRepository.findById(rr.purchaseOrderId)
+    if (!po) {
+      return { success: false, error: 'Purchase order not found', status: 404 }
+    }
+
+    const checked = await validateCounts(po, {
+      branchId:   rr.branchId,
+      receivedAt: rr.receivedAt.toISOString().slice(0, 10),
+      notes:      rr.notes,
+      items:      rr.items.map(item => ({
+        purchaseOrderItemId: item.purchaseOrderItemId,
+        receivedQuantity:    item.receivedQuantity.toString(),
+        rejectedQuantity:    item.rejectedQuantity.toString(),
+        notes:               item.notes,
+      })),
+    })
+    if (!checked.success) {
+      return { ...checked, error: `${checked.error}. Edit the draft and save it, then submit.` }
+    }
+
+    const submitted = await ReceivingReportRepository.submit(id)
+    if (!submitted) {
+      return { success: false, error: 'This report changed while you were submitting it — reload and try again', status: 409 }
+    }
+
+    return { success: true, data: submitted }
+  },
+
+  /**
+   * PENDING_APPROVAL → APPROVED | REJECTED. Called from POST /api/approvals,
+   * which middleware already restricts to ACCOUNTING and ADMIN.
+   *
+   * The counter cannot decide their own count, ADMIN included. receivedById is
+   * whoever last saved the draft and cannot change once it is submitted, so
+   * this read cannot go stale.
+   */
+  async applyDecision(
+    id: string,
+    viewer: Viewer,
+    decision: 'APPROVED' | 'REJECTED',
+    remarks: string | null,
+  ): Promise<ReceivingReportResult<{ id: string; rrNumber: string }>> {
+    const rr = await ReceivingReportRepository.findById(id)
+    if (!rr) {
+      return { success: false, error: 'Receiving report not found', status: 404 }
+    }
+
+    if (rr.receivedById === viewer.userId) {
+      return {
+        success: false,
+        error:   'You counted this delivery, so someone else has to decide it',
+        status:  403,
+      }
+    }
+
+    if (rr.status !== RRStatus.PENDING_APPROVAL) {
+      return {
+        success: false,
+        error:   `This report is ${rr.status.replace(/_/g, ' ').toLowerCase()} and is no longer awaiting a decision`,
+        status:  409,
+      }
+    }
+
+    if (decision === 'REJECTED' && (remarks === null || remarks.trim() === '')) {
+      return { success: false, error: 'Give a reason when rejecting', status: 400 }
+    }
+
+    const decided = await ReceivingReportRepository.decide({ id, approverId: viewer.userId, decision, remarks })
+    if (!decided) {
+      return { success: false, error: 'This report was decided by someone else just now', status: 409 }
+    }
+
+    return { success: true, data: decided }
   },
 }

@@ -283,3 +283,96 @@ the database and reload: the variance is unchanged (then flip it back to `DRAFT`
   detail page in the last cent on unusual unit costs.
 - No tolerance. Variance on weighed goods may be noisy.
 - Variance is not yet surfaced to accounting — the approvals inbox gains RRs in Task 3.
+
+---
+
+## Task 3 — RR approval by accounting
+
+Procurement submits a draft receiving report; accounting approves or rejects it from the
+approvals inbox, through the same `POST /api/approvals` that PRs and POs use. Approving moves
+only the report's status for now — Task 4 adds the stock update to the same transaction.
+
+Built in subtasks 3.1–3.4.
+
+**Decisions**
+
+| Area | Decision | Rationale |
+|---|---|---|
+| Approval before stock | Approve flips the RR to `APPROVED` and writes the `Approval` row; Task 4 extends the same repository `decide()` with the ledger, stock levels and the order's status | A checkpoint between "the approval works" and "stock is right". Building both at once was the alternative. Cost: an RR approved while testing Task 3 has no stock movements, and its acceptance already counts toward outstanding while the PO stays `SENT` — reset before Task 4. |
+| Self-approval | Approver compared with `receivedById`; submitting does not change it | Same rule as the PO's `submittedById` check, no new column. An admin who submits a draft Juan counted can still approve it: two people are involved. |
+| Submit | Re-runs `validateCounts` on the saved counts | A draft saved under an older rule (RR-000001 had 0.5 rejected and no note before 2.4) or whose branch was deactivated must not reach accounting. |
+| Rejection | Reason required; `REJECTED` terminal; outstanding untouched | Same as PR and PO. Procurement records a fresh count; a rejected report no longer counts as open. |
+| Accounting access | Reads `/procurement/receiving`; cannot open the new form or the edit page; `/api/receiving-reports` stays procurement-only | Accounting decides through `/api/approvals` and never changes a count. |
+| Notification | None on submit | Same as PO submit; Week 11's bell can add it. |
+
+**What changed**
+
+- *3.1 Submit.* `POST /api/receiving-reports/[id]/submit` → `ReceivingReportService.submit`
+  (403 role, 404, 409 not a draft, the re-check, 409 lost race) → repository `submit`, via a
+  private `moveStatus` with the expected status in the `WHERE`. `ReceivingReportActions` puts a
+  "Submit for approval" card on a draft; a pending report shows "waiting for accounting".
+- *3.2 Accounting read access.* `/procurement/receiving` guard and the sidebar link add
+  ACCOUNTING; a narrower `/procurement/receiving/new` guard keeps recording to procurement; the
+  edit page redirects other roles itself, since a prefix cannot match `[id]/edit`. The order
+  page's `canOpenReceiving` flag is gone — every role on that page may now open receiving.
+- *3.3 Inbox.* A "Receiving reports" section on `/procurement/approvals`: number, order,
+  supplier, counted by, received, accepted value, variance badge. The header counts all three
+  kinds. `ReceivingReportRepository.acceptedValues(ids)` sums
+  `(received − rejected) × unitCost` per report in one raw query per page — `groupBy` can only
+  sum a column, not an expression — and the list DTO gains `acceptedValue`.
+- *3.4 Approve / reject.* `/api/approvals` accepts `referenceType: 'ReceivingReport'`;
+  `ReceivingReportService.applyDecision` refuses 404 → 403 own count → 409 not pending → 400
+  reject without a reason; repository `decide()` moves the status then writes the `Approval`
+  row in one transaction. The RR page shows `ApprovalActions` to an approver who did not count
+  it, "You counted this delivery…" to one who did, and `DecisionHistory`. `ApprovalActions`'
+  reject hint now says "whoever submitted it" rather than "the requester".
+
+**Files affected**
+
+- `middleware.ts`, `lib/navigation.ts`
+- `repositories/receiving-report.repository.ts`, `services/receiving-report.service.ts`
+- `app/api/receiving-reports/[id]/submit/route.ts` (new), `app/api/approvals/route.ts`
+- `components/procurement/ReceivingReportActions.tsx` (new), `components/procurement/ApprovalActions.tsx`
+- `app/(protected)/procurement/receiving/[id]/page.tsx`, `app/(protected)/procurement/receiving/[id]/edit/page.tsx`, `app/(protected)/procurement/approvals/page.tsx`, `app/(protected)/procurement/orders/[id]/page.tsx`
+- `prisma/schema.prisma` (comment only)
+- `docs/api.md`, `docs/architecture.md`, `docs/database.md`, `docs/overview.md`, `docs/progress.md`, this note, `kitchenERP-sprint-v3.jsx`
+
+**Database changes**
+
+None. `Approval.referenceType` already takes any string; its comment in `schema.prisma` now
+lists `'ReceivingReport'`. Drift check: empty.
+
+**API changes**
+
+- New: `POST /api/receiving-reports/[id]/submit` — 200 · 400 saved counts break a rule · 401 ·
+  403 · 404 · 409 not a draft.
+- `POST /api/approvals` accepts `referenceType: 'ReceivingReport'` and returns
+  `{ receivingReport: { id, rrNumber } }`; 403 when the approver counted it.
+
+**UI changes**
+
+- RR page: Submit card (draft), Approve / Reject or "you counted this" (pending), decision history.
+- Approvals inbox: Receiving reports section.
+- Sidebar: Receiving for accounting. Order page: RR numbers always links.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run build        # stop `npm run dev` first; it clobbers .next
+```
+
+As procurement, submit RR-000001: it becomes PENDING APPROVAL and loses its Edit button. As
+accounting, it appears in Approvals with its value and variance; Reject without remarks is
+refused; Approve shows "Approved by Accounting User" and writes one `Approval` row with
+`referenceType = 'ReceivingReport'`. `StockMovement` and `InventoryLevel` stay empty. As
+accounting, `/procurement/receiving/new` and the edit page redirect to `/unauthorized`.
+
+**Risks / assumptions / follow-up**
+
+- Between Task 3 and Task 4, an approved RR has no stock movements and its order stays `SENT`
+  although its outstanding has dropped. Any RR approved while testing is reset before Task 4
+  (status back to `PENDING_APPROVAL`, its `Approval` row deleted).
+- The self-approval check reads `receivedById` before the transaction. It cannot go stale —
+  only a draft save changes it, and a pending report cannot be saved.
+- The inbox is capped at 100 pending reports per section, like PRs and POs, with no paging.

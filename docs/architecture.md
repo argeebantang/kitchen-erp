@@ -32,8 +32,9 @@ Server Components under `app/(protected)/` read directly rather than round-tripp
 A path guard can say who may reach a URL, not what they may do there. Where one path serves several roles doing different things, the service checks the role for the action:
 
 - Accounting must reach `/api/purchase-orders` to approve, but must not edit a draft — `PurchaseOrderService.updateDraft` refuses non-procurement roles.
+- Accounting reads `/procurement/receiving` to approve reports, but `/procurement/receiving/new` has its own procurement-only guard, and the edit page (`[id]/edit`, which no prefix can match) redirects other roles itself.
 - All approve/reject decisions go through **one** endpoint, `POST /api/approvals` (guarded to ADMIN + ACCOUNTING), which dispatches on `referenceType`. Every other transition has its own endpoint (`.../submit`, `.../send`).
-- **Nobody approves their own work, ADMIN included.** The approver is compared with the person who submitted (PR: requester; PO: `submittedById`; RR: `receivedById`, who is whoever last saved it).
+- **Nobody approves their own work, ADMIN included.** The approver is compared with the person responsible (PR: requester; PO: `submittedById`; RR: `receivedById`, who is whoever last saved the draft — submitting does not change it).
 
 ## Layers in detail
 
@@ -65,7 +66,7 @@ Defined in `prisma/schema.prisma` (24 models, PostgreSQL). Domain areas:
 - **Inventory**: `InventoryLevel` (current on-hand per material per branch) and `StockMovement` (append-only ledger, per material per branch, typed by `MovementType`, referencing its source document).
 - **Production**: `ProductionOrder`, `Conversion` (not yet built).
 - **Distribution**: `StockTransfer`/`StockTransferItem` (not yet built).
-- **Approvals**: `Approval` is polymorphic (`referenceType` + `referenceId`), one row per decision on a PR, PO or (from Week 4 task 3) RR.
+- **Approvals**: `Approval` is polymorphic (`referenceType` + `referenceId`), one row per decision on a PR, PO or RR.
 - **Notifications**: `Notification` rows per user, unread while `readAt` is null.
 
 See [database.md](database.md) for relationships, indexes and migration rules.
