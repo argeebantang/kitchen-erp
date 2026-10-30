@@ -61,6 +61,13 @@ export const ReceivingReportRepository = {
     return { rows, total }
   },
 
+  /** id → rrNumber for a batch of reports, e.g. the ledger's source links. */
+  async numbersByIds(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map()
+    const rows = await prisma.receivingReport.findMany({ where: { id: { in: ids } }, select: { id: true, rrNumber: true } })
+    return new Map(rows.map(row => [row.id, row.rrNumber]))
+  },
+
   /**
    * How many lines of each report have a variance, counted by the database in
    * one query for a whole page of reports. A line has one exactly when

@@ -95,7 +95,7 @@ const plan = {
             { t: "Variance detection: flag when received differs from what was still outstanding (short / over-delivered / rejected, in pesos)", done: true },
             { t: "RR approval by accounting", done: true },
             { t: "On RR approval: inventory_ledger entry written, stock levels updated", done: true },
-            "Every movement writes to inventory_ledger with source document reference",
+            { t: "Every movement writes to inventory_ledger with source document reference", done: true },
             "Current stock dashboard: visual map view — branches/storage locations as a color-coded grid (🟢 healthy / 🟡 low / 🔴 stockout risk) — plus quantities on hand and reorder alerts",
             "BullMQ daily low-stock check job",
           ],

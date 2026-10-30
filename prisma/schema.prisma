@@ -411,6 +411,19 @@ model InventoryLevel {
   @@unique([materialId, branchId])
 }
 
+/// The stock ledger: append-only, one row per change to one material at one
+/// branch. Two rules every writer keeps:
+///
+/// - quantity is SIGNED — positive into stock, negative out of it — so the
+///   balance is SUM(quantity) and must equal InventoryLevel.quantity for the
+///   same material and branch. MovementType alone cannot give direction: a
+///   TRANSFER is out at one branch and in at another.
+/// - every row names the document that caused it (referenceType +
+///   referenceId, e.g. 'ReceivingReport' + its id). Polymorphic, so not a
+///   foreign key, but NOT NULL.
+///
+/// Write through InventoryRepository, which changes the ledger and the level
+/// together on the caller's transaction.
 model StockMovement {
   id            String       @id @default(cuid())
   materialId    String
@@ -425,8 +438,8 @@ model StockMovement {
   /// copied from its line. Null where no cost rule exists yet (outgoing,
   /// adjustments, transfers): the costing method is Week 6's decision.
   unitCost      Decimal?
-  referenceId   String?
-  referenceType String?
+  referenceId   String
+  referenceType String
   notes         String?
   createdAt     DateTime     @default(now())
 

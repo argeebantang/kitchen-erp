@@ -144,6 +144,8 @@ export type ReceivingReportDetailDto = {
 
 export type StockMovementDto = {
   id: string
+  materialId: string
+  branchId: string
   materialCode: string
   materialName: string
   unitAbbreviation: string
@@ -456,6 +458,8 @@ export const ReceivingReportService = {
         })),
         stockMovements: movements.map(movement => ({
           id:               movement.id,
+          materialId:       movement.materialId,
+          branchId:         movement.branchId,
           materialCode:     movement.material.code,
           materialName:     movement.material.name,
           unitAbbreviation: movement.material.unit.abbreviation,

@@ -170,6 +170,14 @@ for the decisions and their rationale.
       all of it back (409). New `StockMovement.unitCost` (migration
       `20261030034822_stock_movement_unit_cost`). The RR page shows what reached stock. Race,
       partial, all-rejected, rejection and cancelled-order cases verified.
+- [x] Every movement writes to the ledger with its source document — `StockMovement.referenceType`
+      / `referenceId` are now `NOT NULL` (migration
+      `20261030060104_stock_movement_reference_required`), and quantities are signed (in +,
+      out −) so the balance is `SUM(quantity)`. New **Stock Ledger** page (`/inventory/ledger`,
+      every role): movements newest first, paged, filtered by material and branch in the URL,
+      each linked to its source document for roles that can open it; with one material at one
+      branch, a running balance (SQL window function) and a ✓ / ✗ check against
+      `InventoryLevel`. The RR page's Stock card links into it.
 - [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table
 - [ ] BullMQ daily low-stock check job
 

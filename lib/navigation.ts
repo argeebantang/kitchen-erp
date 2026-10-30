@@ -9,7 +9,8 @@ import {
   Users,
   Settings,
   Map,
-  ClipboardCheck
+  ClipboardCheck,
+  ScrollText
 } from 'lucide-react'
 
 export type NavItem = {
@@ -52,6 +53,7 @@ export const navigation: NavGroup[] = [
     group: 'Inventory',
     items: [
       { label: 'Stock Levels', href: '/inventory/stock',     icon: BarChart3, roles: [] },
+      { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'BRANCH_MANAGER'] },
     ],
   },

@@ -472,3 +472,92 @@ at Main Commissary, PO-000002 fully received.
 - The roadmap's next item, "Every movement writes to inventory_ledger with source document
   reference", is true for the only movement type that exists; Task 5 decides what more it needs
   (the ledger trail view).
+
+---
+
+## Task 5 — Every movement writes to the ledger with its source document
+
+Receiving was already the only writer and already set a reference, so this task makes the rule
+a database guarantee and gives the ledger a screen: the Stock Ledger, with each movement's
+source document, a running balance, and a check that the ledger agrees with the stock level.
+
+Built in subtasks 5.1–5.4.
+
+**Decisions**
+
+| Area | Decision | Rationale |
+|---|---|---|
+| Reference required | `StockMovement.referenceType` + `referenceId` `NOT NULL` | Every planned movement has a source document (RR, production order, transfer, write-off / adjustment). A column the database enforces beats a convention each future writer has to remember. |
+| Signed quantities | Into stock positive, out negative | The balance is `SUM(quantity)` and must equal `InventoryLevel`. `MovementType` cannot carry direction: a `TRANSFER` is out at one branch and in at another. Always-positive with direction from the type was the alternative; it would have split `TRANSFER` in two later. Sets the rule for Weeks 5–8. No data changed — the one `IN` row was already positive. |
+| Running balance | SQL window function over (material, branch), ordered by `createdAt, id` | Right on any page without loading earlier pages; uses the `(materialId, branchId, createdAt)` index. |
+| Reconciliation | Ledger total vs `InventoryLevel`, ✓ / ✗, for one material at one branch | Cheap, and catches any future writer that bypasses `InventoryRepository`. |
+| Access | Every signed-in role reads the ledger | Same as Stock Levels; no branch isolation exists yet (`docs/database.md`). |
+| Source links | Document numbers resolved per page, one query per type; a link only for roles that can open it | Not read from the free-text `notes`. |
+| Money | Per-row value (quantity × `unitCost`) where a cost exists; the balance in units | Valuing a balance is Week 6 costing. |
+
+**What changed**
+
+- *5.1 Ledger page.* `/inventory/ledger`, sidebar "Stock Ledger" for every role. Newest first,
+  50 per page (Newer / Older); a GET form filters by material and branch, so a filtered ledger
+  is a URL. Columns: date · material · branch · type · signed quantity · unit cost · value ·
+  source. `InventoryRepository.findMovements` (paged, `id` breaks ties);
+  `ReceivingReportRepository.numbersByIds`; new `InventoryService.ledger` builds the rows and,
+  through `SOURCE_PAGES`, decides per role whether a source is a link — production orders and
+  transfers each add one entry there.
+- *5.2 Balance and reconciliation.* With both filters set: `runningBalances` (raw
+  `SUM(quantity) OVER (ORDER BY "createdAt", id)`, filtered to the page's ids afterwards) adds
+  a Balance column; `reconcile` puts the ledger's sum beside `InventoryLevel` (no row = 0), shown
+  as "✓ Ledger 4 kg = stock level 4 kg" or a red mismatch. Checked with temporary rows +5, −2,
+  +1 read one per page (balances 4, 3, 5) and with a level changed behind the ledger's back.
+- *5.3 Links in.* Each row of the RR page's Stock card opens the ledger filtered to that
+  material and branch. Task 6's stock-map tiles will link the same way.
+- *5.4 Enforce.* Migration below; the model's doc comment records both rules and points
+  writers at `InventoryRepository`; the service's null handling for `source` is gone. An
+  `INSERT` without a reference now fails with a not-null violation.
+
+**Files affected**
+
+- `prisma/schema.prisma`, `prisma/migrations/20261030060104_stock_movement_reference_required/migration.sql` (new)
+- `repositories/inventory.repository.ts`, `repositories/receiving-report.repository.ts`
+- `services/inventory.service.ts` (new), `services/receiving-report.service.ts`
+- `app/(protected)/inventory/ledger/page.tsx` (new), `app/(protected)/procurement/receiving/[id]/page.tsx`, `lib/navigation.ts`
+- `docs/database.md`, `docs/architecture.md`, `docs/overview.md`, `docs/progress.md`, this note, `kitchenERP-sprint-v3.jsx`
+
+**Database changes**
+
+Migration `20261030060104_stock_movement_reference_required`: `ALTER COLUMN "referenceId" SET
+NOT NULL, ALTER COLUMN "referenceType" SET NOT NULL` on `StockMovement`. Checked first: 1 row,
+both set. On a table with null references it would need a backfill before tightening. Drift
+check: empty. The signed-quantity rule is documented, not enforced by a `CHECK` — a constraint
+cannot say "IN is positive" while `TRANSFER` goes either way — so it lives in
+`InventoryRepository` and the reconciliation check.
+
+**API changes**
+
+None — the ledger is a Server Component reading through `InventoryService`.
+
+**UI changes**
+
+New Stock Ledger page and sidebar link. RR page Stock card rows link into it.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run build        # stop `npm run dev` first; it clobbers .next
+```
+
+Open Stock Ledger: RR-000001's `+4 kg` Pork Belly row, its source a link for admin /
+procurement / accounting and plain text for the other roles. Filter to Pork Belly + Main
+Commissary: Balance 4 kg and "✓ Ledger 4 kg = stock level 4 kg". From RR-000001's Stock card,
+the row opens that same filtered view.
+
+**Risks / assumptions / follow-up**
+
+- Signed quantities depend on writers; the reconciliation check is the safety net, and only
+  when someone looks. A scheduled reconciliation (alongside Task 7's low-stock job) would make
+  it automatic.
+- The ledger has no date filter yet; paging is enough at today's volume.
+- Material and branch pickers list active ones only; a deactivated material's history is
+  reachable only through a URL or an RR's Stock card.
+- No branch isolation: a branch manager sees every branch's ledger, as with every other page.

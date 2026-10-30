@@ -195,18 +195,27 @@ function StockCard({
       ) : (
         <ul className="space-y-1 text-sm">
           {movements.map(movement => (
-            <li key={movement.id} className="flex flex-wrap items-center gap-2">
-              <span className="font-medium text-emerald-700">
-                +{trimDecimal(movement.quantity)} {movement.unitAbbreviation}
-              </span>
-              <span className="text-gray-700">{movement.materialName}</span>
-              {movement.unitCost !== null && (
-                <span className="text-gray-500">@ {formatPeso(movement.unitCost)}/{movement.unitAbbreviation}</span>
-              )}
-              <span className="font-mono text-xs text-gray-400">{movement.materialCode}</span>
-              <span className="text-gray-400">
-                → {movement.branchName} · {movement.type} · {movement.createdAt.slice(0, 10)}
-              </span>
+            <li key={movement.id}>
+              {/* Opens the ledger filtered to this material at this branch, where the
+                  running balance and the check against the stock level appear. */}
+              <Link
+                href={`/inventory/ledger?material=${movement.materialId}&branch=${movement.branchId}`}
+                className="-mx-2 flex flex-wrap items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-gray-50"
+                title="Open this material's ledger at this branch"
+              >
+                <span className="font-medium text-emerald-700">
+                  +{trimDecimal(movement.quantity)} {movement.unitAbbreviation}
+                </span>
+                <span className="text-gray-700">{movement.materialName}</span>
+                {movement.unitCost !== null && (
+                  <span className="text-gray-500">@ {formatPeso(movement.unitCost)}/{movement.unitAbbreviation}</span>
+                )}
+                <span className="font-mono text-xs text-gray-400">{movement.materialCode}</span>
+                <span className="text-gray-400">
+                  → {movement.branchName} · {movement.type} · {movement.createdAt.slice(0, 10)}
+                </span>
+                <span className="ml-auto text-xs text-orange-600">Ledger →</span>
+              </Link>
             </li>
           ))}
         </ul>
