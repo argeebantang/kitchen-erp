@@ -16,11 +16,12 @@ Built (Weeks 1–4 so far):
 * Purchase Requests: draft → submit → approve/reject by accounting; approval auto-creates a draft Purchase Order
 * Purchase Orders: sourcing (supplier, delivery date, re-pricing), submit → approve/reject → mark sent, PDF export
 * Receiving Reports (Week 4, in progress): record a delivery line by line against a sent order, with variance (short / over-delivered / rejected) against what was outstanding; submit it, and accounting approves or rejects — approval writes the stock ledger and levels and moves the order to partially / fully received
+* Stock Levels: a colour-coded stock map per branch (🔴 out / 🟡 low / 🟢 healthy against each material's reorder point), reorder alerts, filters, a per-tile popup linking to the ledger, refreshed every 30 s
 * Stock Ledger: every stock movement with its source document, running balance per material and branch, and a check against the stock level
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * In-app notification rows written by a BullMQ worker when a request is submitted
 
-Planned (see the roadmap): stock map, low-stock job, production orders, transfers, conversions, costing, AI features.
+Planned (see the roadmap): low-stock job, production orders, transfers, conversions, costing, AI features.
 
 ## Tech Stack
 
@@ -37,9 +38,9 @@ Planned (see the roadmap): stock map, low-stock job, production orders, transfer
 
 * `app/` — Next.js App Router pages and route handlers
   * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
-  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/ledger`, `production/bom`, `admin/master`
+  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/ledger`, `production/bom`, `admin/master`
   * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`
-* `components/` — `dashboard/` (Sidebar, Topbar), `master/`, `bom/`, `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`)
+* `components/` — `dashboard/` (Sidebar, Topbar), `master/`, `inventory/` (`StockMap`, `StockTile`), `bom/`, `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`)
 * `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
 * `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
 * `services/` — business rules above the repositories

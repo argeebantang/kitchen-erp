@@ -178,7 +178,14 @@ for the decisions and their rationale.
       each linked to its source document for roles that can open it; with one material at one
       branch, a running balance (SQL window function) and a ✓ / ✗ check against
       `InventoryLevel`. The RR page's Stock card links into it.
-- [ ] Current stock dashboard — visual map view (branches/storage locations as a color-coded grid: 🟢 healthy / 🟡 low / 🔴 stockout risk), not just a table
+- [x] Current stock dashboard — visual map view — **Stock Levels** (`/inventory/stock`, every
+      role): one panel per branch, a tile per active material coloured 🔴 out (≤ 0) / 🟡 low
+      (≤ reorder point) / 🟢 healthy / ⚪ no reorder point, grouped by category, with counts, a
+      reorder-alerts list (red then yellow, with the shortfall), branch/status filters in the URL,
+      and a popup per tile linking to its ledger — the slot for Week 10's Reorder Recommender.
+      Refreshes every 30 s (`router.refresh()`); "last movement" comes from
+      `InventoryLevel.updatedAt` so a refresh never scans the ledger. "Stockout risk" means out
+      of stock until usage data exists (Week 6+).
 - [ ] BullMQ daily low-stock check job
 
 **Note (2026-10-30):** three API gaps from Weeks 1–2 closed — `/api/auth/register` was public and

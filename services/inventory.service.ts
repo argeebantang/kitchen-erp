@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client'
 import { toDecimalString } from '@/lib/decimal'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository, LedgerFilters } from '@/repositories/inventory.repository'
 import { ReceivingReportRepository } from '@/repositories/receiving-report.repository'
 
@@ -38,6 +40,72 @@ export type LedgerRowDto = {
   /** Every movement has one — the columns are NOT NULL. */
   source: SourceDocumentDto
   notes: string | null
+}
+
+/**
+ * How one material stands at one branch, as the stock map colours it:
+ * OUT 🔴, LOW 🟡, HEALTHY 🟢, UNTRACKED ⚪ (no reorder point set).
+ */
+export type StockStatus = 'OUT' | 'LOW' | 'HEALTHY' | 'UNTRACKED'
+
+export type StockTileDto = {
+  materialId: string
+  materialCode: string
+  materialName: string
+  unitAbbreviation: string
+  quantity: string
+  reorderPoint: string
+  /** reorderPoint − quantity while OUT or LOW; otherwise null. */
+  shortfall: string | null
+  status: StockStatus
+  lastMovementAt: string | null
+}
+
+export type BranchStockDto = {
+  branchId: string
+  branchName: string
+  counts: Record<StockStatus, number>
+  categories: { name: string; tiles: StockTileDto[] }[]
+}
+
+export type StockMapFilters = {
+  branchId?: string
+  status?: StockStatus
+}
+
+/** A tile that needs ordering, with the branch it is at. */
+export type ReorderAlertDto = StockTileDto & { branchId: string; branchName: string }
+
+/**
+ * The stock map's colour rule, in one place so the low-stock job (Task 7) and
+ * Week 10's usage-based reorder rule can share or replace it.
+ *
+ * Nothing measures consumption yet, so "stockout risk" can only mean already
+ * out. A reorder point of 0 means nobody has set one, so there is no "low" to
+ * measure against — UNTRACKED, whatever the quantity.
+ */
+export function stockStatus(quantity: Prisma.Decimal, reorderPoint: Prisma.Decimal): StockStatus {
+  if (reorderPoint.lte(0))        return 'UNTRACKED'
+  if (quantity.lte(0))            return 'OUT'
+  if (quantity.lte(reorderPoint)) return 'LOW'
+  return 'HEALTHY'
+}
+
+/**
+ * What to order, from the stock map: every OUT tile, then every LOW one,
+ * across all branches. The sort is stable, so within a status the map's own
+ * order (branch, category, name) holds. Shortfalls are not ranked against each
+ * other — they are in different units.
+ */
+export function reorderAlerts(branches: BranchStockDto[]): ReorderAlertDto[] {
+  const alerts = branches.flatMap(branch =>
+    branch.categories.flatMap(category =>
+      category.tiles
+        .filter(tile => tile.status === 'OUT' || tile.status === 'LOW')
+        .map(tile => ({ ...tile, branchId: branch.branchId, branchName: branch.branchName })),
+    ),
+  )
+  return alerts.sort((a, b) => Number(b.status === 'OUT') - Number(a.status === 'OUT'))
 }
 
 /**
@@ -119,5 +187,61 @@ export const InventoryService = {
     }
 
     return { movements, total, reconciliation }
+  },
+
+  /**
+   * The stock map: every active material at every active branch, grouped by
+   * category in the order the repository returns them. A missing level row is
+   * zero stock — a material never received must show red, not disappear.
+   *
+   * Filters narrow the branches and the tiles shown, but a branch's counts
+   * always cover all its materials, so they still read as the whole picture.
+   * A category left with no tiles is dropped.
+   */
+  async stockMap(filters: StockMapFilters = {}): Promise<BranchStockDto[]> {
+    const [branches, { materials, levels }] = await Promise.all([
+      BranchRepository.findAllActive(),
+      InventoryRepository.stockPositions(),
+    ])
+
+    const key = (materialId: string, branchId: string) => `${materialId}:${branchId}`
+    const levelsByKey = new Map(levels.map(level => [key(level.materialId, level.branchId), level]))
+    const zero = new Prisma.Decimal(0)
+
+    const shown = filters.branchId ? branches.filter(branch => branch.id === filters.branchId) : branches
+
+    return shown.map<BranchStockDto>(branch => {
+      const counts: Record<StockStatus, number> = { OUT: 0, LOW: 0, HEALTHY: 0, UNTRACKED: 0 }
+      const categories: BranchStockDto['categories'] = []
+
+      for (const material of materials) {
+        const level = levelsByKey.get(key(material.id, branch.id))
+        const quantity = level?.quantity ?? zero
+        const status = stockStatus(quantity, material.reorderPoint)
+        counts[status] += 1
+        if (filters.status && status !== filters.status) continue
+
+        const tile: StockTileDto = {
+          materialId:       material.id,
+          materialCode:     material.code,
+          materialName:     material.name,
+          unitAbbreviation: material.unit.abbreviation,
+          quantity:         toDecimalString(quantity),
+          reorderPoint:     toDecimalString(material.reorderPoint),
+          shortfall:        status === 'OUT' || status === 'LOW'
+            ? toDecimalString(material.reorderPoint.minus(quantity))
+            : null,
+          status,
+          lastMovementAt:   level?.updatedAt.toISOString() ?? null,
+        }
+
+        // Materials arrive sorted by category, so a new name starts a new group.
+        const current = categories.at(-1)
+        if (current?.name === material.category.name) current.tiles.push(tile)
+        else categories.push({ name: material.category.name, tiles: [tile] })
+      }
+
+      return { branchId: branch.id, branchName: branch.name, counts, categories }
+    })
   },
 }

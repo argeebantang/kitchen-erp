@@ -129,6 +129,33 @@ export const InventoryRepository = {
   },
 
   /**
+   * Everything the stock map needs, read in one snapshot: active materials
+   * (category, then name) and every level row. The service crosses them with
+   * the active branches, so a material with no level row at a branch still
+   * appears there, at zero.
+   *
+   * A level's updatedAt is when that material last moved at that branch:
+   * every movement changes its level (stockIn), so the map never has to scan
+   * StockMovement, which grows without bound. The page polls, so this matters.
+   */
+  async stockPositions() {
+    const [materials, levels] = await prisma.$transaction([
+      prisma.material.findMany({
+        where:   { isActive: true },
+        select:  {
+          id: true, code: true, name: true, reorderPoint: true,
+          unit:     { select: { abbreviation: true } },
+          category: { select: { name: true } },
+        },
+        orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }],
+      }),
+      prisma.inventoryLevel.findMany({ select: { materialId: true, branchId: true, quantity: true, updatedAt: true } }),
+    ])
+
+    return { materials, levels }
+  },
+
+  /**
    * The movements one source document wrote, oldest first. Served by
    * @@index([referenceType, referenceId]) on StockMovement.
    */

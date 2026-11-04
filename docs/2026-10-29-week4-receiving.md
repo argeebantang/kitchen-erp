@@ -561,3 +561,91 @@ the row opens that same filtered view.
 - Material and branch pickers list active ones only; a deactivated material's history is
   reachable only through a URL or an RR's Stock card.
 - No branch isolation: a branch manager sees every branch's ledger, as with every other page.
+
+## Task 6 — Current stock dashboard: the colour-coded stock map
+
+`/inventory/stock` (sidebar "Stock Levels", which had no page until now) shows every active
+material at every active branch as a coloured tile, a list of what to reorder, and a popup per
+tile that links into the ledger. It refreshes itself every 30 seconds. Built so Week 10's
+Reorder Recommender can surface inside the tile popup (`docs/progress.md`, note of 2026-08-17).
+
+Built in subtasks 6.1–6.5.
+
+**Decisions**
+
+| Area | Decision | Rationale |
+|---|---|---|
+| Colours | 🔴 out (≤ 0) · 🟡 low (≤ reorder point) · 🟢 healthy · ⚪ no reorder point (0) | Nothing measures consumption yet, so "stockout risk" can only honestly mean out of stock. The rule is one function, `stockStatus()`, for Task 7 to reuse and Week 10 to replace with a usage-based one. A reorder point of 0 means unset, so there is no "low" to measure. |
+| Locations | One panel per active branch; categories inside | The schema has branches, not storage locations; no new tables. |
+| Which tiles | Every active material × every active branch; no level row = 0 | A material never received must show red, not vanish. |
+| Reorder alerts | List above the map: red, then yellow, with the shortfall | The map shows health; the list says what to order. Not ranked by shortfall — the units differ. |
+| Tile click | Popup (the existing `Modal`) with details and "Open ledger →" | The slot for Week 10's suggestion + Create Purchase Order. Planned as a side panel; the existing `Modal` already handles Escape and close and matches the rest of the app. |
+| Filters | GET form: branch, status (`?status=low`) | Same as the ledger; a view is a URL. Counts always cover the whole branch. |
+| Live updates | `router.refresh()` every 30 s while the tab is visible, and on returning to it | The Week 4 deliverable asks for real time. Stock only changes on approvals, so polling at this team size (< 1 request/s) beats a push channel (SSE/WebSocket) and its infrastructure. |
+| Refresh cost | "Last movement" = `InventoryLevel.updatedAt`, not `MAX(createdAt)` over `StockMovement` | Every movement updates its level row in the same transaction, so the two agree (2 ms apart on RR-000001). The ledger grows without bound; each refresh now reads one row per material per branch. |
+| Access | Every signed-in role | Read-only, like the ledger. |
+
+**What changed**
+
+- *6.1 Data and rule.* `InventoryRepository.stockPositions()` reads active materials (unit,
+  category, reorder point; ordered by category, then name) and all level rows in one
+  transaction. `InventoryService.stockMap()` crosses them with `BranchRepository.findAllActive()`
+  into per-branch counts and category groups of tiles (`BranchStockDto`, `StockTileDto`, strings
+  only). `stockStatus(quantity, reorderPoint)` is exported.
+- *6.2 Tiles.* `components/inventory/StockTile.tsx`: name, code, quantity + unit, "Reorder at N".
+  `STATUS_STYLES` (a `Record<StockStatus, …>`, so a new status can't be left unstyled) and
+  `STOCK_STATUSES` (worst first) drive the tiles, legend, counts, badges and the filter.
+- *6.3 Reorder alerts.* `reorderAlerts(branches)` flattens OUT then LOW tiles (stable sort) with
+  their branch; shown in a `<details>` table — Status · Material · Branch · On hand · Reorder
+  point · Short by — hidden when empty.
+- *6.4 Tile popup.* `components/inventory/StockMap.tsx` (Client Component) renders the branch
+  panels with tiles as buttons; the popup shows status, on hand, reorder point, shortfall, last
+  movement (Manila time) and links to `/inventory/ledger?material=…&branch=…`.
+- *6.5 Filters and refresh.* `stockMap({ branchId, status })`; an unknown status means all. New
+  `components/ui/AutoRefresh.tsx`. The popup stores ids, not the tile, so after a refresh it
+  shows fresh figures (and closes if the tile is gone). "Updated <time>" under the title.
+
+**Files affected**
+
+- `repositories/inventory.repository.ts`, `services/inventory.service.ts`
+- `app/(protected)/inventory/stock/page.tsx` (new)
+- `components/inventory/StockTile.tsx` (new), `components/inventory/StockMap.tsx` (new), `components/ui/AutoRefresh.tsx` (new)
+- `docs/database.md`, `docs/architecture.md`, `docs/overview.md`, `docs/progress.md`, this note, `kitchenERP-sprint-v3.jsx`
+
+**Database changes**
+
+None. New reliance: `InventoryLevel.updatedAt` is read as "last movement", so a level row must
+change only together with a movement — already the rule (`docs/database.md`).
+
+**API changes**
+
+None — a Server Component reading through `InventoryService`.
+
+**UI changes**
+
+New Stock Levels page: legend, branch/status filters, reorder alerts, per-branch counts,
+category grids of coloured tiles, tile popup, auto-refresh.
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run build        # stop `npm run dev` first; it clobbers .next
+```
+
+Open Stock Levels with today's data: Main Commissary, 19 materials, 🔴 18 · 🟡 1 · 🟢 0 · ⚪ 0;
+19 reorder alerts with Pork Belly (4 kg, reorder at 20, short 16) last. Click Pork Belly →
+"Open ledger →" lands on the filtered ledger. `?status=low` shows only Pork Belly. With the page
+open, change a reorder point in Master Data from another window: the map follows within 30 s.
+
+**Risks / assumptions / follow-up**
+
+- Thresholds are one reorder point per material, shared by all branches. A per-branch reorder
+  point would be a column on `InventoryLevel` (or a new table) when branches stock differently.
+- Every active material shows at every branch, including materials a branch never carries
+  (they show red). Fine with one branch; with several, a "carried here" flag may be needed.
+- Polling cost grows with open tabs × materials × branches. If the page is left open by many
+  people, add a cheap "anything changed?" check (e.g. `MAX(InventoryLevel.updatedAt)`) and
+  refresh only on change.
+- Finished goods are not on the map — they have no stock rows until Week 6 production.
+- No branch isolation, as everywhere else.

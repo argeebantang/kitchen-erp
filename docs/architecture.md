@@ -43,7 +43,7 @@ A path guard can say who may reach a URL, not what they may do there. Where one 
 - **Repositories** (`repositories/`): the only layer allowed to import `lib/prisma`. Each is scoped to one model/domain concept, defines its `select`/`include` shapes (e.g. `safeUserSelect` excludes `passwordHash`), and owns transactions (`prisma.$transaction`) when a write spans several tables.
 - **`lib/`**: `prisma.ts` (client singleton reused across hot reloads), `config.ts` (fails fast on missing env vars), `jwt.ts` (Edge-safe JWT), `auth.ts` (Node-only, adds bcrypt), `session.ts`, `navigation.ts`, `queue.ts` (BullMQ producer, Node-only), `decimal.ts` (Decimal ↔ string, server-only), `format.ts` (display formatting usable on both sides), `dates.ts` (business-day helpers in Asia/Manila).
 - **`worker/`**: the BullMQ consumer (see Infrastructure).
-- **`components/`**: shared UI. Reusable procurement pieces: `StatusBadge`, `DecisionHistory`, `ApprovalActions`, `PurchaseRequestActions`, `PurchaseOrderActions`; form primitives in `components/ui/form.tsx`.
+- **`components/`**: shared UI. `inventory/` holds the stock map (`StockMap`, `StockTile`); `ui/AutoRefresh` is a generic polling helper. Reusable procurement pieces: `StatusBadge`, `DecisionHistory`, `ApprovalActions`, `PurchaseRequestActions`, `PurchaseOrderActions`; form primitives in `components/ui/form.tsx`.
 
 This is a conventional layered/n-tier architecture rather than DDD or hexagonal — repositories wrap Prisma calls fairly directly, and business rules live in services as plain objects of async functions.
 
@@ -54,6 +54,7 @@ This is a conventional layered/n-tier architecture rather than DDD or hexagonal 
 - **Stock writes** go through `InventoryRepository.stockIn(tx, …)`: ledger row and level change together, on the caller's transaction.
 - **Running totals over paged history** use a SQL window function (`SUM(quantity) OVER (ORDER BY "createdAt", id)` in `InventoryRepository.runningBalances`) computed over the full history and only then filtered to the page's rows, so a balance on page 3 is right without loading pages 1–2.
 - **Polymorphic references on screen** resolve to document numbers in one batch query per document type per page (`InventoryService.ledger`), and become links only for roles that can open that page (`SOURCE_PAGES`).
+- **Live pages poll.** `components/ui/AutoRefresh.tsx` calls `router.refresh()` on an interval while the tab is visible (Stock Levels: 30 s). The Server Component re-renders and client state survives; a Client Component that shows one item (the stock map's popup) stores its id, not the object, so it picks up the fresh figures. Keep what a polled page reads bounded — the stock map reads `InventoryLevel` (with its `updatedAt` as "last movement"), never the ever-growing `StockMovement`.
 - **Document numbers** come from Postgres sequences (`pr_number_seq`, `po_number_seq`, `rr_number_seq`) via `nextval()` inside the creating transaction, formatted `PR-000001` etc. `count() + 1` is not used — it issues duplicates under concurrency.
 - **Server → Client boundary.** Prisma `Decimal` is a class instance and cannot cross into a Client Component; services stringify it with `toDecimalString` (`lib/decimal.ts`). Client code formats strings with `lib/format.ts` and may import service *types* only (`import type`), never values.
 - **Next.js 15**: `params` and `searchParams` are Promises and must be awaited. `notFound()` renders the nearest `not-found.tsx`.
@@ -67,7 +68,7 @@ Defined in `prisma/schema.prisma` (24 models, PostgreSQL). Domain areas:
 - **Item master**: `Category`, `Unit`, `Material`, `FinishedGood`, and `ItemPrice` (dated reference prices per material, optionally per supplier).
 - **BOM**: `BOM` (versioned per finished good, stated per batch of `batchSize`) and `BOMItem` lines pointing at `Material`.
 - **Procurement**: `Supplier`; `PurchaseRequest`/`PurchaseRequestItem` → `PurchaseOrder`/`PurchaseOrderItem` → `ReceivingReport`/`ReceivingReportItem`. Each stage has its own status enum (`PRStatus`, `POStatus`, `RRStatus`). An RR line links to its PO line; an RR records the branch it was received at and who counted it.
-- **Inventory**: `InventoryLevel` (current on-hand per material per branch) and `StockMovement` (append-only ledger, per material per branch, typed by `MovementType`, signed quantity, always referencing its source document). Read through `InventoryService.ledger` (`/inventory/ledger`).
+- **Inventory**: `InventoryLevel` (current on-hand per material per branch) and `StockMovement` (append-only ledger, per material per branch, typed by `MovementType`, signed quantity, always referencing its source document). Read through `InventoryService.ledger` (`/inventory/ledger`) and `InventoryService.stockMap` (`/inventory/stock`, coloured by `stockStatus()`).
 - **Production**: `ProductionOrder`, `Conversion` (not yet built).
 - **Distribution**: `StockTransfer`/`StockTransferItem` (not yet built).
 - **Approvals**: `Approval` is polymorphic (`referenceType` + `referenceId`), one row per decision on a PR, PO or RR.

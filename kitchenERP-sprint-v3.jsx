@@ -96,7 +96,7 @@ const plan = {
             { t: "RR approval by accounting", done: true },
             { t: "On RR approval: inventory_ledger entry written, stock levels updated", done: true },
             { t: "Every movement writes to inventory_ledger with source document reference", done: true },
-            "Current stock dashboard: visual map view — branches/storage locations as a color-coded grid (🟢 healthy / 🟡 low / 🔴 stockout risk) — plus quantities on hand and reorder alerts",
+            { t: "Current stock dashboard: visual map view — branches/storage locations as a color-coded grid (🟢 healthy / 🟡 low / 🔴 stockout risk) — plus quantities on hand and reorder alerts", done: true },
             "BullMQ daily low-stock check job",
           ],
           deliverable: "Complete PR → PO → RR → Stock. Receive a delivery and inventory updates in real time on the color-coded stock map, with full ledger trail.",
