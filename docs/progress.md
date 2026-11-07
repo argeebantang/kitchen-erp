@@ -198,7 +198,8 @@ for the decisions and their rationale.
 **Note (2026-11-07):** the notification bell moves forward from Week 11. Three jobs (Week 3's
 PR-submitted, and both Week 4 daily jobs) write `Notification` rows that nothing displays, so a
 basic in-app bell (unread count, latest notifications, mark read) is built next, before Week 5.
-Week 11 keeps email (Resend) and the escalation job, building on it.
+Week 11 keeps email (Resend) and the escalation job, building on it. Done the same day, as
+real-time push rather than polling — see Week 11 below.
 
 **Note (2026-10-30):** three API gaps from Weeks 1–2 closed — `/api/auth/register` was public and
 let the caller pick any role (now ADMIN-only); item-master and BOM writes had no role guard (now
@@ -280,7 +281,10 @@ were considered and deliberately dropped.
 
 ### Week 11 — Approvals Hub & Reports
 - [ ] Unified approvals inbox
-- [ ] Notification bell + email (Resend)
+- [~] Notification bell + email (Resend) — **bell done 2026-11-07**, pulled forward
+      (`docs/2026-11-07-notification-bell.md`): unread badge and latest 15 in the top bar,
+      pushed live (Redis pub/sub → Server-Sent Events → `EventSource`), mark one / all read.
+      Email via Resend still to do here.
 - [ ] Escalation job (24h+ pending)
 - [ ] 5 reports with CSV/PDF export
 - [ ] End-of-day branch snapshot report

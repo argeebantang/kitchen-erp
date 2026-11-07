@@ -1,7 +1,8 @@
 import { Role } from '@prisma/client'
 import { trimDecimal } from '@/lib/format'
+import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
-import { NotificationRepository } from '@/repositories/notification.repository'
+import { CreateNotificationInput, NotificationRepository } from '@/repositories/notification.repository'
 import { InventoryService, reorderAlerts } from '@/services/inventory.service'
 import { PurchaseRequestRepository } from '@/repositories/purchase-request.repository'
 import { UserRepository } from '@/repositories/user.repository'
@@ -15,7 +16,90 @@ const ORDERING_ROLES: Role[] = [Role.PROCUREMENT_MANAGER, Role.ADMIN]
 /** How many materials the low-stock summary names before "+N more". */
 const SUMMARY_NAMES = 5
 
+/** How many notifications the bell shows. */
+const LATEST = 15
+
+/**
+ * Where each kind of notification leads, keyed by referenceType. The daily
+ * jobs' referenceId is a date, not a document, so their pages ignore it.
+ * A type missing here shows without a link.
+ */
+const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
+  PurchaseRequest:     id => `/procurement/requests/${id}`,
+  LowStockCheck:       () => '/inventory/stock',
+  StockReconciliation: () => '/inventory/ledger',
+}
+
+export type NotificationDto = {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  href: string | null
+  read: boolean
+  createdAt: string
+}
+
+export type NotificationListDto = {
+  unreadCount: number
+  notifications: NotificationDto[]
+}
+
+/**
+ * Tell these users' open browsers to reload their notifications
+ * (lib/realtime.ts). Never fails the caller — like the queue, Redis being down
+ * must not undo a write that already happened; the bell catches up the next
+ * time it connects.
+ */
+async function push(userIds: string[]): Promise<void> {
+  try {
+    await publishNotificationsChanged(userIds)
+  } catch (err) {
+    console.error('[notifications] push failed; the database change stands', err)
+  }
+}
+
+/** Every notification write goes through here: insert the rows, then push. */
+async function createAndPush(inputs: CreateNotificationInput[]): Promise<number> {
+  const count = await NotificationRepository.createMany(inputs)
+  if (count > 0) await push(inputs.map(input => input.userId))
+  return count
+}
+
 export const NotificationService = {
+  /**
+   * Mark one of the user's notifications read, or all of them. Only that
+   * user's unread rows can match, so an id belonging to someone else changes
+   * nothing. Pushed, so the user's other open tabs update too. Returns how
+   * many changed (0 when already read — not an error).
+   */
+  async markRead(userId: string, target: { id: string } | { all: true }): Promise<number> {
+    const count = await NotificationRepository.markRead(userId, 'id' in target ? target.id : null)
+    if (count > 0) await push([userId])
+    return count
+  },
+
+  /** The bell: the user's latest notifications, each with its link, and the unread count. */
+  async listForUser(userId: string): Promise<NotificationListDto> {
+    const { rows, unreadCount } = await NotificationRepository.findLatestForUser(userId, LATEST)
+
+    return {
+      unreadCount,
+      notifications: rows.map(row => {
+        const page = row.referenceType ? REFERENCE_PAGES[row.referenceType] : undefined
+        return {
+          id:        row.id,
+          type:      row.type,
+          title:     row.title,
+          body:      row.body,
+          href:      page && row.referenceId ? page(row.referenceId) : null,
+          read:      row.readAt !== null,
+          createdAt: row.createdAt.toISOString(),
+        }
+      }),
+    }
+  },
+
   /** Returns how many notifications were written. */
   async notifyPurchaseRequestSubmitted(purchaseRequestId: string): Promise<number> {
     const pr = await PurchaseRequestRepository.findById(purchaseRequestId)
@@ -30,7 +114,7 @@ export const NotificationService = {
     // approver by role but cannot decide this particular one.
     const recipients = approvers.filter(user => user.id !== pr.requestedById)
 
-    return NotificationRepository.createMany(
+    return createAndPush(
       recipients.map(user => ({
         userId:        user.id,
         type:          'PR_SUBMITTED',
@@ -74,7 +158,7 @@ export const NotificationService = {
       .map(alert => (severalBranches ? `${alert.materialName} (${alert.branchName})` : alert.materialName))
     const more = alerts.length - names.length
 
-    return NotificationRepository.createMany(
+    return createAndPush(
       recipients.map(user => ({
         userId:        user.id,
         type:          'LOW_STOCK',
@@ -108,7 +192,7 @@ export const NotificationService = {
     })
     const more = mismatches.length - named.length
 
-    const written = await NotificationRepository.createMany(
+    const written = await createAndPush(
       admins
         .filter(admin => !alreadyTold.has(admin.id))
         .map(admin => ({

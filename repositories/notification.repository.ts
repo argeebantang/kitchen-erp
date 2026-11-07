@@ -47,4 +47,35 @@ export const NotificationRepository = {
     })
     return new Set(rows.map(row => row.userId))
   },
+
+  /**
+   * A user's newest notifications and how many are unread, in one snapshot.
+   * The count is served by @@index([userId, readAt]); the list by its userId
+   * prefix. id breaks ties between rows written together (createMany).
+   */
+  async findLatestForUser(userId: string, take: number) {
+    const [rows, unreadCount] = await prisma.$transaction([
+      prisma.notification.findMany({
+        where:   { userId },
+        select:  { id: true, type: true, title: true, body: true, referenceType: true, referenceId: true, readAt: true, createdAt: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take,
+      }),
+      prisma.notification.count({ where: { userId, readAt: null } }),
+    ])
+    return { rows, unreadCount }
+  },
+
+  /**
+   * Sets readAt on the user's unread notifications — one by id, or all when
+   * id is null. userId is in the WHERE, so a user can only ever mark their own;
+   * readAt: null keeps the first read time.
+   */
+  async markRead(userId: string, id: string | null): Promise<number> {
+    const result = await prisma.notification.updateMany({
+      where: { userId, readAt: null, ...(id ? { id } : {}) },
+      data:  { readAt: new Date() },
+    })
+    return result.count
+  },
 }

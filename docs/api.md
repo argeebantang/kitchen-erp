@@ -26,7 +26,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
-| everything else, and reads of the item master and BOMs | GET | any signed-in user |
+| everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
 
 ## Auth
 
@@ -100,6 +100,16 @@ The one endpoint for every approve/reject decision. Approving a request also cre
 | POST | `/api/receiving-reports/[id]/submit` | — | 200 `{ receivingReport: { id, rrNumber } }` → `PENDING_APPROVAL`; `receivedById` unchanged | 400 saved counts break a rule (edit and save first), 401, 403, 404, 409 not a draft |
 
 Rules (create, edit, and re-checked on submit): the order is `SENT` or `PARTIALLY_RECEIVED`; every PO line counted once; rejected ≤ received; received − rejected ≤ outstanding; a line with rejected > 0 has a line note; date not after today (Asia/Manila); not every line zero. Outstanding at save time is stored as each line's `expectedQuantity`, which variance is measured against.
+
+## Notifications
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| GET | `/api/notifications` | — | 200 `{ unreadCount, notifications: [{ id, type, title, body, href, read, createdAt }] }` — the caller's latest 15, newest first | 401 |
+| GET | `/api/notifications/stream` | — | 200 `text/event-stream`, held open: `retry: 5000`, an `event: notifications` (`data: {}`) whenever the caller's notifications change, `: ping` every 25 s | 401, 503 Redis unavailable |
+| POST | `/api/notifications/read` | `{ id }` or `{ all: true }` | 200 `{ updated }` — how many of the caller's unread notifications were marked; 0 if already read or not theirs | 400, 401 |
+
+Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
 
 ## Known gaps
 

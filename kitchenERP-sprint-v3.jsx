@@ -220,7 +220,8 @@ const plan = {
           tasks: [
             "Unified approvals inbox: all pending PRs, POs, RRs, Production Orders, Conversions, Write-offs in one queue",
             "One-click approve/reject with comment",
-            "In-app notification bell + email via Resend",
+            { t: "In-app notification bell, real-time over SSE (pulled forward, built 2026-11-07)", done: true },
+            "Email notifications via Resend, building on the in-app bell",
             "Escalation job: re-notify approver if pending 24+ hours",
             "5 reports with CSV + PDF export: Inventory Movement, Production Summary, Procurement, Waste & Write-off, Cost per Batch",
             "End-of-day branch snapshot report",
