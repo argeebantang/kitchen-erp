@@ -8,7 +8,7 @@
 * **Local dev infra**: `docker-compose.yml` runs Postgres 16 and Redis 7 for local development only. The Next.js app runs via `npm run dev`/`next start`, and the worker via `npm run worker`/`npm run worker:start` — neither in a container.
 * **Config**: `lib/config.ts` requires `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `NEXT_PUBLIC_APP_URL` at startup (throws immediately if any are missing) — see `.env.example`. Any deploy target must supply these to both the app and the worker.
 * **Database migrations**: tracked in `prisma/migrations/`, baselined as `0_init` and applied with `prisma migrate deploy` (see [database.md](database.md#migrations)). A deploy runs the same command.
-* **Background jobs**: a BullMQ worker exists (`worker/index.ts`, notification job on PR submission) and must run as its **own process** next to the app. It is not part of `next start`.
+* **Background jobs**: a BullMQ worker exists (`worker/index.ts`: the PR-submitted notification, plus the daily 06:00 Manila low-stock and stock-reconciliation jobs) and must run as its **own, always-on process** next to the app. It is not part of `next start`. The daily schedules are stored in Redis and registered by the worker at startup — no OS crontab — so if the worker is down, nothing runs until it is back (then the missed run happens once). Run exactly one worker per environment until concurrency is deliberately configured.
 * **PDF export** renders in the request with `@react-pdf/renderer` (Node runtime) — no Chromium, no file storage.
 
 ## 2. Target Approach: AWS + GitHub Actions

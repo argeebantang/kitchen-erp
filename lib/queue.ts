@@ -15,8 +15,29 @@ import { config } from '@/lib/config'
 
 export const NOTIFICATIONS_QUEUE = 'notifications'
 
-/** Job name within the queue. */
+/** Job names within the queue. Each name has its own payload type below. */
 export const PR_SUBMITTED = 'pr-submitted'
+
+/**
+ * The daily summary of what needs reordering. No payload: the job reads
+ * current stock when it runs, and the date it reports is the run's own.
+ */
+export const LOW_STOCK_CHECK = 'low-stock-check'
+
+/**
+ * The daily check that the stock ledger and InventoryLevel agree everywhere —
+ * the Stock Ledger page's ✓ / ✗, for every material at every branch. No payload.
+ */
+export const STOCK_RECONCILIATION = 'stock-reconciliation'
+
+/**
+ * Jobs that run on a clock rather than on an event: cron patterns, read in
+ * BUSINESS_TIME_ZONE (lib/dates.ts). The worker registers them at startup.
+ */
+export const DAILY_JOBS: { name: string; pattern: string }[] = [
+  { name: LOW_STOCK_CHECK,      pattern: '0 6 * * *' }, // 06:00, before the kitchen and procurement start
+  { name: STOCK_RECONCILIATION, pattern: '0 6 * * *' },
+]
 
 /**
  * An id, not the purchase request itself. The worker re-reads from the database

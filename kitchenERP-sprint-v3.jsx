@@ -87,7 +87,7 @@ const plan = {
         },
         {
           week: "Week 4",
-          status: "next",
+          status: "done",
           title: "Receiving Report & Stock Update",
           tag: null,
           tasks: [
@@ -97,7 +97,7 @@ const plan = {
             { t: "On RR approval: inventory_ledger entry written, stock levels updated", done: true },
             { t: "Every movement writes to inventory_ledger with source document reference", done: true },
             { t: "Current stock dashboard: visual map view — branches/storage locations as a color-coded grid (🟢 healthy / 🟡 low / 🔴 stockout risk) — plus quantities on hand and reorder alerts", done: true },
-            "BullMQ daily low-stock check job",
+            { t: "BullMQ daily low-stock check job", done: true },
           ],
           deliverable: "Complete PR → PO → RR → Stock. Receive a delivery and inventory updates in real time on the color-coded stock map, with full ledger trail.",
         },
@@ -113,6 +113,7 @@ const plan = {
       weeks_detail: [
         {
           week: "Week 5",
+          status: "next",
           title: "Production Order Creation",
           tag: null,
           tasks: [

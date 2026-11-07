@@ -186,7 +186,19 @@ for the decisions and their rationale.
       Refreshes every 30 s (`router.refresh()`); "last movement" comes from
       `InventoryLevel.updatedAt` so a refresh never scans the ledger. "Stockout risk" means out
       of stock until usage data exists (Week 6+).
-- [ ] BullMQ daily low-stock check job
+- [x] BullMQ daily low-stock check job — two daily jobs at 06:00 Asia/Manila, scheduled by the
+      worker at startup (`DAILY_JOBS` in `lib/queue.ts`, BullMQ job schedulers kept in Redis):
+      `low-stock-check` sends one summary per procurement manager / admin built from the stock
+      map's reorder alerts, and `stock-reconciliation` tells admins when any stock level
+      disagrees with its ledger total. Once per person per day (date as `referenceId`);
+      `npm run job -- <name>` runs either now. Rows only — nothing shows them yet.
+
+**Week 4 complete (2026-11-07).**
+
+**Note (2026-11-07):** the notification bell moves forward from Week 11. Three jobs (Week 3's
+PR-submitted, and both Week 4 daily jobs) write `Notification` rows that nothing displays, so a
+basic in-app bell (unread count, latest notifications, mark read) is built next, before Week 5.
+Week 11 keeps email (Resend) and the escalation job, building on it.
 
 **Note (2026-10-30):** three API gaps from Weeks 1–2 closed — `/api/auth/register` was public and
 let the caller pick any role (now ADMIN-only); item-master and BOM writes had no role guard (now

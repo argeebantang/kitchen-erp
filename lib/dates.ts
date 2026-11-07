@@ -4,7 +4,7 @@
  */
 
 /** The kitchen's timezone. The server clock is UTC. */
-const BUSINESS_TIME_ZONE = 'Asia/Manila'
+export const BUSINESS_TIME_ZONE = 'Asia/Manila'
 
 /**
  * Today as YYYY-MM-DD in the kitchen's timezone. A plain

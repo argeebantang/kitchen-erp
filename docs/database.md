@@ -53,7 +53,7 @@ The schema (24 models) groups into these domain areas — see [architecture.md](
 * **Distribution**: `StockTransfer` has two named relations to `Branch` (`TransferFrom`/`TransferTo`) — when querying, be explicit about which side you mean.
 * **Conversions**: `Conversion` has two named relations to `FinishedGood` (`ConversionSource`/`ConversionOutput`). It has no cost, status or approver columns yet (Week 7).
 * **Approvals**: `Approval` is polymorphic — `referenceType` (`'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'`) + `referenceId`, one row per decision, with the approver, `decision`, `remarks`, `decidedAt`. The document's own status column says where it is now; `Approval` says who decided and why.
-* **Notifications**: `Notification.userId → User`, with an optional polymorphic reference to the document; unread while `readAt` is null.
+* **Notifications**: `Notification.userId → User`, with an optional polymorphic reference to the document; unread while `readAt` is null. `type` says what happened: `PR_SUBMITTED` (reference = the purchase request), `LOW_STOCK` and `STOCK_MISMATCH` from the daily jobs. The daily ones reference no document: `referenceType` is `LowStockCheck` / `StockReconciliation` and `referenceId` the Manila date (YYYY-MM-DD), which is also what stops a second notification the same day.
 
 ## Document numbers
 

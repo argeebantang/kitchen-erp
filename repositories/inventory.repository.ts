@@ -129,6 +129,43 @@ export const InventoryRepository = {
   },
 
   /**
+   * reconcile() for every material at every branch at once: the pairs whose
+   * ledger total differs from InventoryLevel, with names for a message. A FULL
+   * JOIN, so a level with no movements and movements with no level both count
+   * (the missing side as 0). One statement, so one consistent snapshot.
+   * Groups the whole ledger — fine for a daily job, not for a page.
+   */
+  async mismatchedLevels(): Promise<{
+    materialName: string
+    branchName: string
+    unitAbbreviation: string
+    ledgerTotal: Prisma.Decimal
+    stockLevel: Prisma.Decimal
+  }[]> {
+    return prisma.$queryRaw`
+      SELECT material.name AS "materialName", branch.name AS "branchName", unit.abbreviation AS "unitAbbreviation",
+             pairs."ledgerTotal", pairs."stockLevel"
+      FROM (
+        SELECT COALESCE(level."materialId", ledger."materialId") AS "materialId",
+               COALESCE(level."branchId", ledger."branchId")     AS "branchId",
+               COALESCE(ledger.total, 0)                         AS "ledgerTotal",
+               COALESCE(level.quantity, 0)                       AS "stockLevel"
+        FROM "InventoryLevel" AS level
+        FULL JOIN (
+          SELECT "materialId", "branchId", SUM(quantity) AS total
+          FROM "StockMovement"
+          GROUP BY "materialId", "branchId"
+        ) AS ledger ON ledger."materialId" = level."materialId" AND ledger."branchId" = level."branchId"
+        WHERE COALESCE(ledger.total, 0) <> COALESCE(level.quantity, 0)
+      ) AS pairs
+      JOIN "Material" AS material ON material.id = pairs."materialId"
+      JOIN "Unit"     AS unit     ON unit.id = material."unitId"
+      JOIN "Branch"   AS branch   ON branch.id = pairs."branchId"
+      ORDER BY branch.name, material.name
+    `
+  },
+
+  /**
    * Everything the stock map needs, read in one snapshot: active materials
    * (category, then name) and every level row. The service crosses them with
    * the active branches, so a material with no level row at a branch still

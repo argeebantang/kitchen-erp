@@ -33,4 +33,18 @@ export const NotificationRepository = {
 
     return result.count
   },
+
+  /**
+   * Who already has a notification about this document — the low-stock
+   * summary uses the date as its referenceId, so this is "who has been told
+   * today". Not indexed: it runs once a day, and Notification(userId, readAt)
+   * serves the reads users make.
+   */
+  async userIdsWithReference(referenceType: string, referenceId: string): Promise<Set<string>> {
+    const rows = await prisma.notification.findMany({
+      where:  { referenceType, referenceId },
+      select: { userId: true },
+    })
+    return new Set(rows.map(row => row.userId))
+  },
 }

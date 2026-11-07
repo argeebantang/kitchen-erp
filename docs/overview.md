@@ -8,20 +8,21 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–4 so far):
+Built (Weeks 1–4):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
 * Versioned Bills of Materials, stated per batch and scalable to a target quantity
 * Purchase Requests: draft → submit → approve/reject by accounting; approval auto-creates a draft Purchase Order
 * Purchase Orders: sourcing (supplier, delivery date, re-pricing), submit → approve/reject → mark sent, PDF export
-* Receiving Reports (Week 4, in progress): record a delivery line by line against a sent order, with variance (short / over-delivered / rejected) against what was outstanding; submit it, and accounting approves or rejects — approval writes the stock ledger and levels and moves the order to partially / fully received
+* Receiving Reports: record a delivery line by line against a sent order, with variance (short / over-delivered / rejected) against what was outstanding; submit it, and accounting approves or rejects — approval writes the stock ledger and levels and moves the order to partially / fully received
 * Stock Levels: a colour-coded stock map per branch (🔴 out / 🟡 low / 🟢 healthy against each material's reorder point), reorder alerts, filters, a per-tile popup linking to the ledger, refreshed every 30 s
 * Stock Ledger: every stock movement with its source document, running balance per material and branch, and a check against the stock level
+* Daily 06:00 jobs: a low-stock summary for procurement and admins, and a ledger-vs-stock-level check for admins
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
-* In-app notification rows written by a BullMQ worker when a request is submitted
+* In-app notification rows written by a BullMQ worker (request submitted, daily jobs) — not displayed yet
 
-Planned (see the roadmap): low-stock job, production orders, transfers, conversions, costing, AI features.
+Planned (see the roadmap): notification bell (next), production orders, transfers, conversions, costing, AI features.
 
 ## Tech Stack
 
@@ -45,6 +46,7 @@ Planned (see the roadmap): low-stock job, production orders, transfers, conversi
 * `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
 * `services/` — business rules above the repositories
 * `worker/` — the BullMQ consumer, a standalone process; never imported from `app/`
+* `scripts/` — command-line helpers (`run-job.ts`: `npm run job -- <name>`)
 * `hooks/` — client-side React hooks (`useUser.ts`)
 * `prisma/` — `schema.prisma` (24 models), `migrations/`, `seed.ts`
 * `middleware.ts` — authentication and role guards for every request

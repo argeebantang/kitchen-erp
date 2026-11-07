@@ -649,3 +649,92 @@ open, change a reorder point in Master Data from another window: the map follows
   refresh only on change.
 - Finished goods are not on the map — they have no stock rows until Week 6 production.
 - No branch isolation, as everywhere else.
+
+## Task 7 — BullMQ daily low-stock check job
+
+Two jobs now run every day at 06:00 Manila on the worker: a low-stock summary for the people who
+order, and a check that every stock level agrees with its ledger (the follow-up recorded under
+Task 5). Both write `Notification` rows; nothing in the app shows them yet — an in-app bell is the
+next piece of work, pulled forward from Week 11 (see `docs/progress.md`).
+
+Built in subtasks 7.1–7.3.
+
+**Decisions**
+
+| Area | Decision | Rationale |
+|---|---|---|
+| When | Daily 06:00 `Asia/Manila`, as BullMQ job schedulers the worker upserts at startup | Before the kitchen and procurement start. Upsert is keyed by job name, so a restart replaces the schedule instead of adding one. The schedule lives in Redis: a run that falls due while the worker is down runs when it is back. The Next.js app plays no part. |
+| What | `reorderAlerts(InventoryService.stockMap())` — the stock map's own 🔴 + 🟡 list | One rule; the job and the page cannot disagree. |
+| Who | `PROCUREMENT_MANAGER` + `ADMIN` | They raise purchase requests. Branch managers once users belong to a branch. |
+| Shape | One summary per person per day ("19 materials need reordering — 18 out of stock, 1 low: …, +14 more") | One row per material would be 19 × people × days of noise. |
+| No repeats | `referenceType 'LowStockCheck'`, `referenceId` = the Manila date; people who already have today's are skipped; nothing sent when nothing needs ordering | Retries and a second run the same day cannot double-notify. No schema change. |
+| Reconciliation | Second daily job: every (material, branch) ledger total vs `InventoryLevel`; `ADMIN` told only on a mismatch | The Stock Ledger's ✓ / ✗ only helps when someone looks. |
+| Testing | `npm run job -- <name>` enqueues a daily job now | Same code path as the schedule. |
+| Visibility | Rows only, for now | The bell is the next task (pulled forward from Week 11). |
+
+**What changed**
+
+- *7.1 Low-stock summary.* `LOW_STOCK_CHECK` in `lib/queue.ts`;
+  `NotificationService.notifyLowStock(date)` (worst first, names the first 5, branch names only
+  when there is more than one branch); `NotificationRepository.userIdsWithReference()`. The
+  worker handles the job with `todayIsoDate()`; its `Worker` is no longer typed to one payload,
+  since each job name carries its own. `scripts/run-job.ts` + `npm run job`.
+- *7.2 Schedule.* `DAILY_JOBS` in `lib/queue.ts` (name + cron pattern); the worker's
+  `scheduleDailyJobs()` upserts each with `tz: BUSINESS_TIME_ZONE` (now exported from
+  `lib/dates.ts`) and logs the next run. Verified one scheduler and one delayed job after two
+  restarts.
+- *7.3 Reconciliation.* `InventoryRepository.mismatchedLevels()`: one statement — ledger totals
+  grouped by (material, branch) `FULL JOIN` `InventoryLevel`, only rows that differ, the missing
+  side as 0, joined to names. `NotificationService.notifyStockMismatches(date)` →
+  `STOCK_MISMATCH` to each `ADMIN`, same per-day guard (`referenceType 'StockReconciliation'`).
+  `STOCK_RECONCILIATION` added to `DAILY_JOBS`; `npm run job` accepts every daily job. Checked
+  with a level raised behind the ledger's back (raw SQL, so `updatedAt` was untouched): one
+  mismatch, one notification, none on a second run, clean again once restored.
+
+**Files affected**
+
+- `lib/queue.ts`, `lib/dates.ts`, `worker/index.ts`, `scripts/run-job.ts` (new), `package.json`
+- `services/notification.service.ts`, `repositories/notification.repository.ts`, `repositories/inventory.repository.ts`
+- `docs/architecture.md`, `docs/database.md`, `docs/deployment.md`, `docs/overview.md`, `docs/progress.md`, this note, `kitchenERP-sprint-v3.jsx`
+
+**Database changes**
+
+None. New conventions on `Notification`: `type` `LOW_STOCK` / `STOCK_MISMATCH`, with
+`referenceType` `LowStockCheck` / `StockReconciliation` and the date as `referenceId`
+(`docs/database.md`).
+
+**API changes**
+
+None. New npm script: `npm run job -- <low-stock-check | stock-reconciliation>`.
+
+**UI changes**
+
+None.
+
+**Configuration / environment**
+
+No new variables. The worker must be running for any job to run — in production, an always-on
+service (`docs/deployment.md`).
+
+**How to verify**
+
+```bash
+npx tsc --noEmit && npm run lint
+npm run worker                          # logs two "scheduled … next run <tomorrow>, 6:00 AM" lines
+npm run job -- low-stock-check          # worker: wrote 2 notification(s); again: wrote 0
+npm run job -- stock-reconciliation     # worker: all stock levels match the ledger
+```
+
+Prisma Studio → `Notification`, `type = LOW_STOCK`: one row each for Admin User and Juan
+Procurement with today's date as `referenceId`.
+
+**Risks / assumptions / follow-up**
+
+- Notifications are invisible until the bell exists (next task).
+- Both jobs run on one worker; if it is down for a day, that day's run happens late, not twice.
+- The same-day guard reads then inserts; two runs at the very same moment could both send.
+  The scheduler starts one job per day, so this is not guarded further.
+- The low-stock summary is sent every day while stock stays low. A "only when the list changed"
+  rule can come with the bell if it proves noisy.
+- `mismatchedLevels()` groups the whole ledger. Fine daily; if the ledger grows very large, keep
+  per-(material, branch) running totals or restrict to recently changed pairs.
