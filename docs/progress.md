@@ -219,7 +219,7 @@ table; it's a UI/UX decision, not an architecture change.
 ## Phase 2 — Production & Finished Goods (Weeks 5–8)
 
 ### Week 5 — Production Order Creation
-- [~] Production Order form + BOM-derived material requirements — **form done 2026-11-08**
+- [x] Production Order form + BOM-derived material requirements — **form done 2026-11-08**
       (`docs/2026-11-07-week5-production-orders.md`): `/production/orders` list (status filter,
       paged), new, detail and edit pages for ADMIN + PRODUCTION_MANAGER. Finished good (active BOM
       only), batch weight (defaults to the BOM's batch size) × number of batches (1–100) =
@@ -227,8 +227,11 @@ table; it's a UI/UX decision, not an architecture change.
       `DRAFT`, numbered `PRD-000001` (`prd_number_seq`); drafts editable, re-pinning the active
       BOM version on every save; a BOM whose unit differs from the finished good's is refused.
       `ProductionStatus` replaced with the full flow (migration
-      `20261107073325_week5_production_orders`, table was empty). BOM-derived material
-      requirements are Task 2, still to do.
+      `20261107073325_week5_production_orders`, table was empty). **Material requirements done
+      2026-11-08** (`docs/2026-11-08-week5-material-requirements.md`): every ingredient per batch
+      and in total, scaled in Decimal from the BOM (`scaleBomQuantities`), derived on read and
+      never stored — "Materials required" on the order page (pinned version) and a live preview
+      on the new / edit forms (active version, `GET /api/production-orders/requirements`).
 - [ ] Stock sufficiency check + shortage alerts
 - [ ] Production Order approval + status flow
 - [ ] Production schedule calendar view

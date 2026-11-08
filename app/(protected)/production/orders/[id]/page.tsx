@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -95,6 +96,19 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           <p className="text-sm text-gray-700">{order.notes}</p>
         </div>
       )}
+
+      <h2 className="mb-1 text-lg font-semibold text-gray-800">Materials required</h2>
+      <p className="mb-3 text-sm text-gray-400">
+        {order.requirements.length} {order.requirements.length === 1 ? 'ingredient' : 'ingredients'} from BOM
+        v{order.bomVersion}, scaled to this order.
+      </p>
+      <MaterialRequirementsTable
+        lines={order.requirements}
+        batchWeight={order.batchWeight}
+        batchCount={order.batchCount}
+        plannedQty={order.plannedQty}
+        unitAbbreviation={unit}
+      />
     </div>
   )
 }

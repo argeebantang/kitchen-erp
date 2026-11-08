@@ -1,7 +1,8 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
-import { BomRepository } from '@/repositories/bom.repository'
+import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
+import { scaleBomQuantities } from '@/services/bom.service'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import {
@@ -71,6 +72,29 @@ export type ProductionOrderSummaryDto = {
   createdAt: string
 }
 
+/** One ingredient of an order: its BOM line scaled to the batch weight and to the whole run. */
+export type MaterialRequirementDto = {
+  materialId: string
+  materialCode: string
+  materialName: string
+  unitAbbreviation: string
+  /** For one batch of batchWeight. */
+  perBatch: string
+  /** For plannedQty (all batches). */
+  total: string
+}
+
+/** What a run would need, before it is saved — the form's preview. */
+export type RequirementsPreviewDto = {
+  /** The active version: the one a save would pin. */
+  bomId: string
+  bomVersion: number
+  batchWeight: string
+  batchCount: number
+  plannedQty: string
+  lines: MaterialRequirementDto[]
+}
+
 export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   notes: string | null
   updatedAt: string
@@ -79,6 +103,8 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
    * only looked up for a superseded pin. Null if the good has no active BOM.
    */
   activeBomVersion: number | null
+  /** The pinned BOM scaled to this order — derived on every read, never stored (Task 2, D1). */
+  requirements: MaterialRequirementDto[]
 }
 
 export type ProductionOrderResult<T> =
@@ -117,6 +143,33 @@ function toSummaryDto(order: ProductionOrderWithDetail): ProductionOrderSummaryD
     requestedByName:  order.requestedBy.name,
     createdAt:        order.createdAt.toISOString(),
   }
+}
+
+/**
+ * What a run needs, line by line. Both columns are scaled straight from the
+ * BOM — per batch to batchWeight, total to plannedQty — rather than total =
+ * per batch × batchCount, so the total never carries a rounded intermediate.
+ * The units are the materials' own: BomService refuses a line in any other.
+ *
+ * The one place requirements are computed, so the detail page and the form's
+ * preview cannot disagree.
+ */
+function materialRequirements(
+  bom: BomWithDetail,
+  batchWeight: Prisma.Decimal,
+  plannedQty: Prisma.Decimal,
+): MaterialRequirementDto[] {
+  const perBatch = new Map(scaleBomQuantities(bom, batchWeight).map(line => [line.lineId, line.quantity]))
+  const total    = new Map(scaleBomQuantities(bom, plannedQty).map(line => [line.lineId, line.quantity]))
+
+  return bom.items.map(item => ({
+    materialId:       item.materialId,
+    materialCode:     item.material.code,
+    materialName:     item.material.name,
+    unitAbbreviation: item.unit.abbreviation,
+    perBatch:         toDecimalString(perBatch.get(item.id) ?? item.quantity),
+    total:            toDecimalString(total.get(item.id) ?? item.quantity),
+  }))
 }
 
 /**
@@ -214,10 +267,17 @@ export const ProductionOrderService = {
       return { success: false, error: 'Production order not found', status: 404 }
     }
 
-    // Only a superseded pin needs the second query.
-    const active = order.bom.isActive
-      ? null
-      : await BomRepository.findActiveByFinishedGood(order.finishedGood.id)
+    // The pinned version with its lines, for the requirements. Only a
+    // superseded pin also needs the active version.
+    const [pinned, active] = await Promise.all([
+      BomRepository.findById(order.bomId),
+      order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id),
+    ])
+    // bomId is a foreign key and BOM rows are never deleted, so this cannot
+    // happen short of a hand-edited database.
+    if (!pinned) {
+      return { success: false, error: 'The BOM this order is pinned to no longer exists', status: 404 }
+    }
 
     return {
       success: true,
@@ -226,6 +286,42 @@ export const ProductionOrderService = {
         notes:            order.notes,
         updatedAt:        order.updatedAt.toISOString(),
         activeBomVersion: active?.version ?? null,
+        requirements:     materialRequirements(pinned, order.batchWeight, order.plannedQty),
+      },
+    }
+  },
+
+  /**
+   * The form's live preview: the active BOM scaled to a batch weight and count
+   * that have not been saved yet. Read-only, so it checks only what the
+   * calculation needs; branch, date and the unit rule are left to save, where
+   * the form already shows them.
+   */
+  async previewRequirements(input: {
+    finishedGoodId: string
+    batchWeight: string
+    batchCount: number
+  }): Promise<ProductionOrderResult<RequirementsPreviewDto>> {
+    const bom = await BomRepository.findActiveByFinishedGood(input.finishedGoodId)
+    if (!bom) {
+      return { success: false, error: 'This finished good has no active BOM', status: 404 }
+    }
+
+    const batchWeight = toDecimal(input.batchWeight)
+    if (batchWeight.lessThanOrEqualTo(0)) {
+      return { success: false, error: 'Batch weight must be greater than zero', status: 400 }
+    }
+    const plannedQty = batchWeight.mul(input.batchCount)
+
+    return {
+      success: true,
+      data: {
+        bomId:       bom.id,
+        bomVersion:  bom.version,
+        batchWeight: toDecimalString(batchWeight),
+        batchCount:  input.batchCount,
+        plannedQty:  toDecimalString(plannedQty),
+        lines:       materialRequirements(bom, batchWeight, plannedQty),
       },
     }
   },
