@@ -48,11 +48,12 @@ function plannedTotal(weight: string, count: string): string | null {
  * would accept.
  */
 function previewQuery(values: ProductionOrderValues, maxBatchCount: number): string | null {
-  const { finishedGoodId, batchWeight, batchCount } = values
-  if (!finishedGoodId) return null
+  const { finishedGoodId, batchWeight, batchCount, branchId } = values
+  if (!finishedGoodId || !branchId) return null
   if (!WEIGHT_PATTERN.test(batchWeight) || Number(batchWeight) <= 0) return null
   if (!COUNT_PATTERN.test(batchCount) || Number(batchCount) < 1 || Number(batchCount) > maxBatchCount) return null
-  return new URLSearchParams({ finishedGoodId, batchWeight, batchCount }).toString()
+  // The branch is part of the query, so changing it re-checks the stock there.
+  return new URLSearchParams({ finishedGoodId, batchWeight, batchCount, branchId }).toString()
 }
 
 /** The last preview answer, tagged with the query it answers. */
@@ -270,6 +271,8 @@ export function ProductionOrderForm({ productionOrderId, goods, branches, today,
             <p className="mb-3 text-sm text-gray-400">
               {preview.data.lines.length} {preview.data.lines.length === 1 ? 'ingredient' : 'ingredients'} from
               BOM v{preview.data.bomVersion}{isEdit && ', the version saving will use'}.
+              {' '}Stock is what {preview.data.branchName} holds right now, less what approved or in-progress
+              orders there still need.
               {previewLoading && ' Updating…'}
             </p>
             {/* The previous answer stays, dimmed, while the next one loads — no flicker as you type. */}

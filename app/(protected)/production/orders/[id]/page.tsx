@@ -101,6 +101,9 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
       <p className="mb-3 text-sm text-gray-400">
         {order.requirements.length} {order.requirements.length === 1 ? 'ingredient' : 'ingredients'} from BOM
         v{order.bomVersion}, scaled to this order.
+        {order.requirements.some(line => line.stock !== null) && (
+          <> Stock is what {order.branchName} holds right now, less what other approved or in-progress orders there still need.</>
+        )}
       </p>
       <MaterialRequirementsTable
         lines={order.requirements}

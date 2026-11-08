@@ -232,7 +232,13 @@ table; it's a UI/UX decision, not an architecture change.
       and in total, scaled in Decimal from the BOM (`scaleBomQuantities`), derived on read and
       never stored — "Materials required" on the order page (pinned version) and a live preview
       on the new / edit forms (active version, `GET /api/production-orders/requirements`).
-- [ ] Stock sufficiency check + shortage alerts
+- [~] Stock sufficiency check + shortage alerts — **stock check done 2026-11-08**
+      (`docs/2026-11-08-week5-stock-sufficiency.md`): each requirement line shows on hand at the
+      order's branch, committed (what other APPROVED / IN_PROGRESS orders there still need —
+      stock only leaves on completion), available = on hand − committed, and a green "Enough" /
+      red "Short X", on the order page (DRAFT through IN_PROGRESS) and in the form preview
+      (`branchId` on `GET /api/production-orders/requirements`). Derived, nothing reserved;
+      expected deliveries not counted. The shortage alert is Task 4, still to do.
 - [ ] Production Order approval + status flow
 - [ ] Production schedule calendar view
 
