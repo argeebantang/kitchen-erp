@@ -122,7 +122,7 @@ const plan = {
             { t: "Stock sufficiency check: required vs available per ingredient", done: true },
             { t: "Shortage alert: flag exactly which ingredients are insufficient", done: true },
             { t: "Production Order approval by accounting", done: true },
-            "Status flow: Draft → Pending → Approved → In Progress → Completed",
+            { t: "Status flow: Draft → Pending → Approved → In Progress → Completed", done: true },
             "Production schedule calendar view",
           ],
           deliverable: "Create a Dinuguan production order. System shows all ingredients needed, flags shortages, sends for approval.",
@@ -132,7 +132,8 @@ const plan = {
           title: "Production Execution & Basic Costing",
           tag: "costing",
           tasks: [
-            "Kitchen supervisor marks production as In Progress → Completed",
+            { t: "Kitchen supervisor marks production as In Progress → Completed",
+              partial: "Start (→ In Progress) built in Week 5 Task 6 with a status log and timeline; Complete remains, with the stock deduction" },
             "On completion: raw materials deducted per BOM, finished goods added to stock",
             "Batch number, production date, expiry date assigned to finished goods",
             "Actual yield recorded vs planned yield",

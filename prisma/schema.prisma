@@ -84,6 +84,7 @@ model User {
   purchaseRequests        PurchaseRequest[]
   productionOrders        ProductionOrder[]   @relation("ProductionOrderRequester")
   submittedProductionOrders ProductionOrder[] @relation("ProductionOrderSubmitter")
+  productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
 }
@@ -505,8 +506,31 @@ model ProductionOrder {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
+  statusChanges ProductionStatusChange[]
+
   @@index([status])
   @@index([branchId])
+}
+
+/// One row per status change of a production order — submit, approve / reject,
+/// start, cancel, and (Week 6) complete — written in the same transaction as
+/// the change itself, so the log cannot disagree with the status. It is the
+/// order page's timeline and the audit trail of who moved it when. Creation is
+/// not logged: the order's own createdAt and requestedById say that.
+/// Append-only, like StockMovement.
+model ProductionStatusChange {
+  id                String           @id @default(cuid())
+  productionOrderId String
+  productionOrder   ProductionOrder  @relation(fields: [productionOrderId], references: [id])
+  fromStatus        ProductionStatus
+  toStatus          ProductionStatus
+  changedById       String
+  changedBy         User             @relation(fields: [changedById], references: [id])
+  /// Approval remarks or the cancel reason; null when the change needs none.
+  note              String?
+  createdAt         DateTime         @default(now())
+
+  @@index([productionOrderId, createdAt])
 }
 
 // ─── CONVERSIONS ─────────────────────────────────────────────────────────────

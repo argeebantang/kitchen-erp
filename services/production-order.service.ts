@@ -7,8 +7,6 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   type ProductionOrderJob,
 } from '@/lib/queue'
-import { ApprovalRepository } from '@/repositories/approval.repository'
-import type { ApprovalDto } from '@/services/purchase-request.service'
 import { trimDecimal } from '@/lib/format'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
@@ -135,8 +133,19 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   activeBomVersion: number | null
   /** The pinned BOM scaled to this order — derived on every read, never stored (Task 2, D1). */
   requirements: MaterialRequirementDto[]
-  /** Approve / reject decisions, newest first. */
-  decisions: ApprovalDto[]
+  /** Every status change, oldest first — the timeline (Week 5 Task 6). */
+  statusChanges: StatusChangeDto[]
+}
+
+export type StatusChangeDto = {
+  id: string
+  fromStatus: ProductionStatus
+  toStatus: ProductionStatus
+  changedByName: string
+  /** Approval remarks or the cancel reason. */
+  note: string | null
+  /** ISO timestamp. */
+  at: string
 }
 
 /** A row of the approvals inbox: the order plus how many ingredients are short right now. */
@@ -205,6 +214,17 @@ const STOCK_CHECK_STATUSES: ProductionStatus[] = [
   ProductionStatus.PENDING_APPROVAL,
   ProductionStatus.APPROVED,
   ProductionStatus.IN_PROGRESS,
+]
+
+/**
+ * Where a run can still be called off (Week 5 Task 6, D5). Not once it is in
+ * progress: ingredients are partly used, so stopping it needs a write-off
+ * (Week 7), not a cancel.
+ */
+export const CANCELLABLE_STATUSES: ProductionStatus[] = [
+  ProductionStatus.DRAFT,
+  ProductionStatus.PENDING_APPROVAL,
+  ProductionStatus.APPROVED,
 ]
 
 /**
@@ -426,10 +446,12 @@ export const ProductionOrderService = {
 
     // The pinned version with its lines, for the requirements. Only a
     // superseded pin also needs the active version.
-    const [pinned, active, decisions] = await Promise.all([
+    // Decisions are read from the status log (with their remarks), not the
+    // Approval rows: the timeline shows them in sequence with everything else.
+    const [pinned, active, statusChanges] = await Promise.all([
       BomRepository.findById(order.bomId),
       order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id),
-      ApprovalRepository.findByReference('ProductionOrder', order.id),
+      ProductionOrderRepository.findStatusChanges(order.id),
     ])
     // bomId is a foreign key and BOM rows are never deleted, so this cannot
     // happen short of a hand-edited database.
@@ -448,12 +470,13 @@ export const ProductionOrderService = {
           pinned, order.batchWeight, order.plannedQty,
           STOCK_CHECK_STATUSES.includes(order.status) ? { branchId: order.branch.id, excludeOrderId: order.id } : null,
         ),
-        decisions: decisions.map(decision => ({
-          id:           decision.id,
-          decision:     decision.decision,
-          remarks:      decision.remarks,
-          approverName: decision.approver.name,
-          decidedAt:    decision.decidedAt.toISOString(),
+        statusChanges: statusChanges.map(change => ({
+          id:            change.id,
+          fromStatus:    change.fromStatus,
+          toStatus:      change.toStatus,
+          changedByName: change.changedBy.name,
+          note:          change.note,
+          at:            change.createdAt.toISOString(),
         })),
       },
     }
@@ -755,6 +778,81 @@ export const ProductionOrderService = {
     }
 
     await enqueue(PRODUCTION_ORDER_DECIDED, id)
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * APPROVED → IN_PROGRESS: the kitchen has begun (Week 5 Task 6, D3).
+   * Shortages do not block — stock records can lag behind deliveries, and the
+   * kitchen sees the shelf — and there is no date rule (D4); the timeline
+   * shows a start before the production date. Nothing moves in stock: that
+   * happens on completion (Week 6).
+   */
+  async start(id: string, viewer: Viewer): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    if (!canPlan(viewer.role)) {
+      return { success: false, error: 'Only production can start a production run', status: 403 }
+    }
+
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+    if (order.status !== ProductionStatus.APPROVED) {
+      return {
+        success: false,
+        error:   `This order is ${order.status === ProductionStatus.DRAFT ? 'still a draft' : order.status.replace(/_/g, ' ').toLowerCase()} — only an approved order can be started`,
+        status:  409,
+      }
+    }
+
+    const started = await ProductionOrderRepository.start(id, viewer.userId)
+    if (!started) {
+      return { success: false, error: 'This order changed just now — reload and try again', status: 409 }
+    }
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * DRAFT | PENDING_APPROVAL | APPROVED → CANCELLED, with a reason (D5).
+   * Cancelling an approved order frees what it had committed: committed
+   * stock only counts APPROVED and IN_PROGRESS orders.
+   */
+  async cancel(
+    id: string,
+    viewer: Viewer,
+    reason: string,
+  ): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    if (!canPlan(viewer.role)) {
+      return { success: false, error: 'Only production can cancel a production order', status: 403 }
+    }
+    if (reason.trim() === '') {
+      return { success: false, error: 'Give a reason for cancelling', status: 400 }
+    }
+
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+    if (!CANCELLABLE_STATUSES.includes(order.status)) {
+      return {
+        success: false,
+        error:   order.status === ProductionStatus.IN_PROGRESS
+          ? 'This run is already in progress — ingredients are being used, so it cannot simply be cancelled'
+          : order.status === ProductionStatus.CANCELLED
+            ? 'This order is already cancelled'
+            : `This order is ${order.status.replace(/_/g, ' ').toLowerCase()} and cannot be cancelled`,
+        status:  409,
+      }
+    }
+
+    const cancelled = await ProductionOrderRepository.cancel(id, {
+      from:          order.status,
+      cancelledById: viewer.userId,
+      reason:        reason.trim(),
+    })
+    if (!cancelled) {
+      return { success: false, error: 'This order changed just now — reload and try again', status: 409 }
+    }
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },
 }
