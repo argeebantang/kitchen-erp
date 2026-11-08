@@ -20,8 +20,11 @@ export type CreateBomVersionInput = {
  * A BOM is never shown without its lines, and a line is never useful without
  * its material and unit — so the whole tree is fetched in one query. Loading
  * the BOM then looping lines to resolve materials is the N+1 this avoids.
+ *
+ * Exported so a query through another model (a production order's pinned
+ * BOM) can load the same tree and get a BomWithDetail-shaped result.
  */
-const bomDetailInclude = {
+export const bomDetailInclude = {
   finishedGood: {
     select: {
       id: true, code: true, name: true,

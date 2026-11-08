@@ -8,6 +8,8 @@ const PreviewQuerySchema = z.object({
   finishedGoodId: z.string().cuid(),
   batchWeight:    z.string().regex(/^\d+(\.\d+)?$/, 'Must be a positive decimal'),
   batchCount:     z.coerce.number().int().min(1).max(MAX_BATCH_COUNT),
+  // Where the run would happen: the stock check reads this branch's levels.
+  branchId:       z.string().cuid(),
 })
 
 /**

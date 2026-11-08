@@ -1,5 +1,6 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { bomDetailInclude } from '@/repositories/bom.repository'
 
 export type CreateProductionOrderInput = {
   finishedGoodId: string
@@ -16,6 +17,13 @@ export type CreateProductionOrderInput = {
 
 /** What an edit may rewrite. orderNumber, requestedById and status never change here. */
 export type UpdateProductionOrderDraftInput = Omit<CreateProductionOrderInput, 'requestedById'>
+
+/**
+ * Orders whose ingredients are spoken for but still on the shelf: approved,
+ * or running and not yet completed. Stock is only deducted on completion
+ * (Week 6), so until then the stock check subtracts what these still need.
+ */
+const COMMITTING_STATUSES: ProductionStatus[] = [ProductionStatus.APPROVED, ProductionStatus.IN_PROGRESS]
 
 export type ProductionOrderListFilters = {
   status?: ProductionStatus
@@ -63,6 +71,26 @@ export const ProductionOrderRepository = {
 
   async findById(id: string): Promise<ProductionOrderWithDetail | null> {
     return prisma.productionOrder.findUnique({ where: { id }, include: orderInclude })
+  },
+
+  /**
+   * The committing orders at a branch, each with its pinned BOM's lines, in
+   * one query — the service scales them with the same function as the order
+   * being checked. `excludeId` keeps an approved order from counting against
+   * itself. Bounded by how many runs are approved but not yet completed.
+   */
+  async findCommittedAtBranch(branchId: string, excludeId: string | null) {
+    return prisma.productionOrder.findMany({
+      where: {
+        branchId,
+        status: { in: COMMITTING_STATUSES },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: {
+        id: true, batchWeight: true, plannedQty: true,
+        bom: { include: bomDetailInclude },
+      },
+    })
   },
 
   /**

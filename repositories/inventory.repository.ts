@@ -166,6 +166,20 @@ export const InventoryRepository = {
   },
 
   /**
+   * On-hand quantity per material at one branch, for the given materials. A
+   * material with no level row there has never moved there, so it is absent
+   * and the caller reads it as zero.
+   */
+  async levelsAtBranch(branchId: string, materialIds: string[]): Promise<Map<string, Prisma.Decimal>> {
+    if (materialIds.length === 0) return new Map()
+    const rows = await prisma.inventoryLevel.findMany({
+      where:  { branchId, materialId: { in: materialIds } },
+      select: { materialId: true, quantity: true },
+    })
+    return new Map(rows.map(row => [row.materialId, row.quantity]))
+  },
+
+  /**
    * Everything the stock map needs, read in one snapshot: active materials
    * (category, then name) and every level row. The service crosses them with
    * the active branches, so a material with no level row at a branch still

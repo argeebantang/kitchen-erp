@@ -4,6 +4,7 @@ import { todayIsoDate } from '@/lib/dates'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import {
   ProductionOrderListFilters,
@@ -72,6 +73,19 @@ export type ProductionOrderSummaryDto = {
   createdAt: string
 }
 
+/** Stock against one requirement line, at the order's branch, right now (Task 3, D3). */
+export type LineStockDto = {
+  onHand: string
+  /** Still needed by other APPROVED / IN_PROGRESS orders at the branch. */
+  committed: string
+  /** onHand − committed. Negative when more is spoken for than is on the shelf. */
+  available: string
+  /** max(total − available, 0). */
+  short: string
+  /** total ≤ available — exactly enough counts as enough (D6). */
+  enough: boolean
+}
+
 /** One ingredient of an order: its BOM line scaled to the batch weight and to the whole run. */
 export type MaterialRequirementDto = {
   materialId: string
@@ -82,6 +96,8 @@ export type MaterialRequirementDto = {
   perBatch: string
   /** For plannedQty (all batches). */
   total: string
+  /** Null where the order's status has no stock check (completed, rejected, cancelled). */
+  stock: LineStockDto | null
 }
 
 /** What a run would need, before it is saved — the form's preview. */
@@ -92,6 +108,8 @@ export type RequirementsPreviewDto = {
   batchWeight: string
   batchCount: number
   plannedQty: string
+  /** Where the stock was checked. */
+  branchName: string
   lines: MaterialRequirementDto[]
 }
 
@@ -146,29 +164,106 @@ function toSummaryDto(order: ProductionOrderWithDetail): ProductionOrderSummaryD
 }
 
 /**
- * What a run needs, line by line. Both columns are scaled straight from the
- * BOM — per batch to batchWeight, total to plannedQty — rather than total =
- * per batch × batchCount, so the total never carries a rounded intermediate.
- * The units are the materials' own: BomService refuses a line in any other.
- *
- * The one place requirements are computed, so the detail page and the form's
- * preview cannot disagree.
+ * Statuses whose run is still ahead, so today's stock means something for it
+ * (Task 3, D5). Once completed, rejected or cancelled, the check is hidden.
  */
-function materialRequirements(
-  bom: BomWithDetail,
-  batchWeight: Prisma.Decimal,
-  plannedQty: Prisma.Decimal,
-): MaterialRequirementDto[] {
+const STOCK_CHECK_STATUSES: ProductionStatus[] = [
+  ProductionStatus.DRAFT,
+  ProductionStatus.PENDING_APPROVAL,
+  ProductionStatus.APPROVED,
+  ProductionStatus.IN_PROGRESS,
+]
+
+type ScaledLine = {
+  item: BomWithDetail['items'][number]
+  perBatch: Prisma.Decimal
+  total: Prisma.Decimal
+}
+
+/**
+ * What a run needs, line by line, in Decimal. Both figures are scaled
+ * straight from the BOM — per batch to batchWeight, total to plannedQty —
+ * rather than total = per batch × batchCount, so the total never carries a
+ * rounded intermediate. The units are the materials' own: BomService refuses
+ * a line in any other.
+ *
+ * The one place an order is scaled: this order's requirements and what other
+ * orders have committed both come from here, so they cannot disagree.
+ */
+function scaleOrder(bom: BomWithDetail, batchWeight: Prisma.Decimal, plannedQty: Prisma.Decimal): ScaledLine[] {
   const perBatch = new Map(scaleBomQuantities(bom, batchWeight).map(line => [line.lineId, line.quantity]))
   const total    = new Map(scaleBomQuantities(bom, plannedQty).map(line => [line.lineId, line.quantity]))
 
   return bom.items.map(item => ({
-    materialId:       item.materialId,
-    materialCode:     item.material.code,
-    materialName:     item.material.name,
-    unitAbbreviation: item.unit.abbreviation,
-    perBatch:         toDecimalString(perBatch.get(item.id) ?? item.quantity),
-    total:            toDecimalString(total.get(item.id) ?? item.quantity),
+    item,
+    perBatch: perBatch.get(item.id) ?? item.quantity,
+    total:    total.get(item.id) ?? item.quantity,
+  }))
+}
+
+/**
+ * Required vs available per line, at one branch, right now (Task 3).
+ * Available is on hand minus what approved / in-progress orders there still
+ * need: stock only leaves the shelf when a run completes (Week 6), so without
+ * this two approved orders would both count the same kilo. Expected
+ * deliveries are not counted.
+ */
+async function stockFor(
+  lines: ScaledLine[],
+  branchId: string,
+  excludeOrderId: string | null,
+): Promise<Map<string, LineStockDto>> {
+  const zero = new Prisma.Decimal(0)
+  const [onHand, committedOrders] = await Promise.all([
+    InventoryRepository.levelsAtBranch(branchId, lines.map(line => line.item.materialId)),
+    ProductionOrderRepository.findCommittedAtBranch(branchId, excludeOrderId),
+  ])
+
+  const committed = new Map<string, Prisma.Decimal>()
+  for (const order of committedOrders) {
+    for (const line of scaleOrder(order.bom, order.batchWeight, order.plannedQty)) {
+      const materialId = line.item.materialId
+      committed.set(materialId, (committed.get(materialId) ?? zero).add(line.total))
+    }
+  }
+
+  return new Map(lines.map(line => {
+    const materialId    = line.item.materialId
+    const lineOnHand    = onHand.get(materialId) ?? zero
+    const lineCommitted = committed.get(materialId) ?? zero
+    const available     = lineOnHand.sub(lineCommitted)
+    const short         = Prisma.Decimal.max(line.total.sub(available), zero)
+    return [materialId, {
+      onHand:    toDecimalString(lineOnHand),
+      committed: toDecimalString(lineCommitted),
+      available: toDecimalString(available),
+      short:     toDecimalString(short),
+      enough:    line.total.lessThanOrEqualTo(available),
+    }]
+  }))
+}
+
+/**
+ * An order's requirement lines, with the stock check when `stockAt` is given.
+ * Behind both the order page and the form's preview.
+ */
+async function materialRequirements(
+  bom: BomWithDetail,
+  batchWeight: Prisma.Decimal,
+  plannedQty: Prisma.Decimal,
+  stockAt: { branchId: string; excludeOrderId: string | null } | null,
+): Promise<MaterialRequirementDto[]> {
+  const lines = scaleOrder(bom, batchWeight, plannedQty)
+  const stock = stockAt ? await stockFor(lines, stockAt.branchId, stockAt.excludeOrderId) : null
+
+  return lines.map(line => ({
+    materialId:       line.item.materialId,
+    materialCode:     line.item.material.code,
+    materialName:     line.item.material.name,
+    unitAbbreviation: line.item.unit.abbreviation,
+    perBatch:         toDecimalString(line.perBatch),
+    total:            toDecimalString(line.total),
+    stock:            stock?.get(line.item.materialId) ?? null,
   }))
 }
 
@@ -286,25 +381,38 @@ export const ProductionOrderService = {
         notes:            order.notes,
         updatedAt:        order.updatedAt.toISOString(),
         activeBomVersion: active?.version ?? null,
-        requirements:     materialRequirements(pinned, order.batchWeight, order.plannedQty),
+        requirements:     await materialRequirements(
+          pinned, order.batchWeight, order.plannedQty,
+          STOCK_CHECK_STATUSES.includes(order.status) ? { branchId: order.branch.id, excludeOrderId: order.id } : null,
+        ),
       },
     }
   },
 
   /**
    * The form's live preview: the active BOM scaled to a batch weight and count
-   * that have not been saved yet. Read-only, so it checks only what the
-   * calculation needs; branch, date and the unit rule are left to save, where
-   * the form already shows them.
+   * that have not been saved yet, with the stock check at the chosen branch.
+   * Read-only, so it checks only what the calculation needs; the date and the
+   * unit rule are left to save, where the form already shows them.
+   *
+   * No order is excluded from committed: only a draft can be edited, and a
+   * draft commits nothing.
    */
   async previewRequirements(input: {
     finishedGoodId: string
     batchWeight: string
     batchCount: number
+    branchId: string
   }): Promise<ProductionOrderResult<RequirementsPreviewDto>> {
-    const bom = await BomRepository.findActiveByFinishedGood(input.finishedGoodId)
+    const [bom, branch] = await Promise.all([
+      BomRepository.findActiveByFinishedGood(input.finishedGoodId),
+      BranchRepository.findById(input.branchId),
+    ])
     if (!bom) {
       return { success: false, error: 'This finished good has no active BOM', status: 404 }
+    }
+    if (!branch || !branch.isActive) {
+      return { success: false, error: 'Branch not found', status: 400 }
     }
 
     const batchWeight = toDecimal(input.batchWeight)
@@ -321,7 +429,8 @@ export const ProductionOrderService = {
         batchWeight: toDecimalString(batchWeight),
         batchCount:  input.batchCount,
         plannedQty:  toDecimalString(plannedQty),
-        lines:       materialRequirements(bom, batchWeight, plannedQty),
+        branchName:  branch.name,
+        lines:       await materialRequirements(bom, batchWeight, plannedQty, { branchId: branch.id, excludeOrderId: null }),
       },
     }
   },
