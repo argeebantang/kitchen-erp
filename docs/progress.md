@@ -244,7 +244,7 @@ table; it's a UI/UX decision, not an architecture change.
       rows tinted. On the order page (ADMIN / PRODUCTION_MANAGER, DRAFT through APPROVED),
       "Request missing materials" opens a new purchase request pre-filled with the shortfall
       (`/procurement/requests/new?productionOrder=<id>`), reviewed and saved as usual.
-- [~] Production Order approval + status flow — **approval done 2026-11-08**
+- [x] Production Order approval + status flow — **approval done 2026-11-08**
       (`docs/2026-11-08-week5-production-approval.md`): production submits a draft
       (`POST /api/production-orders/[id]/submit`; saved values re-checked, a superseded BOM pin
       refused, shortages warn only) → accounting approves or rejects through `POST /api/approvals`
@@ -253,12 +253,18 @@ table; it's a UI/UX decision, not an architecture change.
       Accounting can now read `/production/orders`; the approvals inbox has a Production orders
       section with a shortage badge. Notifications via the queue: submitted → approvers; decided →
       submitter; approved with shortages → procurement, linking to the pre-filled request.
-      Also fixed: a line's shortage is capped at the order's own requirement. The rest of the status
-      flow (start, cancel) is Task 6.
+      Also fixed: a line's shortage is capped at the order's own requirement. **Status flow done
+      2026-11-08** (`docs/2026-11-08-week5-status-flow.md`): Start (`APPROVED → IN_PROGRESS`, shortages
+      warn only) and Cancel (with a reason, from DRAFT / PENDING_APPROVAL / APPROVED — not once
+      started) for production; every status change is logged in the new `ProductionStatusChange`
+      table in the same transaction (migration `20261108133119_production_status_change`), which
+      drives a Draft → Pending → Approved → In progress → Completed timeline on the order page.
+      Completing a run (with stock) is Week 6.
 - [ ] Production schedule calendar view
 
 ### Week 6 — Production Execution & Basic Costing
-- [ ] Execution flow (In Progress → Completed) with stock deduction/addition
+- [ ] Execution flow (In Progress → Completed) with stock deduction/addition — *Start (→ In Progress)
+      was built in Week 5 Task 6; Complete remains, logging to `ProductionStatusChange`.*
 - [ ] Batch/expiry tracking on finished goods
 - [ ] Actual vs planned yield
 - [ ] Costing: batch cost, cost/kg, variance

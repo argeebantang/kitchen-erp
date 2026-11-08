@@ -4,13 +4,14 @@ import { ArrowLeft, Pencil } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { todayIsoDate } from '@/lib/dates'
-import { ProductionOrderService, SHORTFALL_REQUEST_STATUSES } from '@/services/production-order.service'
+import { CANCELLABLE_STATUSES, ProductionOrderService, SHORTFALL_REQUEST_STATUSES } from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
 import { ShortageBanner } from '@/components/production/ShortageBanner'
 import { ProductionOrderActions } from '@/components/production/ProductionOrderActions'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
-import { DecisionHistory } from '@/components/procurement/DecisionHistory'
+import { CancelProductionOrder } from '@/components/production/CancelProductionOrder'
+import { StatusTimeline } from '@/components/production/StatusTimeline'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -46,6 +47,9 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
   // Task 4, D4: the roles that plan production (and may raise a purchase
   // request), while ordering can still arrive in time.
   const canRequestShortfall = canPlan && SHORTFALL_REQUEST_STATUSES.includes(order.status)
+  // Task 6: production starts an approved run and may call one off before it starts.
+  const canStart  = canPlan && order.status === 'APPROVED'
+  const canCancel = canPlan && CANCELLABLE_STATUSES.includes(order.status)
 
   return (
     <div>
@@ -61,15 +65,18 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-2xl font-bold text-gray-800">{order.orderNumber}</h1>
           <StatusBadge status={order.status} />
-          {canEdit && (
-            <Link
-              href={`/production/orders/${order.id}/edit`}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-600 transition-colors hover:bg-orange-50"
-            >
-              <Pencil size={15} />
-              Edit
-            </Link>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {canCancel && <CancelProductionOrder productionOrderId={order.id} orderNumber={order.orderNumber} />}
+            {canEdit && (
+              <Link
+                href={`/production/orders/${order.id}/edit`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-600 transition-colors hover:bg-orange-50"
+              >
+                <Pencil size={15} />
+                Edit
+              </Link>
+            )}
+          </div>
         </div>
         <p className="mt-1 text-sm text-gray-400">
           {order.finishedGoodName} <span className="font-mono">({order.finishedGoodCode})</span>
@@ -83,6 +90,8 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           </Link>
         </p>
       </div>
+
+      <StatusTimeline order={order} />
 
       {/* D9: a draft re-pins to the active version on every save, so say what a save would change. */}
       {!order.bomIsActive && (
@@ -115,12 +124,29 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
 
       {canEdit && (
         <ProductionOrderActions
+          kind="submit"
           productionOrderId={order.id}
           shortCount={shortCount}
           ingredientCount={order.requirements.length}
           branchName={order.branchName}
           blockedReason={submitBlockedReason}
         />
+      )}
+
+      {canStart && (
+        <ProductionOrderActions
+          kind="start"
+          productionOrderId={order.id}
+          shortCount={shortCount}
+          ingredientCount={order.requirements.length}
+          branchName={order.branchName}
+          blockedReason={null}
+        />
+      )}
+      {order.status === 'IN_PROGRESS' && (
+        <p className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          In the kitchen. Completing the run — deducting the ingredients and recording the actual yield — arrives in Week 6.
+        </p>
       )}
 
       {isPending && isApprover && !isOwnSubmission && (
@@ -136,8 +162,6 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           Submitted — waiting for accounting&apos;s decision.
         </p>
       )}
-
-      <DecisionHistory decisions={order.decisions} />
 
       {order.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">

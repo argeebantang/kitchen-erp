@@ -51,6 +51,45 @@ const orderInclude = {
 
 export type ProductionOrderWithDetail = Prisma.ProductionOrderGetPayload<{ include: typeof orderInclude }>
 
+/**
+ * Every status change goes through here, on the caller's transaction: the
+ * expected status sits in the UPDATE's WHERE (0 rows = someone else moved it
+ * first → false, nothing written), and the ProductionStatusChange row is
+ * written only when the update happened, so the log cannot disagree with the
+ * status (Week 5 Task 6).
+ */
+async function transition(
+  tx: Prisma.TransactionClient,
+  input: {
+    id: string
+    from: ProductionStatus
+    to: ProductionStatus
+    changedById: string
+    note?: string | null
+    /** Extra conditions on the UPDATE, e.g. the bomId submit checked. */
+    where?: Prisma.ProductionOrderWhereInput
+    /** Extra columns set with the status, e.g. submittedById. */
+    data?: Prisma.ProductionOrderUncheckedUpdateManyInput
+  },
+): Promise<boolean> {
+  const { count } = await tx.productionOrder.updateMany({
+    where: { ...input.where, id: input.id, status: input.from },
+    data:  { ...input.data, status: input.to },
+  })
+  if (count === 0) return false
+
+  await tx.productionStatusChange.create({
+    data: {
+      productionOrderId: input.id,
+      fromStatus:        input.from,
+      toStatus:          input.to,
+      changedById:       input.changedById,
+      note:              input.note ?? null,
+    },
+  })
+  return true
+}
+
 export const ProductionOrderRepository = {
   async findMany(filters: ProductionOrderListFilters = {}) {
     const where: Prisma.ProductionOrderWhereInput = {}
@@ -147,21 +186,24 @@ export const ProductionOrderRepository = {
 
   /**
    * DRAFT → PENDING_APPROVAL, recording who sent it. False if it stopped
-   * being a draft first (status in the WHERE, as in updateDraft). The bomId
-   * the service checked is in the WHERE too: an edit landing between the
-   * check and this UPDATE re-pins the BOM, and then nothing is submitted.
+   * being a draft first. The bomId the service checked is in the WHERE too:
+   * an edit landing between the check and this UPDATE re-pins the BOM, and
+   * then nothing is submitted.
    */
   async submit(id: string, input: { submittedById: string; bomId: string }): Promise<boolean> {
-    const { count } = await prisma.productionOrder.updateMany({
-      where: { id, status: ProductionStatus.DRAFT, bomId: input.bomId },
-      data:  { status: ProductionStatus.PENDING_APPROVAL, submittedById: input.submittedById },
-    })
-    return count === 1
+    return prisma.$transaction(tx => transition(tx, {
+      id,
+      from:        ProductionStatus.DRAFT,
+      to:          ProductionStatus.PENDING_APPROVAL,
+      changedById: input.submittedById,
+      where:       { bomId: input.bomId },
+      data:        { submittedById: input.submittedById },
+    }))
   },
 
   /**
-   * PENDING_APPROVAL → APPROVED | REJECTED and the Approval row, in one
-   * transaction. The status moves first: if another decision got there
+   * PENDING_APPROVAL → APPROVED | REJECTED, its log row and the Approval row,
+   * in one transaction. The status moves first: if another decision got there
    * before us, nothing is written and the result is false — the same order
    * as PurchaseOrderRepository.decide.
    */
@@ -172,11 +214,14 @@ export const ProductionOrderRepository = {
     remarks: string | null
   }): Promise<boolean> {
     return prisma.$transaction(async tx => {
-      const { count } = await tx.productionOrder.updateMany({
-        where: { id: input.id, status: ProductionStatus.PENDING_APPROVAL },
-        data:  { status: input.decision === 'APPROVED' ? ProductionStatus.APPROVED : ProductionStatus.REJECTED },
+      const moved = await transition(tx, {
+        id:          input.id,
+        from:        ProductionStatus.PENDING_APPROVAL,
+        to:          input.decision === 'APPROVED' ? ProductionStatus.APPROVED : ProductionStatus.REJECTED,
+        changedById: input.approverId,
+        note:        input.remarks,
       })
-      if (count === 0) return false
+      if (!moved) return false
 
       await tx.approval.create({
         data: {
@@ -188,6 +233,40 @@ export const ProductionOrderRepository = {
         },
       })
       return true
+    })
+  },
+
+  /** APPROVED → IN_PROGRESS (Week 5 Task 6). False if it was not approved by then. */
+  async start(id: string, startedById: string): Promise<boolean> {
+    return prisma.$transaction(tx => transition(tx, {
+      id,
+      from:        ProductionStatus.APPROVED,
+      to:          ProductionStatus.IN_PROGRESS,
+      changedById: startedById,
+    }))
+  },
+
+  /**
+   * `from` → CANCELLED, with the reason on the log row. `from` is the status
+   * the service read and allowed; if the order has moved since, nothing
+   * changes and the result is false.
+   */
+  async cancel(id: string, input: { from: ProductionStatus; cancelledById: string; reason: string }): Promise<boolean> {
+    return prisma.$transaction(tx => transition(tx, {
+      id,
+      from:        input.from,
+      to:          ProductionStatus.CANCELLED,
+      changedById: input.cancelledById,
+      note:        input.reason,
+    }))
+  },
+
+  /** An order's status changes, oldest first — the order page's timeline. */
+  async findStatusChanges(productionOrderId: string) {
+    return prisma.productionStatusChange.findMany({
+      where:   { productionOrderId },
+      include: { changedBy: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
     })
   },
 }

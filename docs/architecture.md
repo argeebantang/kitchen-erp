@@ -51,7 +51,7 @@ This is a conventional layered/n-tier architecture rather than DDD or hexagonal 
 
 ## Patterns in use
 
-- **Race-safe status transitions.** The expected current status goes in the UPDATE's `WHERE` (`updateMany({ where: { id, status: DRAFT } })`), and a zero-row result means someone else moved it first → 409. No read-then-write gap.
+- **Race-safe status transitions.** The expected current status goes in the UPDATE's `WHERE` (`updateMany({ where: { id, status: DRAFT } })`), and a zero-row result means someone else moved it first → 409. No read-then-write gap. Production orders route every transition through one helper, `transition()` in `production-order.repository.ts`, which also writes the `ProductionStatusChange` log row on the same transaction — only when the update matched.
 - **Row locks for cumulative checks.** When a write depends on a total other transactions also change — RR approval checks accepted ≤ ordered per PO line — lock the parent row first (`SELECT … FOR UPDATE` via `$queryRaw`, e.g. `PurchaseOrderRepository.lockForReceiving`), then read the total inside the same transaction. A second approval on the same order waits, then sees the first's committed rows. Take locks in one order (order before report) so two transactions cannot deadlock. To abort with a reason from inside `$transaction`, throw a small error class and map it to a result outside (`ReceivingConflict` in `receiving-report.repository.ts`).
 - **Stock writes** go through `InventoryRepository.stockIn(tx, …)`: ledger row and level change together, on the caller's transaction.
 - **Running totals over paged history** use a SQL window function (`SUM(quantity) OVER (ORDER BY "createdAt", id)` in `InventoryRepository.runningBalances`) computed over the full history and only then filtered to the page's rows, so a balance on page 3 is right without loading pages 1–2.
@@ -65,7 +65,7 @@ This is a conventional layered/n-tier architecture rather than DDD or hexagonal 
 
 ## Data model
 
-Defined in `prisma/schema.prisma` (24 models, PostgreSQL). Domain areas:
+Defined in `prisma/schema.prisma` (25 models, PostgreSQL). Domain areas:
 
 - **Identity**: `User` (role via `Role`: `ADMIN`, `PROCUREMENT_MANAGER`, `PRODUCTION_MANAGER`, `BRANCH_MANAGER`, `ACCOUNTING`, `VIEWER`), `Branch`.
 - **Item master**: `Category`, `Unit`, `Material`, `FinishedGood`, and `ItemPrice` (dated reference prices per material, optionally per supplier).
