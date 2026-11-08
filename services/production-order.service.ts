@@ -165,11 +165,37 @@ export type ShortfallRequestDto = {
   lines: { materialId: string; quantity: string }[]
 }
 
+/** One day of the schedule calendar (Week 5 Task 7). */
+export type ScheduleDayDto = {
+  orders: ProductionOrderSummaryDto[]
+  /** Planned output per unit, summed in Decimal — e.g. [{ quantity: "40", unit: "kg" }]. */
+  totals: { quantity: string; unit: string }[]
+}
+
+export type ScheduleDto = {
+  /** Keyed by YYYY-MM-DD; days without orders are absent. */
+  days: Record<string, ScheduleDayDto>
+  /** True when the range held more than SCHEDULE_LIMIT orders and the rest are not shown. */
+  truncated: boolean
+}
+
 export type ProductionOrderResult<T> =
   | { success: true;  data: T }
   | { success: false; error: string; status: number }
 
 type Viewer = { userId: string; role: string }
+
+/** The most orders one calendar screen loads (Task 7, D7). */
+export const SCHEDULE_LIMIT = 500
+
+/** What the calendar shows by default: everything that will be, or was, cooked (D3). */
+const SCHEDULED_STATUSES: ProductionStatus[] = [
+  ProductionStatus.DRAFT,
+  ProductionStatus.PENDING_APPROVAL,
+  ProductionStatus.APPROVED,
+  ProductionStatus.IN_PROGRESS,
+  ProductionStatus.COMPLETED,
+]
 
 /** Every status, in workflow order — the list page's filter options. */
 export const PRODUCTION_STATUSES = Object.values(ProductionStatus)
@@ -659,6 +685,48 @@ export const ProductionOrderService = {
     }
 
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * The schedule calendar: orders planned between two dates, grouped by day,
+   * with each day's planned output summed per unit in Decimal (Task 7, D5).
+   * Rejected and cancelled orders only when asked for (D3).
+   */
+  async schedule(input: {
+    from: string
+    to: string
+    branchId?: string
+    includeClosed: boolean
+  }): Promise<ScheduleDto> {
+    const rows = await ProductionOrderRepository.findPlannedBetween({
+      from:     new Date(input.from),
+      to:       new Date(input.to),
+      statuses: input.includeClosed ? PRODUCTION_STATUSES : SCHEDULED_STATUSES,
+      branchId: input.branchId,
+      take:     SCHEDULE_LIMIT + 1,
+    })
+    const truncated = rows.length > SCHEDULE_LIMIT
+
+    const days: Record<string, ScheduleDayDto> = {}
+    const sums = new Map<string, Map<string, Prisma.Decimal>>()
+    for (const order of rows.slice(0, SCHEDULE_LIMIT)) {
+      const day  = order.plannedDate.toISOString().slice(0, 10)
+      const unit = order.bom.batchUnit.abbreviation
+      const entry = days[day] ?? { orders: [], totals: [] }
+      entry.orders.push(toSummaryDto(order))
+      days[day] = entry
+      // A rejected or cancelled order will not be cooked, so it is listed
+      // (when shown) but not counted in the day's load.
+      if (order.status === ProductionStatus.REJECTED || order.status === ProductionStatus.CANCELLED) continue
+      const perUnit = sums.get(day) ?? new Map<string, Prisma.Decimal>()
+      perUnit.set(unit, (perUnit.get(unit) ?? new Prisma.Decimal(0)).add(order.plannedQty))
+      sums.set(day, perUnit)
+    }
+    for (const [day, perUnit] of sums) {
+      days[day].totals = [...perUnit].map(([unit, quantity]) => ({ quantity: toDecimalString(quantity), unit }))
+    }
+
+    return { days, truncated }
   },
 
   /**

@@ -4,9 +4,18 @@ import { todayIsoDate } from '@/lib/dates'
 import { MAX_BATCH_COUNT, ProductionOrderService } from '@/services/production-order.service'
 import { ProductionOrderForm } from '@/components/production/ProductionOrderForm'
 
-export default async function NewProductionOrderPage() {
-  const { goods, branches } = await ProductionOrderService.getForm()
+type PageProps = {
+  searchParams: Promise<{ date?: string }>
+}
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
+export default async function NewProductionOrderPage({ searchParams }: PageProps) {
+  const [{ goods, branches }, { date }] = await Promise.all([ProductionOrderService.getForm(), searchParams])
   const today = todayIsoDate()
+  // ?date= comes from "+" on the schedule calendar. A past or malformed date
+  // falls back to today rather than pre-filling something the form would reject.
+  const plannedDate = date && DATE_PATTERN.test(date) && date >= today ? date : today
 
   return (
     <div>
@@ -41,7 +50,7 @@ export default async function NewProductionOrderPage() {
             finishedGoodId: '',
             batchWeight:    '',
             batchCount:     '1',
-            plannedDate:    today,
+            plannedDate,
             // Oldest active branch first: Main Commissary, where production happens.
             branchId:       branches[0].id,
             notes:          '',

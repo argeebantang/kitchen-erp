@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Truck,
   Package,
+  CalendarDays,
   BarChart3,
   GitBranch,
   Users,
@@ -46,6 +47,7 @@ export const navigation: NavGroup[] = [
     group: 'Production',
     items: [
       { label: 'Production Orders', href: '/production/orders', icon: Package,       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+      { label: 'Production Schedule', href: '/production/schedule', icon: CalendarDays, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Bill of Materials', href: '/production/bom',    icon: ClipboardList, roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
     ],
   },
