@@ -48,8 +48,10 @@ export function MaterialRequirementsTable({
         <tbody className="divide-y divide-gray-100">
           {lines.map(line => {
             const unit = <span className="font-normal text-gray-400">{line.unitAbbreviation}</span>
+            // Tinted, not re-sorted: the banner gathers the shortages, and the
+            // rows keep the BOM viewer's order.
             return (
-              <tr key={line.materialId}>
+              <tr key={line.materialId} className={line.stock && !line.stock.enough ? 'bg-red-50/50' : undefined}>
                 <td className="px-4 py-3">
                   <p className="text-gray-700">{line.materialName}</p>
                   <p className="font-mono text-xs text-gray-400">{line.materialCode}</p>
@@ -67,9 +69,9 @@ export function MaterialRequirementsTable({
                     <td className="px-4 py-3 text-right tabular-nums text-gray-700">{trimDecimal(line.stock.available)} {unit}</td>
                     <td className="px-4 py-3">
                       {line.stock.enough ? (
-                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">Enough</span>
+                        <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">Enough</span>
                       ) : (
-                        <span className="whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
+                        <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
                           Short {trimDecimal(line.stock.short)} {line.unitAbbreviation}
                         </span>
                       )}

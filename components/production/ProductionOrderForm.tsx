@@ -9,6 +9,7 @@ import { trimDecimal } from '@/lib/format'
 // the browser.
 import type { PlannableGoodDto, RequirementsPreviewDto } from '@/services/production-order.service'
 import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
+import { ShortageBanner } from '@/components/production/ShortageBanner'
 
 type Branch = { id: string; name: string }
 
@@ -277,6 +278,8 @@ export function ProductionOrderForm({ productionOrderId, goods, branches, today,
             </p>
             {/* The previous answer stays, dimmed, while the next one loads — no flicker as you type. */}
             <div className={previewLoading ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+              {/* No action here: an unsaved order has no number to request materials for. */}
+              <ShortageBanner lines={preview.data.lines} branchName={preview.data.branchName} />
               <MaterialRequirementsTable
                 lines={preview.data.lines}
                 batchWeight={preview.data.batchWeight}
