@@ -45,9 +45,12 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
           </p>
         </div>
 
-        <Link href="/production/orders/new" className={`inline-flex items-center gap-1.5 ${primaryButtonClass}`}>
-          <Plus size={15} />
-          New production order
+        <Link
+          href="/production/orders/new"
+          className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
+        >
+          <Plus size={16} />
+          New Production Order
         </Link>
       </div>
 
@@ -72,7 +75,7 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
             {status ? 'No production orders with this status' : 'No production orders yet'}
           </p>
           <p className="mt-1 text-sm text-gray-400">
-            Click <span className="font-medium">New production order</span> to plan one.
+            Click <span className="font-medium">New Production Order</span> to plan one.
           </p>
         </div>
       ) : (

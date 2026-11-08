@@ -18,7 +18,7 @@ export default async function NewProductionOrderPage() {
         Production orders
       </Link>
 
-      <h1 className="text-2xl font-bold text-gray-800">New production order</h1>
+      <h1 className="text-2xl font-bold text-gray-800">New Production Order</h1>
       <p className="mb-6 mt-1 text-sm text-gray-400">
         Saved as a draft. The order uses the finished good&apos;s active BOM version at the time you save.
       </p>
