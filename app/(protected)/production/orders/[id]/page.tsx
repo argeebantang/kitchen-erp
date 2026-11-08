@@ -3,10 +3,14 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
+import { todayIsoDate } from '@/lib/dates'
 import { ProductionOrderService, SHORTFALL_REQUEST_STATUSES } from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
 import { ShortageBanner } from '@/components/production/ShortageBanner'
+import { ProductionOrderActions } from '@/components/production/ProductionOrderActions'
+import { ApprovalActions } from '@/components/procurement/ApprovalActions'
+import { DecisionHistory } from '@/components/procurement/DecisionHistory'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -23,10 +27,22 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
   const order = result.data
   const unit  = order.unitAbbreviation
   const isDraft = order.status === 'DRAFT'
-  // Same roles ProductionOrderService.update accepts; ready for Task 5, when
-  // accounting is let in to read.
+  // Same roles ProductionOrderService.update and submit accept. Accounting
+  // reads this page too (Task 5) but only decides.
   const canPlan = session.role === 'PRODUCTION_MANAGER' || session.role === 'ADMIN'
   const canEdit = isDraft && canPlan
+  // The roles middleware lets onto /api/approvals. Nobody decides an order
+  // they submitted, ADMIN included — the service refuses it too.
+  const isPending      = order.status === 'PENDING_APPROVAL'
+  const isApprover     = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
+  const isOwnSubmission = order.submittedById === session.userId
+  const shortCount     = order.requirements.filter(line => line.stock !== null && !line.stock.enough).length
+  // What ProductionOrderService.submit would refuse, said before the click.
+  const submitBlockedReason = !order.bomIsActive
+    ? `BOM v${order.bomVersion} has been replaced. Open Edit and save to switch to the current version, then submit.`
+    : order.plannedDate < todayIsoDate()
+      ? 'The production date has passed. Open Edit and choose today or later, then submit.'
+      : null
   // Task 4, D4: the roles that plan production (and may raise a purchase
   // request), while ordering can still arrive in time.
   const canRequestShortfall = canPlan && SHORTFALL_REQUEST_STATUSES.includes(order.status)
@@ -91,9 +107,37 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
         <Detail label="Production date">{order.plannedDate}</Detail>
         <Detail label="Branch">{order.branchName}</Detail>
         <Detail label="Requested by">{order.requestedByName}</Detail>
-        <Detail label="Created">{order.createdAt.slice(0, 10)}</Detail>
-        <Detail label="Last saved">{order.updatedAt.slice(0, 10)}</Detail>
+        <Detail label="Submitted by">{order.submittedByName ?? <span className="text-gray-400">Not yet</span>}</Detail>
+        <Detail label="Created · last saved">
+          {order.createdAt.slice(0, 10)} <span className="text-gray-400">· {order.updatedAt.slice(0, 10)}</span>
+        </Detail>
       </div>
+
+      {canEdit && (
+        <ProductionOrderActions
+          productionOrderId={order.id}
+          shortCount={shortCount}
+          ingredientCount={order.requirements.length}
+          branchName={order.branchName}
+          blockedReason={submitBlockedReason}
+        />
+      )}
+
+      {isPending && isApprover && !isOwnSubmission && (
+        <ApprovalActions referenceType="ProductionOrder" referenceId={order.id} />
+      )}
+      {isPending && isApprover && isOwnSubmission && (
+        <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+          You submitted this order, so someone else has to decide it.
+        </p>
+      )}
+      {isPending && !isApprover && (
+        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Submitted — waiting for accounting&apos;s decision.
+        </p>
+      )}
+
+      <DecisionHistory decisions={order.decisions} />
 
       {order.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">

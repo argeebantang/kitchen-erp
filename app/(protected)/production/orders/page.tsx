@@ -1,5 +1,7 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { Plus } from 'lucide-react'
+import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { isProductionStatus, PRODUCTION_STATUSES, ProductionOrderService } from '@/services/production-order.service'
@@ -12,6 +14,12 @@ type PageProps = {
 }
 
 export default async function ProductionOrderListPage({ searchParams }: PageProps) {
+  const session = await getSession()
+  if (!session) redirect('/login')
+  // Accounting reads this list (Task 5) but /production/orders/new is
+  // production's; the button would only lead to /unauthorized.
+  const canPlan = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
+
   // Filters arrive as plain query strings from the GET form below. An unknown
   // status is ignored rather than an error, so a stale link still opens.
   const { status: statusParam = '', page: pageParam } = await searchParams
@@ -45,13 +53,15 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
           </p>
         </div>
 
-        <Link
-          href="/production/orders/new"
-          className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
-        >
-          <Plus size={16} />
-          New Production Order
-        </Link>
+        {canPlan && (
+          <Link
+            href="/production/orders/new"
+            className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
+          >
+            <Plus size={16} />
+            New Production Order
+          </Link>
+        )}
       </div>
 
       {/* A GET form: the filter lives in the URL, so a filtered list can be linked to. */}
@@ -75,7 +85,7 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
             {status ? 'No production orders with this status' : 'No production orders yet'}
           </p>
           <p className="mt-1 text-sm text-gray-400">
-            Click <span className="font-medium">New Production Order</span> to plan one.
+            {canPlan ? <>Click <span className="font-medium">New Production Order</span> to plan one.</> : 'Production plans orders here.'}
           </p>
         </div>
       ) : (

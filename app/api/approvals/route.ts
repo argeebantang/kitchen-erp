@@ -3,10 +3,11 @@ import { z } from 'zod'
 import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { ReceivingReportService } from '@/services/receiving-report.service'
+import { ProductionOrderService } from '@/services/production-order.service'
 
 
 const DecisionSchema = z.object({
-  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport']),
+  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder']),
   referenceId:   z.string().cuid(),
   decision:      z.enum(['APPROVED', 'REJECTED']),
   remarks:       z.string().trim().max(1000).nullish(),
@@ -33,6 +34,16 @@ export async function POST(req: NextRequest) {
     const { referenceType, referenceId, decision } = parsed.data
     const remarks = parsed.data.remarks ?? null
     const viewer  = { userId, role }
+
+    if (referenceType === 'ProductionOrder') {
+      const result = await ProductionOrderService.applyDecision(referenceId, viewer, decision, remarks)
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: result.status })
+      }
+
+      return NextResponse.json({ productionOrder: result.data })
+    }
 
     if (referenceType === 'ReceivingReport') {
       const result = await ReceivingReportService.applyDecision(referenceId, viewer, decision, remarks)

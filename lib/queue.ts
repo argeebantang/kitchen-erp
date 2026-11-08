@@ -18,6 +18,15 @@ export const NOTIFICATIONS_QUEUE = 'notifications'
 /** Job names within the queue. Each name has its own payload type below. */
 export const PR_SUBMITTED = 'pr-submitted'
 
+/** A production order was sent for approval: tell the approvers. */
+export const PRODUCTION_ORDER_SUBMITTED = 'production-order-submitted'
+
+/**
+ * A production order was approved or rejected: tell whoever submitted it, and
+ * on approval with shortages, tell procurement what to order.
+ */
+export const PRODUCTION_ORDER_DECIDED = 'production-order-decided'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.
@@ -47,6 +56,11 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
  */
 export type PrSubmittedJob = {
   purchaseRequestId: string
+}
+
+/** Same rule as PrSubmittedJob: an id, re-read when the job runs. */
+export type ProductionOrderJob = {
+  productionOrderId: string
 }
 
 /**

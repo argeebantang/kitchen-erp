@@ -1,6 +1,14 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
+import {
+  getNotificationQueue,
+  PRODUCTION_ORDER_DECIDED,
+  PRODUCTION_ORDER_SUBMITTED,
+  type ProductionOrderJob,
+} from '@/lib/queue'
+import { ApprovalRepository } from '@/repositories/approval.repository'
+import type { ApprovalDto } from '@/services/purchase-request.service'
 import { trimDecimal } from '@/lib/format'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
@@ -71,6 +79,9 @@ export type ProductionOrderSummaryDto = {
   branchName: string
   requestedById: string
   requestedByName: string
+  /** Null until the order is submitted. */
+  submittedById: string | null
+  submittedByName: string | null
   createdAt: string
 }
 
@@ -81,7 +92,7 @@ export type LineStockDto = {
   committed: string
   /** onHand − committed. Negative when more is spoken for than is on the shelf. */
   available: string
-  /** max(total − available, 0). */
+  /** max(total − max(available, 0), 0): at most the whole requirement, never another order's deficit. */
   short: string
   /** total ≤ available — exactly enough counts as enough (D6). */
   enough: boolean
@@ -124,6 +135,14 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   activeBomVersion: number | null
   /** The pinned BOM scaled to this order — derived on every read, never stored (Task 2, D1). */
   requirements: MaterialRequirementDto[]
+  /** Approve / reject decisions, newest first. */
+  decisions: ApprovalDto[]
+}
+
+/** A row of the approvals inbox: the order plus how many ingredients are short right now. */
+export type PendingProductionOrderDto = ProductionOrderSummaryDto & {
+  ingredientCount: number
+  shortCount: number
 }
 
 /** What "Request missing materials" pre-fills on a new purchase request (Task 4, D3). */
@@ -171,6 +190,8 @@ function toSummaryDto(order: ProductionOrderWithDetail): ProductionOrderSummaryD
     branchName:       order.branch.name,
     requestedById:    order.requestedBy.id,
     requestedByName:  order.requestedBy.name,
+    submittedById:    order.submittedBy?.id ?? null,
+    submittedByName:  order.submittedBy?.name ?? null,
     createdAt:        order.createdAt.toISOString(),
   }
 }
@@ -254,7 +275,12 @@ async function stockFor(
     const lineOnHand    = onHand.get(materialId) ?? zero
     const lineCommitted = committed.get(materialId) ?? zero
     const available     = lineOnHand.sub(lineCommitted)
-    const short         = Prisma.Decimal.max(line.total.sub(available), zero)
+    // Never short by more than this run needs. When other orders have already
+    // committed more than is on hand (available < 0), this run is short its
+    // whole requirement — counting the overdraft too would put the other
+    // orders' deficit on this one, and two approved runs would each report
+    // the other's need, double-ordering it (found in Week 5 Task 5 testing).
+    const short         = Prisma.Decimal.max(line.total.sub(Prisma.Decimal.max(available, zero)), zero)
     return [materialId, {
       onHand:    toDecimalString(lineOnHand),
       committed: toDecimalString(lineCommitted),
@@ -296,6 +322,20 @@ async function materialRequirements(
  */
 function canPlan(role: string) {
   return role === 'ADMIN' || role === 'PRODUCTION_MANAGER'
+}
+
+/**
+ * Queues a notification job after the change it reports has committed. A
+ * queue failure never fails the user's action (docs/architecture.md): the
+ * order is already saved and visible, so a missing notification is a degraded
+ * nicety, not a reason to undo their work.
+ */
+async function enqueue(jobName: string, productionOrderId: string): Promise<void> {
+  try {
+    await getNotificationQueue().add(jobName, { productionOrderId } satisfies ProductionOrderJob)
+  } catch (err) {
+    console.error(`[ProductionOrderService] could not enqueue ${jobName}`, err)
+  }
 }
 
 /**
@@ -386,9 +426,10 @@ export const ProductionOrderService = {
 
     // The pinned version with its lines, for the requirements. Only a
     // superseded pin also needs the active version.
-    const [pinned, active] = await Promise.all([
+    const [pinned, active, decisions] = await Promise.all([
       BomRepository.findById(order.bomId),
       order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id),
+      ApprovalRepository.findByReference('ProductionOrder', order.id),
     ])
     // bomId is a foreign key and BOM rows are never deleted, so this cannot
     // happen short of a hand-edited database.
@@ -407,6 +448,13 @@ export const ProductionOrderService = {
           pinned, order.batchWeight, order.plannedQty,
           STOCK_CHECK_STATUSES.includes(order.status) ? { branchId: order.branch.id, excludeOrderId: order.id } : null,
         ),
+        decisions: decisions.map(decision => ({
+          id:           decision.id,
+          decision:     decision.decision,
+          remarks:      decision.remarks,
+          approverName: decision.approver.name,
+          decidedAt:    decision.decidedAt.toISOString(),
+        })),
       },
     }
   },
@@ -587,6 +635,126 @@ export const ProductionOrderService = {
       return { success: false, error: 'This order changed while you were editing it — reload and try again', status: 409 }
     }
 
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * The approvals inbox: every order awaiting a decision, with how many of its
+   * ingredients are short at its branch right now (Task 4 deferred the count
+   * to here). Two stock queries per order, bounded by `take`.
+   */
+  async listPending(take = 100): Promise<PendingProductionOrderDto[]> {
+    const orders = await ProductionOrderRepository.findPendingWithBom(take)
+
+    return Promise.all(orders.map(async order => {
+      const lines = await materialRequirements(
+        order.bom, order.batchWeight, order.plannedQty,
+        { branchId: order.branch.id, excludeOrderId: order.id },
+      )
+      return {
+        ...toSummaryDto(order),
+        ingredientCount: lines.length,
+        shortCount:      lines.filter(line => line.stock !== null && !line.stock.enough).length,
+      }
+    }))
+  },
+
+  /**
+   * DRAFT → PENDING_APPROVAL (Task 5, D1). The saved order goes through
+   * validateOrder again — a draft saved last week may now have a past date or
+   * an inactive branch — and a superseded BOM pin is refused rather than
+   * switched (D2): what accounting approves must be what the planner last
+   * saw, so they open Edit, look, and save first. Shortages do not block (D3).
+   */
+  async submit(id: string, viewer: Viewer): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    if (!canPlan(viewer.role)) {
+      return { success: false, error: 'Only production can submit a production order', status: 403 }
+    }
+
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+    if (order.status !== ProductionStatus.DRAFT) {
+      return {
+        success: false,
+        error:   `This order is already ${order.status.replace(/_/g, ' ').toLowerCase()} and cannot be submitted again`,
+        status:  409,
+      }
+    }
+
+    const checked = await validateOrder({
+      finishedGoodId: order.finishedGood.id,
+      batchWeight:    order.batchWeight.toString(),
+      batchCount:     order.batchCount,
+      plannedDate:    order.plannedDate.toISOString().slice(0, 10),
+      branchId:       order.branch.id,
+    })
+    if (!checked.success) {
+      return { ...checked, error: `${checked.error}. Edit the draft and save it, then submit.` }
+    }
+    if (checked.data.bomId !== order.bom.id) {
+      return {
+        success: false,
+        error:   `BOM v${order.bom.version} has been replaced by a newer version. Open Edit and save to switch to it, then submit.`,
+        status:  409,
+      }
+    }
+
+    const submitted = await ProductionOrderRepository.submit(id, { submittedById: viewer.userId, bomId: order.bom.id })
+    if (!submitted) {
+      return { success: false, error: 'This order changed while you were submitting it — reload and try again', status: 409 }
+    }
+
+    await enqueue(PRODUCTION_ORDER_SUBMITTED, id)
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * PENDING_APPROVAL → APPROVED | REJECTED. Called from POST /api/approvals,
+   * which middleware restricts to ACCOUNTING and ADMIN (D4).
+   *
+   * Whoever submitted it cannot decide it, ADMIN included. submittedById is
+   * set once, at submit, and never changes while pending, so this read cannot
+   * go stale; the status can, which is why decide() re-checks it in its WHERE.
+   */
+  async applyDecision(
+    id: string,
+    viewer: Viewer,
+    decision: 'APPROVED' | 'REJECTED',
+    remarks: string | null,
+  ): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+
+    if (order.submittedBy?.id === viewer.userId) {
+      return {
+        success: false,
+        error:   'You submitted this order, so someone else has to decide it',
+        status:  403,
+      }
+    }
+
+    if (order.status !== ProductionStatus.PENDING_APPROVAL) {
+      return {
+        success: false,
+        error:   `This order is ${order.status.replace(/_/g, ' ').toLowerCase()} and is no longer awaiting a decision`,
+        status:  409,
+      }
+    }
+
+    if (decision === 'REJECTED' && (remarks === null || remarks.trim() === '')) {
+      return { success: false, error: 'Give a reason when rejecting', status: 400 }
+    }
+
+    const decided = await ProductionOrderRepository.decide({ id, approverId: viewer.userId, decision, remarks })
+    if (!decided) {
+      return { success: false, error: 'This order was decided by someone else just now', status: 409 }
+    }
+
+    await enqueue(PRODUCTION_ORDER_DECIDED, id)
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },
 }

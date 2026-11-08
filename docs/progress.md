@@ -244,7 +244,17 @@ table; it's a UI/UX decision, not an architecture change.
       rows tinted. On the order page (ADMIN / PRODUCTION_MANAGER, DRAFT through APPROVED),
       "Request missing materials" opens a new purchase request pre-filled with the shortfall
       (`/procurement/requests/new?productionOrder=<id>`), reviewed and saved as usual.
-- [ ] Production Order approval + status flow
+- [~] Production Order approval + status flow — **approval done 2026-11-08**
+      (`docs/2026-11-08-week5-production-approval.md`): production submits a draft
+      (`POST /api/production-orders/[id]/submit`; saved values re-checked, a superseded BOM pin
+      refused, shortages warn only) → accounting approves or rejects through `POST /api/approvals`
+      (`referenceType: 'ProductionOrder'`; not the submitter, ADMIN included; a reason to reject).
+      New `ProductionOrder.submittedById` (migration `20261108122903_production_order_submitted_by`).
+      Accounting can now read `/production/orders`; the approvals inbox has a Production orders
+      section with a shortage badge. Notifications via the queue: submitted → approvers; decided →
+      submitter; approved with shortages → procurement, linking to the pre-filled request.
+      Also fixed: a line's shortage is capped at the order's own requirement. The rest of the status
+      flow (start, cancel) is Task 6.
 - [ ] Production schedule calendar view
 
 ### Week 6 — Production Execution & Basic Costing

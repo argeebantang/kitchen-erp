@@ -82,7 +82,8 @@ model User {
   approvals               Approval[]
   submittedPurchaseOrders PurchaseOrder[]   @relation("PurchaseOrderSubmitter")
   purchaseRequests        PurchaseRequest[]
-  productionOrders        ProductionOrder[]
+  productionOrders        ProductionOrder[]   @relation("ProductionOrderRequester")
+  submittedProductionOrders ProductionOrder[] @relation("ProductionOrderSubmitter")
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
 }
@@ -486,7 +487,10 @@ model ProductionOrder {
   branchId       String
   branch         Branch           @relation(fields: [branchId], references: [id])
   requestedById  String
-  requestedBy    User             @relation(fields: [requestedById], references: [id])
+  requestedBy    User             @relation("ProductionOrderRequester", fields: [requestedById], references: [id])
+  /// Who sent it for approval; null until submitted. Never its approver (Week 5 Task 5).
+  submittedById  String?
+  submittedBy    User?            @relation("ProductionOrderSubmitter", fields: [submittedById], references: [id])
   status         ProductionStatus @default(DRAFT)
   /// Output of one batch, in the BOM's batch unit (= the finished good's unit;
   /// the service refuses a mismatch). Defaults to BOM.batchSize on the form.

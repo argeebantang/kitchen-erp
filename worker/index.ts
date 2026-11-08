@@ -5,9 +5,12 @@ import {
   LOW_STOCK_CHECK,
   NOTIFICATIONS_QUEUE,
   PR_SUBMITTED,
+  PRODUCTION_ORDER_DECIDED,
+  PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
   STOCK_RECONCILIATION,
   type PrSubmittedJob,
+  type ProductionOrderJob,
 } from '@/lib/queue'
 import { BUSINESS_TIME_ZONE, todayIsoDate } from '@/lib/dates'
 import { NotificationService } from '@/services/notification.service'
@@ -30,6 +33,16 @@ async function handlePrSubmitted(job: Job<PrSubmittedJob>) {
   const count = await NotificationService.notifyPurchaseRequestSubmitted(
     job.data.purchaseRequestId,
   )
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleProductionOrderSubmitted(job: Job<ProductionOrderJob>) {
+  const count = await NotificationService.notifyProductionOrderSubmitted(job.data.productionOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleProductionOrderDecided(job: Job<ProductionOrderJob>) {
+  const count = await NotificationService.notifyProductionOrderDecided(job.data.productionOrderId)
   console.log(`  → wrote ${count} notification(s)`)
 }
 
@@ -58,6 +71,10 @@ const worker = new Worker(
     switch (job.name) {
       case PR_SUBMITTED:
         return handlePrSubmitted(job)
+      case PRODUCTION_ORDER_SUBMITTED:
+        return handleProductionOrderSubmitted(job)
+      case PRODUCTION_ORDER_DECIDED:
+        return handleProductionOrderDecided(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:
