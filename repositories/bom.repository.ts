@@ -92,6 +92,23 @@ export const BomRepository = {
     })
   },
 
+  /**
+   * Every active version whose finished good is active too — what a production
+   * order can be planned from. Header only, unpaged: at most one row per
+   * finished good, and the production order form needs them all in its picker.
+   */
+  async findAllActiveForPlanning() {
+    return prisma.bOM.findMany({
+      where:   { isActive: true, finishedGood: { isActive: true } },
+      select:  {
+        id: true, version: true, batchSize: true, batchUnitId: true,
+        batchUnit:    { select: { abbreviation: true } },
+        finishedGood: { select: { id: true, code: true, name: true, unitId: true } },
+      },
+      orderBy: { finishedGood: { name: 'asc' } },
+    })
+  },
+
   /** Version history for one finished good — newest first, lines not needed. */
   async findVersions(finishedGoodId: string) {
     return prisma.bOM.findMany({

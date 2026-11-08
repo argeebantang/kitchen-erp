@@ -1,9 +1,9 @@
 /**
- * Status pill for procurement documents.
+ * Status pill for workflow documents.
  *
  * No 'use client' — it has no interactivity, so it renders on the server and
- * ships zero JavaScript to the browser. Covers both PRStatus and POStatus:
- * the enums share most values and all of the styling.
+ * ships zero JavaScript to the browser. Covers PRStatus, POStatus, RRStatus
+ * and ProductionStatus: the enums share most values and all of the styling.
  */
 const STATUS_STYLES: Record<string, string> = {
   DRAFT:              'bg-gray-100 text-gray-600',
@@ -14,6 +14,8 @@ const STATUS_STYLES: Record<string, string> = {
   SENT:               'bg-blue-50 text-blue-700',
   PARTIALLY_RECEIVED: 'bg-amber-50 text-amber-700',
   FULLY_RECEIVED:     'bg-emerald-50 text-emerald-700',
+  IN_PROGRESS:        'bg-blue-50 text-blue-700',
+  COMPLETED:          'bg-emerald-50 text-emerald-700',
   CANCELLED:          'bg-gray-100 text-gray-400',
 }
 
