@@ -52,7 +52,13 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/units',             roles: ['ADMIN'], methods: WRITE_METHODS },
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
-  { path: '/production',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // Accounting reads production orders to approve them (the decision itself
+  // goes through /api/approvals); only production plans them or touches BOMs.
+  // The edit page, /production/orders/[id]/edit, cannot be matched by a
+  // prefix, so it checks the role itself.
+  { path: '/production',            roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  { path: '/production/bom',        roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/production/orders/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/production-orders', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },

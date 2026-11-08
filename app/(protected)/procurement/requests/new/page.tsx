@@ -21,10 +21,11 @@ export default async function NewPurchaseRequestPage({ searchParams }: PageProps
   // Component as a prop.
   //
   // ?productionOrder= pre-fills the shortfall of a production order ("Request
-  // missing materials"), only for the roles that can open production orders.
-  // Anything else — another role, an unknown id, nothing short — is the
-  // ordinary empty form.
+  // missing materials" for production; the link in procurement's "approved —
+  // short on …" notification, Week 5 Task 5). Only for those roles: anything
+  // else — another role, an unknown id, nothing short — is the empty form.
   const canReadProduction = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
+    || session.role === 'PROCUREMENT_MANAGER'
   const [{ materials }, shortfall] = await Promise.all([
     MaterialService.list({ take: 200 }),
     productionOrder && canReadProduction ? ProductionOrderService.shortfallRequest(productionOrder) : null,

@@ -5,9 +5,12 @@ import { InventoryRepository } from '@/repositories/inventory.repository'
 import { CreateNotificationInput, NotificationRepository } from '@/repositories/notification.repository'
 import { InventoryService, reorderAlerts } from '@/services/inventory.service'
 import { PurchaseRequestRepository } from '@/repositories/purchase-request.repository'
+import { ProductionOrderRepository } from '@/repositories/production-order.repository'
+import { ApprovalRepository } from '@/repositories/approval.repository'
+import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
 
-/** Roles that can decide a purchase request, and therefore need to know one is waiting. */
+/** Roles that can decide a purchase request or production order, and therefore need to know one is waiting. */
 const APPROVER_ROLES: Role[] = [Role.ACCOUNTING, Role.ADMIN]
 
 /** Roles that raise purchase requests, and therefore need to know what to reorder. */
@@ -28,6 +31,10 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   PurchaseRequest:     id => `/procurement/requests/${id}`,
   LowStockCheck:       () => '/inventory/stock',
   StockReconciliation: () => '/inventory/ledger',
+  ProductionOrder:     id => `/production/orders/${id}`,
+  // Procurement cannot open production orders; their link is the purchase
+  // request pre-filled with the shortfall (Week 5 Task 4).
+  ProductionOrderShortfall: id => `/procurement/requests/new?productionOrder=${id}`,
 }
 
 export type NotificationDto = {
@@ -206,5 +213,85 @@ export const NotificationService = {
         })),
     )
     return { mismatches: mismatches.length, written }
+  },
+
+  /**
+   * A production order is waiting: tell everyone who can decide it except
+   * whoever submitted it (Week 5 Task 5, D8). Returns how many were written.
+   */
+  async notifyProductionOrderSubmitted(productionOrderId: string): Promise<number> {
+    const order = await ProductionOrderRepository.findById(productionOrderId)
+    // Re-read when the job runs: gone, or already decided, means nothing to say.
+    if (!order || order.status !== 'PENDING_APPROVAL') return 0
+
+    const approvers  = await UserRepository.findByRoles(APPROVER_ROLES)
+    const recipients = approvers.filter(user => user.id !== order.submittedBy?.id)
+
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'PRODUCTION_ORDER_SUBMITTED',
+      title:         `${order.orderNumber} is waiting for approval`,
+      body:          `${order.submittedBy?.name ?? 'Production'} submitted ${order.finishedGood.name} `
+        + `${trimDecimal(order.plannedQty.toString())} ${order.bom.batchUnit.abbreviation} for ${order.plannedDate.toISOString().slice(0, 10)}.`,
+      referenceType: 'ProductionOrder',
+      referenceId:   order.id,
+    })))
+  },
+
+  /**
+   * A production order was decided: tell whoever submitted it, with the reason
+   * on a rejection. On approval with shortages, also tell the ordering roles
+   * which ingredients and how much — approval is when a shortage becomes real
+   * (Task 5, D8). The approver is never told about their own decision.
+   */
+  async notifyProductionOrderDecided(productionOrderId: string): Promise<number> {
+    const order = await ProductionOrderRepository.findById(productionOrderId)
+    if (!order || (order.status !== 'APPROVED' && order.status !== 'REJECTED')) return 0
+
+    const [latest] = await ApprovalRepository.findByReference('ProductionOrder', order.id)
+    const approverId = latest?.approver.id ?? null
+    const approved   = order.status === 'APPROVED'
+    const inputs: CreateNotificationInput[] = []
+
+    if (order.submittedBy && order.submittedBy.id !== approverId) {
+      inputs.push({
+        userId:        order.submittedBy.id,
+        type:          approved ? 'PRODUCTION_ORDER_APPROVED' : 'PRODUCTION_ORDER_REJECTED',
+        title:         `${order.orderNumber} was ${approved ? 'approved' : 'rejected'}`,
+        body:          approved
+          ? `${latest?.approver.name ?? 'Accounting'} approved ${order.finishedGood.name} for ${order.plannedDate.toISOString().slice(0, 10)}.`
+          : `${latest?.approver.name ?? 'Accounting'}: ${latest?.remarks ?? 'no reason given'}`,
+        referenceType: 'ProductionOrder',
+        referenceId:   order.id,
+      })
+    }
+
+    if (approved) {
+      const detail = await ProductionOrderService.getById(order.id)
+      const short  = detail.success
+        ? detail.data.requirements.filter(line => line.stock !== null && !line.stock.enough)
+        : []
+
+      if (short.length > 0) {
+        const named = short.slice(0, SUMMARY_NAMES)
+          .map(line => `${line.materialName} ${trimDecimal(line.stock?.short ?? '0')} ${line.unitAbbreviation}`)
+          .join(', ')
+        const more  = short.length > SUMMARY_NAMES ? ` +${short.length - SUMMARY_NAMES} more` : ''
+        const orderers = await UserRepository.findByRoles(ORDERING_ROLES)
+
+        for (const user of orderers.filter(candidate => candidate.id !== approverId)) {
+          inputs.push({
+            userId:        user.id,
+            type:          'PRODUCTION_SHORTFALL',
+            title:         `${order.orderNumber} approved — short on ${short.length} ingredient${short.length === 1 ? '' : 's'}`,
+            body:          `${order.branch.name}, ${order.plannedDate.toISOString().slice(0, 10)}: ${named}${more}.`,
+            referenceType: 'ProductionOrderShortfall',
+            referenceId:   order.id,
+          })
+        }
+      }
+    }
+
+    return createAndPush(inputs)
   },
 }

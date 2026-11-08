@@ -20,6 +20,7 @@ Built (Weeks 1–4):
 * Stock Ledger: every stock movement with its source document, running balance per material and branch, and a check against the stock level
 * Daily 06:00 jobs: a low-stock summary for procurement and admins, and a ledger-vs-stock-level check for admins
 * Production Orders (Week 5, in progress): plan a run of a finished good from its active BOM — batch weight × number of batches, production date, branch — saved as a draft `PRD-000001` and editable while a draft; each save pins the active BOM version. The order page and the form list every ingredient the run needs, per batch and in total, against the stock available at the branch (on hand less what approved runs still need), marked Enough or Short, with a shortage banner naming what is missing and a "Request missing materials" shortcut to a pre-filled purchase request
+* Production orders are submitted for approval and approved or rejected by accounting (with a shortage badge in the inbox); the submitter is notified, and procurement is told what to order when an approved run is short
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 

@@ -24,7 +24,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/purchase-orders` | all | ADMIN, PROCUREMENT_MANAGER, ACCOUNTING |
 | `/api/approvals` | all | ADMIN, ACCOUNTING |
 | `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
-| `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER |
+| `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
@@ -88,9 +88,9 @@ The browser is the only client. Server Components read through services directly
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }` or `{ receivingReport: { id, rrNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
+| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport` · `ProductionOrder`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }`, `{ receivingReport: { id, rrNumber } }` or `{ productionOrder: { id, orderNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
 
-The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`). Approving one also posts its stock and moves the order to `PARTIALLY_RECEIVED` / `FULLY_RECEIVED`, in one transaction under a lock on the order; it returns 409 and changes nothing if the order can no longer take a delivery or a line would end up received beyond what was ordered.
+The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`). Approving one also posts its stock and moves the order to `PARTIALLY_RECEIVED` / `FULLY_RECEIVED`, in one transaction under a lock on the order; it returns 409 and changes nothing if the order can no longer take a delivery or a line would end up received beyond what was ordered. A production order cannot be decided by whoever submitted it (`submittedById`); the decision and its `Approval` row are written in one transaction, and the submitter (and, on approval with shortages, procurement) is notified through the queue.
 
 ## Receiving reports
 
@@ -108,9 +108,10 @@ Rules (create, edit, and re-checked on submit): the order is `SENT` or `PARTIALL
 |---|---|---|---|---|
 | POST | `/api/production-orders` | `finishedGoodId`, `batchWeight` (decimal string), `batchCount` (JSON integer 1–100), `plannedDate`, `branchId`, `notes?` | 201 `{ productionOrder: { id, orderNumber } }` as `DRAFT`, numbered `PRD-000001` | 400, 401, 403 |
 | PATCH | `/api/production-orders/[id]` | the same fields | 200 `{ productionOrder: { id, orderNumber } }` | 400, 401, 403, 404, 409 not a draft / changed meanwhile |
+| POST | `/api/production-orders/[id]/submit` | — | 200 `{ productionOrder: { id, orderNumber } }` → `PENDING_APPROVAL`, records `submittedById`; queues the approver notification | 400 saved draft breaks a rule (e.g. past date — edit and save first), 401, 403, 404, 409 not a draft / BOM pin superseded / changed meanwhile |
 | GET | `/api/production-orders/requirements` | query `finishedGoodId`, `batchWeight` (decimal string), `batchCount` (integer 1–100), `branchId` | 200 `{ requirements: { bomId, bomVersion, batchWeight, batchCount, plannedQty, branchName, lines: [{ materialId, materialCode, materialName, unitAbbreviation, perBatch, total, stock: { onHand, committed, available, short, enough } }] } }` — the **active** BOM (what a save would pin) scaled per batch and in total, with the stock check at `branchId` | 400 incl. weight 0 and unknown / inactive branch, 404 no active BOM |
 
-Rules (create and edit): the finished good is active and has an active BOM; the BOM's batch unit equals the finished good's unit (no unit conversion yet); batch weight > 0; the branch is active; the date is not before today (Asia/Manila). The server pins `bomId` to the active version on every save, computes `plannedQty` = `batchWeight × batchCount` in Decimal, and takes `requestedById` from the caller on create only — an edit by someone else keeps the original requester. The pages read through `ProductionOrderService`. `GET …/requirements` is the form's live preview and writes nothing; the order page computes the same lines from the **pinned** BOM. Stock check (both): `onHand` at the branch now; `committed` = what other `APPROVED` / `IN_PROGRESS` orders at that branch still need (stock leaves only on completion); `available` = on hand − committed (may be negative); `short` = max(required − available, 0); `enough` = required ≤ available. Expected deliveries are not counted. On the order page `stock` is null for `COMPLETED`, `REJECTED` and `CANCELLED` orders.
+Rules (create and edit): the finished good is active and has an active BOM; the BOM's batch unit equals the finished good's unit (no unit conversion yet); batch weight > 0; the branch is active; the date is not before today (Asia/Manila). The server pins `bomId` to the active version on every save, computes `plannedQty` = `batchWeight × batchCount` in Decimal, and takes `requestedById` from the caller on create only — an edit by someone else keeps the original requester. The pages read through `ProductionOrderService`. `GET …/requirements` is the form's live preview and writes nothing; the order page computes the same lines from the **pinned** BOM. Stock check (both): `onHand` at the branch now; `committed` = what other `APPROVED` / `IN_PROGRESS` orders at that branch still need (stock leaves only on completion); `available` = on hand − committed (may be negative); `short` = max(required − max(available, 0), 0) — never more than this order's own requirement; `enough` = required ≤ available. Expected deliveries are not counted. On the order page `stock` is null for `COMPLETED`, `REJECTED` and `CANCELLED` orders.
 
 ## Notifications
 
@@ -120,7 +121,7 @@ Rules (create and edit): the finished good is active and has an active BOM; the 
 | GET | `/api/notifications/stream` | — | 200 `text/event-stream`, held open: `retry: 5000`, an `event: notifications` (`data: {}`) whenever the caller's notifications change, `: ping` every 25 s | 401, 503 Redis unavailable |
 | POST | `/api/notifications/read` | `{ id }` or `{ all: true }` | 200 `{ updated }` — how many of the caller's unread notifications were marked; 0 if already read or not theirs | 400, 401 |
 
-Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
+Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
 
 ## Known gaps
 

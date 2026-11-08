@@ -46,6 +46,7 @@ const orderInclude = {
   },
   branch:      { select: { id: true, name: true } },
   requestedBy: { select: { id: true, name: true } },
+  submittedBy: { select: { id: true, name: true } },
 } as const
 
 export type ProductionOrderWithDetail = Prisma.ProductionOrderGetPayload<{ include: typeof orderInclude }>
@@ -71,6 +72,21 @@ export const ProductionOrderRepository = {
 
   async findById(id: string): Promise<ProductionOrderWithDetail | null> {
     return prisma.productionOrder.findUnique({ where: { id }, include: orderInclude })
+  },
+
+  /**
+   * Orders awaiting a decision, each with its pinned BOM's lines, for the
+   * approvals inbox's shortage badge — one query, oldest submission first so
+   * the longest-waiting order heads the list. The bom include is a superset
+   * of orderInclude's, so a row still fits ProductionOrderWithDetail.
+   */
+  async findPendingWithBom(take = 100) {
+    return prisma.productionOrder.findMany({
+      where:   { status: ProductionStatus.PENDING_APPROVAL },
+      include: { ...orderInclude, bom: { include: bomDetailInclude } },
+      orderBy: { updatedAt: 'asc' },
+      take,
+    })
   },
 
   /**
@@ -127,5 +143,51 @@ export const ProductionOrderRepository = {
       data:  input,
     })
     return count === 1
+  },
+
+  /**
+   * DRAFT → PENDING_APPROVAL, recording who sent it. False if it stopped
+   * being a draft first (status in the WHERE, as in updateDraft). The bomId
+   * the service checked is in the WHERE too: an edit landing between the
+   * check and this UPDATE re-pins the BOM, and then nothing is submitted.
+   */
+  async submit(id: string, input: { submittedById: string; bomId: string }): Promise<boolean> {
+    const { count } = await prisma.productionOrder.updateMany({
+      where: { id, status: ProductionStatus.DRAFT, bomId: input.bomId },
+      data:  { status: ProductionStatus.PENDING_APPROVAL, submittedById: input.submittedById },
+    })
+    return count === 1
+  },
+
+  /**
+   * PENDING_APPROVAL → APPROVED | REJECTED and the Approval row, in one
+   * transaction. The status moves first: if another decision got there
+   * before us, nothing is written and the result is false — the same order
+   * as PurchaseOrderRepository.decide.
+   */
+  async decide(input: {
+    id: string
+    approverId: string
+    decision: 'APPROVED' | 'REJECTED'
+    remarks: string | null
+  }): Promise<boolean> {
+    return prisma.$transaction(async tx => {
+      const { count } = await tx.productionOrder.updateMany({
+        where: { id: input.id, status: ProductionStatus.PENDING_APPROVAL },
+        data:  { status: input.decision === 'APPROVED' ? ProductionStatus.APPROVED : ProductionStatus.REJECTED },
+      })
+      if (count === 0) return false
+
+      await tx.approval.create({
+        data: {
+          referenceType: 'ProductionOrder',
+          referenceId:   input.id,
+          approverId:    input.approverId,
+          decision:      input.decision,
+          remarks:       input.remarks,
+        },
+      })
+      return true
+    })
   },
 }
