@@ -260,7 +260,16 @@ table; it's a UI/UX decision, not an architecture change.
       table in the same transaction (migration `20261108133119_production_status_change`), which
       drives a Draft → Pending → Approved → In progress → Completed timeline on the order page.
       Completing a run (with stock) is Week 6.
-- [ ] Production schedule calendar view
+- [x] Production schedule calendar view — **done 2026-11-08**
+      (`docs/2026-11-08-week5-production-calendar.md`): `/production/schedule`, a Sunday-first
+      month grid of production orders by production date (ADMIN, PRODUCTION_MANAGER, ACCOUNTING;
+      sidebar "Production Schedule"). Status-coloured chips link to each order; day totals summed
+      in Decimal per unit; branch filter and "show rejected & cancelled" in the URL; "+" on today
+      and later days opens the new-order form with that date. One query over the visible weeks
+      (capped at 500) using the new `ProductionOrder(plannedDate)` index (migration
+      `20261108141128_production_order_planned_date_index`). No date library added.
+
+**Week 5 complete (2026-11-08).**
 
 ### Week 6 — Production Execution & Basic Costing
 - [ ] Execution flow (In Progress → Completed) with stock deduction/addition — *Start (→ In Progress)

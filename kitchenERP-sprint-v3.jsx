@@ -113,7 +113,7 @@ const plan = {
       weeks_detail: [
         {
           week: "Week 5",
-          status: "next",
+          status: "done",
           title: "Production Order Creation",
           tag: null,
           tasks: [
@@ -123,12 +123,13 @@ const plan = {
             { t: "Shortage alert: flag exactly which ingredients are insufficient", done: true },
             { t: "Production Order approval by accounting", done: true },
             { t: "Status flow: Draft → Pending → Approved → In Progress → Completed", done: true },
-            "Production schedule calendar view",
+            { t: "Production schedule calendar view", done: true },
           ],
           deliverable: "Create a Dinuguan production order. System shows all ingredients needed, flags shortages, sends for approval.",
         },
         {
           week: "Week 6",
+          status: "next",
           title: "Production Execution & Basic Costing",
           tag: "costing",
           tasks: [

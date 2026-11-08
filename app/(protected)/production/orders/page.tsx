@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Plus } from 'lucide-react'
+import { CalendarDays, Plus } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
@@ -53,15 +53,21 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
           </p>
         </div>
 
-        {canPlan && (
-          <Link
-            href="/production/orders/new"
-            className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
-          >
-            <Plus size={16} />
-            New Production Order
+        <div className="flex items-center gap-2">
+          <Link href="/production/schedule" className={`inline-flex items-center gap-1.5 ${secondaryButtonClass}`}>
+            <CalendarDays size={15} />
+            Calendar
           </Link>
-        )}
+          {canPlan && (
+            <Link
+              href="/production/orders/new"
+              className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
+            >
+              <Plus size={16} />
+              New Production Order
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* A GET form: the filter lives in the URL, so a filtered list can be linked to. */}

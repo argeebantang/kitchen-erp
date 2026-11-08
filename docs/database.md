@@ -25,6 +25,7 @@ Migrations are tracked in `prisma/migrations/`, baselined from the original `db 
 | `20261029220219_rr_expected_quantity` | `ReceivingReportItem.expectedQuantity` — hand-written add nullable → backfill → `NOT NULL` |
 | `20261030034822_stock_movement_unit_cost` | `StockMovement.unitCost`, nullable |
 | `20261030060104_stock_movement_reference_required` | `StockMovement.referenceType` / `referenceId` → `NOT NULL` |
+| `20261108141128_production_order_planned_date_index` | `ProductionOrder(plannedDate)` index for the schedule calendar |
 | `20261108133119_production_status_change` | New `ProductionStatusChange` table (append-only status log) with `(productionOrderId, createdAt)` index |
 | `20261108122903_production_order_submitted_by` | `ProductionOrder.submittedById` (nullable FK → `User`; no backfill — every row was a draft) |
 | `20261107073325_week5_production_orders` | `ProductionStatus` replaced (`PLANNED` dropped, default `DRAFT`); `ProductionOrder.batchWeight` + `batchCount` (`NOT NULL`, table verified empty); `ProductionOrder(status)`, `(branchId)` indexes; `prd_number_seq` |
@@ -79,10 +80,10 @@ Postgres does not auto-index foreign keys, so every join or filter column needs 
 * `ReceivingReport(purchaseOrderId)`, `(status)`, `(branchId)`; `ReceivingReportItem(receivingReportId)`, `(purchaseOrderItemId)`
 * `InventoryLevel @@unique(materialId, branchId)`
 * `StockMovement(materialId, branchId, createdAt)` for per-item ledger history, `(referenceType, referenceId)` for a document's movements
-* `ProductionOrder(status)`, `(branchId)`
+* `ProductionOrder(status)`, `(branchId)`, `(plannedDate)`; `ProductionStatusChange(productionOrderId, createdAt)`
 * `Approval(referenceType, referenceId)`; `Notification(userId, readAt)`
 
-Not yet indexed, add with the feature that queries them: `StockTransfer` from/to branch; `ProductionOrder(plannedDate)` with the schedule calendar.
+Not yet indexed, add with the feature that queries them: `StockTransfer` from/to branch.
 
 ## Large Data
 

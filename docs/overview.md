@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–4):
+Built (Weeks 1–5):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -19,8 +19,9 @@ Built (Weeks 1–4):
 * Stock Levels: a colour-coded stock map per branch (🔴 out / 🟡 low / 🟢 healthy against each material's reorder point), reorder alerts, filters, a per-tile popup linking to the ledger, refreshed every 30 s
 * Stock Ledger: every stock movement with its source document, running balance per material and branch, and a check against the stock level
 * Daily 06:00 jobs: a low-stock summary for procurement and admins, and a ledger-vs-stock-level check for admins
-* Production Orders (Week 5, in progress): plan a run of a finished good from its active BOM — batch weight × number of batches, production date, branch — saved as a draft `PRD-000001` and editable while a draft; each save pins the active BOM version. The order page and the form list every ingredient the run needs, per batch and in total, against the stock available at the branch (on hand less what approved runs still need), marked Enough or Short, with a shortage banner naming what is missing and a "Request missing materials" shortcut to a pre-filled purchase request
+* Production Orders (Week 5): plan a run of a finished good from its active BOM — batch weight × number of batches, production date, branch — saved as a draft `PRD-000001` and editable while a draft; each save pins the active BOM version. The order page and the form list every ingredient the run needs, per batch and in total, against the stock available at the branch (on hand less what approved runs still need), marked Enough or Short, with a shortage banner naming what is missing and a "Request missing materials" shortcut to a pre-filled purchase request
 * Production orders are submitted for approval and approved or rejected by accounting (with a shortage badge in the inbox); the submitter is notified, and procurement is told what to order when an approved run is short. Production starts an approved run or cancels one (with a reason) before it starts; every status change is logged and shown as a timeline on the order
+* Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
@@ -41,9 +42,9 @@ Planned (see the roadmap): production order stock check and approval, transfers,
 
 * `app/` — Next.js App Router pages and route handlers
   * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
-  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/ledger`, `production/bom`, `production/orders`, `admin/master`
+  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/ledger`, `production/bom`, `production/orders`, `production/schedule`, `admin/master`
   * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `notifications` (incl. `stream`, `read`)
-* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `master/`, `inventory/` (`StockMap`, `StockTile`), `bom/`, `production/` (`ProductionOrderForm`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`)
+* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `master/`, `inventory/` (`StockMap`, `StockTile`), `bom/`, `production/` (`ProductionOrderForm`, `MaterialRequirementsTable`, `ShortageBanner`, `StatusTimeline`, `ScheduleCalendar`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`)
 * `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `realtime.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
 * `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
 * `services/` — business rules above the repositories

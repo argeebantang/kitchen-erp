@@ -109,6 +109,31 @@ export const ProductionOrderRepository = {
     return { rows, total }
   },
 
+  /**
+   * Orders planned between two dates (inclusive, date-only values at UTC
+   * midnight) — the schedule calendar's visible weeks. Served by
+   * @@index([plannedDate]). Bounded by `take`; the caller asks for one more
+   * than it shows to know whether it was cut short.
+   */
+  async findPlannedBetween(input: {
+    from: Date
+    to: Date
+    statuses: ProductionStatus[]
+    branchId?: string
+    take: number
+  }): Promise<ProductionOrderWithDetail[]> {
+    return prisma.productionOrder.findMany({
+      where: {
+        plannedDate: { gte: input.from, lte: input.to },
+        status:      { in: input.statuses },
+        ...(input.branchId ? { branchId: input.branchId } : {}),
+      },
+      include: orderInclude,
+      orderBy: [{ plannedDate: 'asc' }, { orderNumber: 'asc' }],
+      take:    input.take,
+    })
+  },
+
   async findById(id: string): Promise<ProductionOrderWithDetail | null> {
     return prisma.productionOrder.findUnique({ where: { id }, include: orderInclude })
   },

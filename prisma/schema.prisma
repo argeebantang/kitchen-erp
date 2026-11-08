@@ -510,6 +510,7 @@ model ProductionOrder {
 
   @@index([status])
   @@index([branchId])
+  @@index([plannedDate])
 }
 
 /// One row per status change of a production order — submit, approve / reject,
