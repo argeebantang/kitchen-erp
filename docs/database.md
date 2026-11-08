@@ -25,6 +25,7 @@ Migrations are tracked in `prisma/migrations/`, baselined from the original `db 
 | `20261029220219_rr_expected_quantity` | `ReceivingReportItem.expectedQuantity` — hand-written add nullable → backfill → `NOT NULL` |
 | `20261030034822_stock_movement_unit_cost` | `StockMovement.unitCost`, nullable |
 | `20261030060104_stock_movement_reference_required` | `StockMovement.referenceType` / `referenceId` → `NOT NULL` |
+| `20261107073325_week5_production_orders` | `ProductionStatus` replaced (`PLANNED` dropped, default `DRAFT`); `ProductionOrder.batchWeight` + `batchCount` (`NOT NULL`, table verified empty); `ProductionOrder(status)`, `(branchId)` indexes; `prd_number_seq` |
 
 Workflow for a schema change:
 
@@ -50,6 +51,9 @@ The schema (24 models) groups into these domain areas — see [architecture.md](
   * `REJECTED` is terminal for all three.
 * **Inventory**: `InventoryLevel` is current-state (one row per `materialId` + `branchId`, `@@unique`). `StockMovement` is an append-only ledger, also per material + branch. Every row names its source document via `referenceType`/`referenceId` — both `NOT NULL`, but polymorphic, so not a real FK: the database guarantees a reference exists, not that it points at a valid row. **`quantity` is signed** — positive into stock, negative out of it — so a balance is `SUM(quantity)`, and for each (material, branch) the ledger's sum must equal `InventoryLevel.quantity` (the Stock Ledger page checks this). Direction cannot come from `MovementType` alone: a `TRANSFER` is out at one branch and in at another. Any code that writes inventory must update `InventoryLevel.quantity` and insert a `StockMovement` row **in the same transaction**, never one without the other — use `InventoryRepository.stockIn(tx, …)`, which does both on the caller's transaction, rather than writing either table directly. The level change is an upsert on the unique key with `increment`, which Prisma issues as one `INSERT … ON CONFLICT DO UPDATE` (atomic, no lost updates). `StockMovement.unitCost` is the purchase cost per unit on a receiving `IN`; null where no cost rule exists yet (costing method: Week 6). `InventoryLevel.updatedAt` is therefore the time of the last movement for that material at that branch, and the stock map reads it as such instead of scanning the ledger — so never update a level row except together with a movement. Today the only writer is RR approval: one `IN` per line with accepted > 0, `referenceType 'ReceivingReport'`, `referenceId` = the RR.
 * **Production**: `ProductionOrder` pins `finishedGoodId` + `bomId` + `branchId` + `requestedById` together, so a production run always records exactly which BOM version was used.
+  * `ProductionStatus`: `DRAFT → PENDING_APPROVAL → APPROVED | REJECTED → IN_PROGRESS → COMPLETED`, plus `CANCELLED`. Only drafts are created and edited so far (Week 5 Task 1); `REJECTED` and `CANCELLED` are terminal.
+  * `batchWeight` (output of one batch, in the BOM's batch unit — the service refuses a BOM whose batch unit differs from the finished good's unit) × `batchCount` (whole number, 1–100) = `plannedQty`, computed in Decimal and stored because Week 6 compares `actualQty` with it. `plannedDate` is a date-only value (UTC midnight).
+  * `bomId` is the finished good's **active** version, re-pinned on every save of a draft; the pin becomes permanent at submission. `requestedById` is the creator and does not change when someone else edits the draft.
 * **Distribution**: `StockTransfer` has two named relations to `Branch` (`TransferFrom`/`TransferTo`) — when querying, be explicit about which side you mean.
 * **Conversions**: `Conversion` has two named relations to `FinishedGood` (`ConversionSource`/`ConversionOutput`). It has no cost, status or approver columns yet (Week 7).
 * **Approvals**: `Approval` is polymorphic — `referenceType` (`'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'`) + `referenceId`, one row per decision, with the approver, `decision`, `remarks`, `decidedAt`. The document's own status column says where it is now; `Approval` says who decided and why.
@@ -57,7 +61,7 @@ The schema (24 models) groups into these domain areas — see [architecture.md](
 
 ## Document numbers
 
-`prNumber`, `poNumber` and `rrNumber` come from Postgres sequences — `pr_number_seq`, `po_number_seq`, `rr_number_seq` — read with ``tx.$queryRaw`SELECT nextval('…')` `` inside the creating transaction and formatted `XX-000001` in the app. Sequences are gap-tolerant (a rolled-back transaction burns a number); uniqueness matters, contiguity does not. Never use `count() + 1`.
+`prNumber`, `poNumber`, `rrNumber` and `ProductionOrder.orderNumber` (`PRD-000001`) come from Postgres sequences — `pr_number_seq`, `po_number_seq`, `rr_number_seq`, `prd_number_seq` — read with ``tx.$queryRaw`SELECT nextval('…')` `` inside the creating transaction and formatted `XX-000001` in the app. Sequences are gap-tolerant (a rolled-back transaction burns a number); uniqueness matters, contiguity does not. Never use `count() + 1`.
 
 ## Indexing
 
@@ -70,9 +74,10 @@ Postgres does not auto-index foreign keys, so every join or filter column needs 
 * `ReceivingReport(purchaseOrderId)`, `(status)`, `(branchId)`; `ReceivingReportItem(receivingReportId)`, `(purchaseOrderItemId)`
 * `InventoryLevel @@unique(materialId, branchId)`
 * `StockMovement(materialId, branchId, createdAt)` for per-item ledger history, `(referenceType, referenceId)` for a document's movements
+* `ProductionOrder(status)`, `(branchId)`
 * `Approval(referenceType, referenceId)`; `Notification(userId, readAt)`
 
-Not yet indexed, add with the feature that queries them: `ProductionOrder(status)`, `(branchId)`; `StockTransfer` from/to branch.
+Not yet indexed, add with the feature that queries them: `StockTransfer` from/to branch; `ProductionOrder(plannedDate)` with the schedule calendar.
 
 ## Large Data
 

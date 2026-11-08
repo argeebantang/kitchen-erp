@@ -53,6 +53,7 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
   { path: '/production',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/api/production-orders', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
 ]

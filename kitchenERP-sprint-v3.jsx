@@ -117,7 +117,7 @@ const plan = {
           title: "Production Order Creation",
           tag: null,
           tasks: [
-            "Production Order form: finished good, batch weight, batches, production date",
+            { t: "Production Order form: finished good, batch weight, batches, production date", done: true },
             "Auto-calculate required raw materials from BOM",
             "Stock sufficiency check: required vs available per ingredient",
             "Shortage alert: flag exactly which ingredients are insufficient",

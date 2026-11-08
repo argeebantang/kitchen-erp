@@ -46,8 +46,13 @@ enum RRStatus {
   REJECTED
 }
 
+/// Draft → submit → accounting decides, then the kitchen runs it (Week 6).
+/// REJECTED and CANCELLED are terminal.
 enum ProductionStatus {
-  PLANNED
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
   IN_PROGRESS
   COMPLETED
   CANCELLED
@@ -482,7 +487,12 @@ model ProductionOrder {
   branch         Branch           @relation(fields: [branchId], references: [id])
   requestedById  String
   requestedBy    User             @relation(fields: [requestedById], references: [id])
-  status         ProductionStatus @default(PLANNED)
+  status         ProductionStatus @default(DRAFT)
+  /// Output of one batch, in the BOM's batch unit (= the finished good's unit;
+  /// the service refuses a mismatch). Defaults to BOM.batchSize on the form.
+  batchWeight    Decimal
+  batchCount     Int
+  /// batchWeight × batchCount, stored because Week 6 compares actualQty with it.
   plannedQty     Decimal
   actualQty      Decimal?
   plannedDate    DateTime
@@ -490,6 +500,9 @@ model ProductionOrder {
   notes          String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+
+  @@index([status])
+  @@index([branchId])
 }
 
 // ─── CONVERSIONS ─────────────────────────────────────────────────────────────

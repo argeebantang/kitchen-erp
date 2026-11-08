@@ -24,6 +24,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/purchase-orders` | all | ADMIN, PROCUREMENT_MANAGER, ACCOUNTING |
 | `/api/approvals` | all | ADMIN, ACCOUNTING |
 | `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
+| `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
@@ -100,6 +101,15 @@ The one endpoint for every approve/reject decision. Approving a request also cre
 | POST | `/api/receiving-reports/[id]/submit` | — | 200 `{ receivingReport: { id, rrNumber } }` → `PENDING_APPROVAL`; `receivedById` unchanged | 400 saved counts break a rule (edit and save first), 401, 403, 404, 409 not a draft |
 
 Rules (create, edit, and re-checked on submit): the order is `SENT` or `PARTIALLY_RECEIVED`; every PO line counted once; rejected ≤ received; received − rejected ≤ outstanding; a line with rejected > 0 has a line note; date not after today (Asia/Manila); not every line zero. Outstanding at save time is stored as each line's `expectedQuantity`, which variance is measured against.
+
+## Production orders
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/production-orders` | `finishedGoodId`, `batchWeight` (decimal string), `batchCount` (JSON integer 1–100), `plannedDate`, `branchId`, `notes?` | 201 `{ productionOrder: { id, orderNumber } }` as `DRAFT`, numbered `PRD-000001` | 400, 401, 403 |
+| PATCH | `/api/production-orders/[id]` | the same fields | 200 `{ productionOrder: { id, orderNumber } }` | 400, 401, 403, 404, 409 not a draft / changed meanwhile |
+
+Rules (create and edit): the finished good is active and has an active BOM; the BOM's batch unit equals the finished good's unit (no unit conversion yet); batch weight > 0; the branch is active; the date is not before today (Asia/Manila). The server pins `bomId` to the active version on every save, computes `plannedQty` = `batchWeight × batchCount` in Decimal, and takes `requestedById` from the caller on create only — an edit by someone else keeps the original requester. The pages read through `ProductionOrderService`; there is no GET endpoint yet.
 
 ## Notifications
 
