@@ -120,7 +120,7 @@ const plan = {
             { t: "Production Order form: finished good, batch weight, batches, production date", done: true },
             { t: "Auto-calculate required raw materials from BOM", done: true },
             { t: "Stock sufficiency check: required vs available per ingredient", done: true },
-            "Shortage alert: flag exactly which ingredients are insufficient",
+            { t: "Shortage alert: flag exactly which ingredients are insufficient", done: true },
             "Production Order approval by accounting",
             "Status flow: Draft → Pending → Approved → In Progress → Completed",
             "Production schedule calendar view",

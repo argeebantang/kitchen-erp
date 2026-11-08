@@ -29,10 +29,26 @@ function emptyLine(): Line {
   return { key: String(nextKey++), materialId: '', quantity: '' }
 }
 
-export function PurchaseRequestForm({ materials }: { materials: MaterialDto[] }) {
-  const [neededBy, setNeededBy] = useState('')
-  const [notes, setNotes]       = useState('')
-  const [lines, setLines]       = useState<Line[]>([emptyLine()])
+/** Starting values, e.g. a production order's shortfall. Every field stays editable. */
+export type PurchaseRequestFormInitial = {
+  neededBy: string
+  notes: string
+  lines: { materialId: string; quantity: string }[]
+}
+
+export function PurchaseRequestForm({
+  materials, initial,
+}: {
+  materials: MaterialDto[]
+  initial?: PurchaseRequestFormInitial
+}) {
+  const [neededBy, setNeededBy] = useState(initial?.neededBy ?? '')
+  const [notes, setNotes]       = useState(initial?.notes ?? '')
+  const [lines, setLines]       = useState<Line[]>(() =>
+    initial && initial.lines.length > 0
+      ? initial.lines.map(line => ({ ...emptyLine(), materialId: line.materialId, quantity: line.quantity }))
+      : [emptyLine()],
+  )
 
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)

@@ -33,6 +33,7 @@ A path guard can say who may reach a URL, not what they may do there. Where one 
 
 - Accounting must reach `/api/purchase-orders` to approve, but must not edit a draft — `PurchaseOrderService.updateDraft` refuses non-procurement roles.
 - Accounting reads `/procurement/receiving` to approve reports, but `/procurement/receiving/new` has its own procurement-only guard, and the edit page (`[id]/edit`, which no prefix can match) redirects other roles itself. `/production/orders/[id]/edit` does the same for production, ready for accounting to read production orders (Week 5 Task 5).
+- `/procurement/requests/new?productionOrder=<id>` pre-fills a purchase request with a production order's shortfall. The page reads the order only for ADMIN and PRODUCTION_MANAGER (the roles that can open production orders); for anyone else the parameter is ignored and the form is empty. Nothing is created until the requester saves.
 - All approve/reject decisions go through **one** endpoint, `POST /api/approvals` (guarded to ADMIN + ACCOUNTING), which dispatches on `referenceType`. Every other transition has its own endpoint (`.../submit`, `.../send`).
 - **Nobody approves their own work, ADMIN included.** The approver is compared with the person responsible (PR: requester; PO: `submittedById`; RR: `receivedById`, who is whoever last saved the draft — submitting does not change it).
 

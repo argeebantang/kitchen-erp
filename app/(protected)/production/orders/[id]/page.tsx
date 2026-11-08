@@ -3,9 +3,10 @@ import { notFound, redirect } from 'next/navigation'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
-import { ProductionOrderService } from '@/services/production-order.service'
+import { ProductionOrderService, SHORTFALL_REQUEST_STATUSES } from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
+import { ShortageBanner } from '@/components/production/ShortageBanner'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -24,7 +25,11 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
   const isDraft = order.status === 'DRAFT'
   // Same roles ProductionOrderService.update accepts; ready for Task 5, when
   // accounting is let in to read.
-  const canEdit = isDraft && (session.role === 'PRODUCTION_MANAGER' || session.role === 'ADMIN')
+  const canPlan = session.role === 'PRODUCTION_MANAGER' || session.role === 'ADMIN'
+  const canEdit = isDraft && canPlan
+  // Task 4, D4: the roles that plan production (and may raise a purchase
+  // request), while ordering can still arrive in time.
+  const canRequestShortfall = canPlan && SHORTFALL_REQUEST_STATUSES.includes(order.status)
 
   return (
     <div>
@@ -105,6 +110,11 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           <> Stock is what {order.branchName} holds right now, less what other approved or in-progress orders there still need.</>
         )}
       </p>
+      <ShortageBanner
+        lines={order.requirements}
+        branchName={order.branchName}
+        requestHref={canRequestShortfall ? `/procurement/requests/new?productionOrder=${order.id}` : undefined}
+      />
       <MaterialRequirementsTable
         lines={order.requirements}
         batchWeight={order.batchWeight}

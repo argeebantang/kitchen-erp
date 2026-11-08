@@ -1,6 +1,7 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
+import { trimDecimal } from '@/lib/format'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
 import { BranchRepository } from '@/repositories/branch.repository'
@@ -125,6 +126,17 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   requirements: MaterialRequirementDto[]
 }
 
+/** What "Request missing materials" pre-fills on a new purchase request (Task 4, D3). */
+export type ShortfallRequestDto = {
+  productionOrderId: string
+  orderNumber: string
+  /** The production date: the materials are needed by then. */
+  neededBy: string
+  notes: string
+  /** One per short material, at exactly the short quantity — the requester rounds up if they wish. */
+  lines: { materialId: string; quantity: string }[]
+}
+
 export type ProductionOrderResult<T> =
   | { success: true;  data: T }
   | { success: false; error: string; status: number }
@@ -172,6 +184,16 @@ const STOCK_CHECK_STATUSES: ProductionStatus[] = [
   ProductionStatus.PENDING_APPROVAL,
   ProductionStatus.APPROVED,
   ProductionStatus.IN_PROGRESS,
+]
+
+/**
+ * Statuses where ordering the shortfall still helps (Task 4, D4). A run in
+ * progress is cooking with what it has.
+ */
+export const SHORTFALL_REQUEST_STATUSES: ProductionStatus[] = [
+  ProductionStatus.DRAFT,
+  ProductionStatus.PENDING_APPROVAL,
+  ProductionStatus.APPROVED,
 ]
 
 type ScaledLine = {
@@ -386,6 +408,36 @@ export const ProductionOrderService = {
           STOCK_CHECK_STATUSES.includes(order.status) ? { branchId: order.branch.id, excludeOrderId: order.id } : null,
         ),
       },
+    }
+  },
+
+  /**
+   * The purchase request pre-fill for an order's shortfall: one line per short
+   * material at the short quantity. Null — so the page shows the ordinary
+   * empty form — when the order is unknown, past the point of ordering, or
+   * short of nothing. Nothing is created here; the requester reviews and saves.
+   */
+  async shortfallRequest(id: string): Promise<ShortfallRequestDto | null> {
+    const result = await ProductionOrderService.getById(id)
+    if (!result.success) return null
+    const order = result.data
+    if (!SHORTFALL_REQUEST_STATUSES.includes(order.status)) return null
+
+    const lines = order.requirements.flatMap(line =>
+      line.stock && !line.stock.enough
+        // toFixed(), not toString(): Decimal writes very small values as
+        // 1e-7, which the purchase request's quantity pattern rejects.
+        ? [{ materialId: line.materialId, quantity: toDecimal(line.stock.short).toFixed() }]
+        : [],
+    )
+    if (lines.length === 0) return null
+
+    return {
+      productionOrderId: order.id,
+      orderNumber:       order.orderNumber,
+      neededBy:          order.plannedDate,
+      notes:             `Shortfall for ${order.orderNumber} — ${order.finishedGoodName} ${trimDecimal(order.plannedQty)} ${order.unitAbbreviation} on ${order.plannedDate} at ${order.branchName}`,
+      lines,
     }
   },
 
