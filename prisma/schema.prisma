@@ -586,6 +586,19 @@ model ProductionOrder {
   /// completion (Week 6), like submittedById for the plan.
   completedById  String?
   completedBy    User?            @relation("ProductionOrderCompleter", fields: [completedById], references: [id])
+  /// Costing (Week 6 Task 3), all recorded when accounting approves the
+  /// completion and never recomputed: prices can be back-dated, and a
+  /// signed-off cost must not move. Null until then. Pesos, unrounded.
+  /// The BOM at the planned quantities, at reference prices on plannedDate.
+  plannedCost    Decimal?
+  /// The same quantities at reference prices on the lot's production date —
+  /// the batch cost.
+  actualCost     Decimal?
+  /// actualCost ÷ actualQty: what one unit (kg) of the output cost.
+  costPerUnit    Decimal?
+  /// actualCost − (plannedCost ÷ plannedQty) × actualQty: what the output
+  /// cost beyond what that much should have cost at plan. Positive = over.
+  costVariance   Decimal?
   notes          String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt

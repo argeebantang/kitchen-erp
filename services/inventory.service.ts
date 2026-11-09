@@ -143,8 +143,25 @@ export type FinishedGoodLotDto = {
   producedOn: string
   /** When this lot last moved at this branch (ISO). */
   lastMovementAt: string
+  /** The lot's cost per unit, recorded when its run was approved; null before costing (Week 6 Task 3). */
+  unitCost: string | null
+  /** quantity × unitCost: what the lot on hand here is worth. */
+  value: string | null
   /** The run that made it — a link for roles that can open production orders. */
   source: { number: string; href: string | null } | null
+}
+
+type FinishedGoodLevelRow = Awaited<ReturnType<typeof FinishedGoodStockRepository.findLevels>>[number]
+
+/** A lot's cost per unit, from the IN movement that created it. */
+function unitCostOf(row: FinishedGoodLevelRow): Prisma.Decimal | null {
+  return row.lot.movements[0]?.unitCost ?? null
+}
+
+/** What the lot on hand at this branch is worth. */
+function valueOf(row: FinishedGoodLevelRow): Prisma.Decimal | null {
+  const unitCost = unitCostOf(row)
+  return unitCost === null ? null : row.quantity.mul(unitCost)
 }
 
 /** On hand per finished good and branch, summed over its lots in Decimal. */
@@ -155,6 +172,8 @@ export type FinishedGoodTotalDto = {
   unitAbbreviation: string
   quantity: string
   lotCount: number
+  /** Sum of the lots' values; null if any lot has no cost. */
+  value: string | null
 }
 
 export const InventoryService = {
@@ -241,32 +260,41 @@ export const InventoryService = {
     const shown     = rows.slice(0, FINISHED_GOOD_LOT_LIMIT)
     const orderPage = SOURCE_PAGES.ProductionOrder
 
-    const lots = shown.map<FinishedGoodLotDto>(row => ({
-      lotNumber:        row.lot.lotNumber,
-      finishedGoodId:   row.lot.finishedGood.id,
-      finishedGoodCode: row.lot.finishedGood.code,
-      finishedGoodName: row.lot.finishedGood.name,
-      unitAbbreviation: row.lot.finishedGood.unit.abbreviation,
-      branchId:         row.branch.id,
-      branchName:       row.branch.name,
-      quantity:         toDecimalString(row.quantity),
-      producedOn:       row.lot.producedOn.toISOString().slice(0, 10),
-      lastMovementAt:   row.updatedAt.toISOString(),
-      // A production lot is numbered after its order (D6).
-      source: row.lot.productionOrderId === null ? null : {
-        number: row.lot.lotNumber,
-        href:   orderPage.roles.includes(viewer.role) ? orderPage.href(row.lot.productionOrderId) : null,
-      },
-    }))
+    const lots = shown.map<FinishedGoodLotDto>(row => {
+      const unitCost = unitCostOf(row)
+      const value    = valueOf(row)
+      return {
+        lotNumber:        row.lot.lotNumber,
+        finishedGoodId:   row.lot.finishedGood.id,
+        finishedGoodCode: row.lot.finishedGood.code,
+        finishedGoodName: row.lot.finishedGood.name,
+        unitAbbreviation: row.lot.finishedGood.unit.abbreviation,
+        branchId:         row.branch.id,
+        branchName:       row.branch.name,
+        quantity:         toDecimalString(row.quantity),
+        producedOn:       row.lot.producedOn.toISOString().slice(0, 10),
+        lastMovementAt:   row.updatedAt.toISOString(),
+        unitCost:         unitCost === null ? null : toDecimalString(unitCost),
+        value:            value === null ? null : toDecimalString(value),
+        // A production lot is numbered after its order (D6).
+        source: row.lot.productionOrderId === null ? null : {
+          number: row.lot.lotNumber,
+          href:   orderPage.roles.includes(viewer.role) ? orderPage.href(row.lot.productionOrderId) : null,
+        },
+      }
+    })
 
-    const totals = new Map<string, FinishedGoodTotalDto & { sum: Prisma.Decimal }>()
+    const totals = new Map<string, FinishedGoodTotalDto & { sum: Prisma.Decimal; worth: Prisma.Decimal | null }>()
     for (const [index, lot] of lots.entries()) {
       const key = `${lot.finishedGoodId}:${lot.branchId}`
       const current = totals.get(key) ?? {
         finishedGoodId: lot.finishedGoodId, finishedGoodName: lot.finishedGoodName, branchName: lot.branchName,
-        unitAbbreviation: lot.unitAbbreviation, quantity: '0', lotCount: 0, sum: new Prisma.Decimal(0),
+        unitAbbreviation: lot.unitAbbreviation, quantity: '0', lotCount: 0, value: null,
+        sum: new Prisma.Decimal(0), worth: new Prisma.Decimal(0),
       }
-      current.sum = current.sum.add(shown[index].quantity)
+      const lotValue = valueOf(shown[index])
+      current.sum   = current.sum.add(shown[index].quantity)
+      current.worth = current.worth !== null && lotValue !== null ? current.worth.add(lotValue) : null
       current.lotCount += 1
       totals.set(key, current)
     }
@@ -274,7 +302,7 @@ export const InventoryService = {
     return {
       lots,
       totals: [...totals.values()]
-        .map(({ sum, ...total }) => ({ ...total, quantity: toDecimalString(sum) }))
+        .map(({ sum, worth, ...total }) => ({ ...total, quantity: toDecimalString(sum), value: worth === null ? null : toDecimalString(worth) }))
         .sort((a, b) => a.branchName.localeCompare(b.branchName) || a.finishedGoodName.localeCompare(b.finishedGoodName)),
       truncated,
     }

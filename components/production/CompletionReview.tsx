@@ -1,6 +1,6 @@
-import { trimDecimal } from '@/lib/format'
+import { formatPeso, formatSignedPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the order page.
-import type { CompletionEffectDto } from '@/services/production-order.service'
+import type { CompletionEffectDto, CostingDto } from '@/services/production-order.service'
 
 /**
  * What approving a reported completion will do to the books, shown above the
@@ -8,8 +8,17 @@ import type { CompletionEffectDto } from '@/services/production-order.service'
  * off at the branch with the stock it leaves, and the lot that goes on.
  * Going below zero is allowed (D3) but each such line is called out.
  */
-export function CompletionReview({ effect, finishedGoodName }: { effect: CompletionEffectDto; finishedGoodName: string }) {
+export function CompletionReview({
+  effect, finishedGoodName, costing,
+}: {
+  effect: CompletionEffectDto
+  finishedGoodName: string
+  /** What approving records as the run's cost (Week 6 Task 3); the Costing card has the breakdown. */
+  costing: CostingDto | null
+}) {
   const { ingredients, negativeCount, lot } = effect
+  const actual  = costing?.actual ?? null
+  const missing = [...new Set([...(costing?.planned.missing ?? []), ...(actual?.missing ?? [])])]
 
   return (
     <div className="mb-3 rounded-xl border border-gray-200 bg-white p-4">
@@ -20,6 +29,23 @@ export function CompletionReview({ effect, finishedGoodName }: { effect: Complet
         <span className="font-medium text-emerald-700">+{trimDecimal(lot.quantity)} {lot.unitAbbreviation} {finishedGoodName}</span>
         {' '}as lot <span className="font-mono">{lot.lotNumber}</span>.
       </p>
+
+      {actual?.total && actual.perUnit && (
+        <p className="mb-3 text-sm text-gray-700">
+          Records a batch cost of <span className="font-medium">{formatPeso(actual.total)}</span> —{' '}
+          <span className="font-medium">{formatPeso(actual.perUnit)}/{lot.unitAbbreviation}</span> for{' '}
+          {trimDecimal(actual.yield)} {lot.unitAbbreviation}
+          {costing?.planned.perUnit && <> (planned {formatPeso(costing.planned.perUnit)}/{lot.unitAbbreviation})</>}
+          {costing?.variance && <>, a variance of {formatSignedPeso(costing.variance)}</>}.
+          {' '}The Costing card below has the breakdown.
+        </p>
+      )}
+      {missing.length > 0 && (
+        <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Approving will be refused: there is no reference price for {missing.join(', ')}, so the cost cannot be
+          recorded. An admin adds one in Master Data (it may be back-dated); you can still reject.
+        </p>
+      )}
 
       {negativeCount > 0 && (
         <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

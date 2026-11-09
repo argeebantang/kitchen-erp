@@ -267,6 +267,7 @@ export default async function ApprovalsInboxPage() {
                 <th className="px-4 py-3 font-medium">Number</th>
                 <th className="px-4 py-3 font-medium">Finished good</th>
                 <th className="px-4 py-3 font-medium">Yield</th>
+                <th className="px-4 py-3 text-right font-medium">Unit cost</th>
                 <th className="px-4 py-3 font-medium">Branch</th>
                 <th className="px-4 py-3 font-medium">Reported by</th>
                 <th className="px-4 py-3 font-medium">Stock after</th>
@@ -287,6 +288,14 @@ export default async function ApprovalsInboxPage() {
                   <td className="px-4 py-3 text-gray-700">{order.finishedGoodName}</td>
                   <td className="px-4 py-3 text-gray-700">
                     {trimDecimal(order.actualQty)} <span className="text-gray-400">of {trimDecimal(order.plannedQty)} {order.unitAbbreviation} ({order.percentOfPlan}%)</span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-700">
+                    {/* What approving records; the order page has the breakdown. */}
+                    {order.costPerUnit === null ? (
+                      <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">Price missing</span>
+                    ) : (
+                      <>{formatPeso(order.costPerUnit)}<span className="text-gray-400">/{order.unitAbbreviation}</span></>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-500">{order.branchName}</td>
                   <td className="px-4 py-3 text-gray-500">{order.completedByName ?? '—'}</td>

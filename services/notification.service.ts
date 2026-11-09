@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client'
-import { trimDecimal } from '@/lib/format'
+import { formatPeso, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
@@ -361,7 +361,8 @@ export const NotificationService = {
         : `${order.orderNumber} completion sent back`,
       body:          approved
         ? `${latest.approver.name} approved it: ${trimDecimal(order.actualQty?.toString() ?? '0')} ${unit} ${order.finishedGood.name} `
-          + `is in stock at ${order.branch.name} as lot ${order.orderNumber}.`
+          + `is in stock at ${order.branch.name} as lot ${order.orderNumber}`
+          + (order.costPerUnit === null ? '.' : ` — it cost ${formatPeso(order.costPerUnit.toString())}/${unit}.`)
         : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Report the run again when corrected.`,
       referenceType: 'ProductionOrder',
       referenceId:   order.id,

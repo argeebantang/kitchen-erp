@@ -18,6 +18,8 @@ export type ReceiveLotInput = {
   producedOn: Date
   branchId: string
   quantity: Prisma.Decimal
+  /** Cost per unit of the lot — the run's batch cost ÷ its yield (Week 6 Task 3). */
+  unitCost: Prisma.Decimal
   referenceType: string
   referenceId: string
   notes: string | null
@@ -48,6 +50,7 @@ export const FinishedGoodStockRepository = {
         branchId:      input.branchId,
         type:          MovementType.IN,
         quantity:      input.quantity,
+        unitCost:      input.unitCost,
         referenceType: input.referenceType,
         referenceId:   input.referenceId,
         notes:         input.notes,
@@ -79,6 +82,9 @@ export const FinishedGoodStockRepository = {
           select: {
             lotNumber: true, producedOn: true, productionOrderId: true,
             finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
+            // The lot's first movement is the IN that created it; its unitCost
+            // is the lot's cost per unit (Week 6 Task 3).
+            movements: { where: { type: MovementType.IN }, orderBy: { createdAt: 'asc' }, take: 1, select: { unitCost: true } },
           },
         },
         branch: { select: { id: true, name: true } },

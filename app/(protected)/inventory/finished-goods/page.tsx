@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { BUSINESS_TIME_ZONE } from '@/lib/dates'
-import { trimDecimal } from '@/lib/format'
+import { formatPeso, trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { FINISHED_GOOD_LOT_LIMIT, InventoryService } from '@/services/inventory.service'
 import { BranchRepository } from '@/repositories/branch.repository'
@@ -76,6 +76,8 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                 </p>
                 <p className="text-xs text-gray-400">
                   {total.branchName} · {total.lotCount} {total.lotCount === 1 ? 'lot' : 'lots'}
+                  {/* At each lot's cost per unit, recorded when its run was approved (Week 6 Task 3). */}
+                  {total.value !== null && <> · worth {formatPeso(total.value)}</>}
                 </p>
               </div>
             ))}
@@ -96,6 +98,8 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                   <th className="px-4 py-3 font-medium">Finished good</th>
                   <th className="px-4 py-3 font-medium">Branch</th>
                   <th className="px-4 py-3 text-right font-medium">On hand</th>
+                  <th className="px-4 py-3 text-right font-medium">Unit cost</th>
+                  <th className="px-4 py-3 text-right font-medium">Value</th>
                   <th className="px-4 py-3 font-medium">Produced on</th>
                   <th className="px-4 py-3 font-medium">Last movement</th>
                 </tr>
@@ -119,6 +123,14 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                     <td className="px-4 py-3 text-gray-500">{lot.branchName}</td>
                     <td className={`px-4 py-3 text-right font-medium ${lot.quantity.startsWith('-') ? 'text-red-700' : 'text-gray-800'}`}>
                       {trimDecimal(lot.quantity)} <span className="font-normal text-gray-400">{lot.unitAbbreviation}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">
+                      {lot.unitCost === null
+                        ? <span className="text-gray-400">—</span>
+                        : <>{formatPeso(lot.unitCost)}<span className="text-gray-400">/{lot.unitAbbreviation}</span></>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">
+                      {lot.value === null ? <span className="text-gray-400">—</span> : formatPeso(lot.value)}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{lot.producedOn}</td>
                     <td className="px-4 py-3 text-gray-500">{formatAt(lot.lastMovementAt)}</td>
