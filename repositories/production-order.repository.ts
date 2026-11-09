@@ -341,8 +341,10 @@ export const ProductionOrderRepository = {
           kind: 'APPROVED'
           branchId: string
           orderNumber: string
-          consumption: { materialId: string; quantity: Prisma.Decimal }[]
+          /** unitCost: the reference price the run was costed at (Week 6 Task 3). */
+          consumption: { materialId: string; quantity: Prisma.Decimal; unitCost: Prisma.Decimal }[]
           lot: Omit<ReceiveLotInput, 'branchId' | 'referenceType' | 'referenceId' | 'notes'>
+          costs: { plannedCost: Prisma.Decimal; actualCost: Prisma.Decimal; costPerUnit: Prisma.Decimal; costVariance: Prisma.Decimal }
         }
   }): Promise<boolean> {
     return prisma.$transaction(async tx => {
@@ -354,8 +356,12 @@ export const ProductionOrderRepository = {
         changedById: input.approverId,
         note:        input.remarks,
         where:       { completedAt: input.completedAt },
-        // A sent-back run is still cooking: no reported yield until the next report.
-        data:        approving ? undefined : { actualQty: null, completedAt: null, completedById: null },
+        // Approved: the cost is recorded with the status, never recomputed
+        // (Week 6 Task 3, D4). Sent back: still cooking, so no reported yield
+        // until the next report.
+        data:        input.decision.kind === 'APPROVED'
+          ? input.decision.costs
+          : { actualQty: null, completedAt: null, completedById: null },
       })
       if (!moved) return false
 
@@ -378,7 +384,7 @@ export const ProductionOrderRepository = {
           materialId:    line.materialId,
           branchId:      approved.branchId,
           quantity:      line.quantity,
-          unitCost:      null,
+          unitCost:      line.unitCost,
           referenceType: 'ProductionOrder',
           referenceId:   input.id,
           notes:         approved.orderNumber,

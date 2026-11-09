@@ -26,11 +26,29 @@ export function trimDecimal(value: string): string {
 }
 
 /**
- * Display-only peso formatting. Safe to go through Number here because the
- * authoritative value stays the string — all arithmetic happened server-side in
- * Decimal, and this only rounds for presentation. Never feed the result back
- * into a calculation.
+ * Display-only peso formatting, rounded half up to the centavo. Never feed the
+ * result back into a calculation — all arithmetic happens server-side in
+ * Decimal.
+ *
+ * Rounds on the decimal digits rather than through Number(value).toFixed(2):
+ * a binary float cannot hold most half-centavos exactly, so toFixed rounds
+ * 3726.975 down to 3726.97 (found checking production costs, Week 6 Task 3).
+ * Whole centavos stay far below 2^53, so the integer arithmetic is exact.
  */
 export function formatPeso(value: string): string {
-  return `₱${Number(value).toFixed(2)}`
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value.trim())
+  // Decimal writes very small or large values in exponent form (1e-7).
+  if (!match) return `₱${Number(value).toFixed(2)}`
+
+  const [, sign, whole, fraction = ''] = match
+  const centavos = Number(whole) * 100 + Number((fraction + '00').slice(0, 2)) + (fraction.charAt(2) >= '5' ? 1 : 0)
+  const digits   = String(centavos).padStart(3, '0')
+  return `₱${centavos === 0 ? '' : sign}${digits.slice(0, -2)}.${digits.slice(-2)}`
+}
+
+/** A difference in pesos with its sign spelled out: "+₱80.54", "−₱12.00" (a true minus), "±₱0.00". */
+export function formatSignedPeso(value: string): string {
+  const amount = formatPeso(value.replace(/^-/, ''))
+  if (amount === '₱0.00') return `±${amount}`
+  return value.startsWith('-') ? `−${amount}` : `+${amount}`
 }

@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { trimDecimal } from '@/lib/format'
+import { formatPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the order page.
 import type { CompletionStockDto } from '@/services/production-order.service'
 
@@ -22,6 +22,9 @@ export function CompletionStock({ stock, finishedGoodName }: { stock: Completion
           <span className="text-gray-400">
             {' '}· lot <span className="font-mono">{stock.lot.lotNumber}</span> · produced {stock.lot.producedOn} → {stock.lot.branchName}
           </span>
+          {stock.lot.unitCost !== null && (
+            <span className="text-gray-500"> @ {formatPeso(stock.lot.unitCost)}/{stock.lot.unitAbbreviation}</span>
+          )}
         </p>
       )}
 
@@ -38,6 +41,9 @@ export function CompletionStock({ stock, finishedGoodName }: { stock: Completion
                 {trimDecimal(movement.quantity).replace(/^-/, '−')} {movement.unitAbbreviation}
               </span>
               <span className="text-gray-700">{movement.materialName}</span>
+              {movement.unitCost !== null && (
+                <span className="text-gray-500">@ {formatPeso(movement.unitCost)}/{movement.unitAbbreviation}</span>
+              )}
               <span className="font-mono text-xs text-gray-400">{movement.materialCode}</span>
               <span className="ml-auto text-xs text-orange-600">Ledger →</span>
             </Link>

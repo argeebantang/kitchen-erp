@@ -22,7 +22,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 | Needed | Status in `schema.prisma` | Due |
 |---|---|---|
 | `item_prices` | **Done (2026-09-01).** `ItemPrice` added — open-ended effective dating with an optional `supplierId` (null = organisation reference price). `Material.standardCost` is deprecated but retained; nothing reads it. | Week 2 |
-| Production costing fields | **Partial.** `ProductionOrder` has `actualQty` but no `actualCost`, `costPerUnit`, or `costVariance`. Add columns, or a `production_actuals` table if actuals need their own audit row. | Week 6 |
+| Production costing fields | **Done (2026-11-09).** `ProductionOrder.plannedCost`, `actualCost`, `costPerUnit`, `costVariance` as columns (one approval per order, so no separate `production_actuals` table); see `docs/2026-11-09-week6-production-costing.md`. | Week 6 |
 | Conversion costing + approval | **Partial.** `Conversion` exists but has no `conversionCost`, `status`, or `approvedById` — it currently records a conversion, it can't route one for approval. | Week 7 |
 | `writeoffs` | **Missing** entirely. | Week 7 |
 | `ai_insights` | **Missing.** Required by Features 1, 3, 4, 6. | Week 9 |
@@ -293,7 +293,17 @@ table; it's a UI/UX decision, not an architecture change.
       done 2026-11-09 with the sign-off; expiry (shelf life per finished good) remains.*
 - [x] Actual vs planned yield — **done 2026-11-09** with the completion report: "9.6 kg of 10 kg planned ·
       −0.4 kg (96%)" on the order page, computed in Decimal; the timeline shows the yield reported.
-- [ ] Costing: batch cost, cost/kg, variance
+- [x] Costing: batch cost, cost/kg, variance — **done 2026-11-09**
+      (`docs/2026-11-09-week6-production-costing.md`): the pinned BOM at the deducted quantities × the
+      reference `ItemPrice` in force on the date — planned on the production date, batch cost on the
+      day it was produced; cost/kg = batch cost ÷ actual yield; variance = batch cost − planned
+      cost/kg × actual yield. An estimate on open orders, the figures approving would record while a
+      completion waits, and **recorded at approval** (new `ProductionOrder.plannedCost`, `actualCost`,
+      `costPerUnit`, `costVariance`, migration `20261109120000_production_costing`; prices on the
+      ingredient `OUT` rows and cost/kg on the lot's `IN`), never recomputed. A missing price blocks
+      approval. Costing card on the order page, cost line in the approval preview, unit cost in the
+      inbox, unit cost and value on Finished Goods. Also fixed: `formatPeso` rounded half-centavos
+      down (float); it now rounds on the digits.
 - [x] Accounting approval of completion — **done 2026-11-09** with the stock movements (see the first item).
 
 ### Week 7 — Conversion, Write-off & Expiry

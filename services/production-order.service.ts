@@ -15,6 +15,7 @@ import { scaleBomQuantities } from '@/services/bom.service'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
+import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import {
   ProductionOrderListFilters,
@@ -156,6 +157,8 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   completionEffect: CompletionEffectDto | null
   /** Once completed: what it moved. */
   stockMoved: CompletionStockDto | null
+  /** Cost of the run (Week 6 Task 3); null for rejected and cancelled orders. */
+  costing: CostingDto | null
 }
 
 /**
@@ -195,9 +198,61 @@ export type CompletionStockDto = {
     unitAbbreviation: string
     /** Signed: negative, out of stock. */
     quantity: string
+    /** The price the run was costed at (Week 6 Task 3); null on runs approved before costing. */
+    unitCost: string | null
   }[]
   /** Null only if the lot is missing, which approval makes impossible. */
-  lot: { lotNumber: string; quantity: string; unitAbbreviation: string; producedOn: string; branchName: string } | null
+  lot: {
+    lotNumber: string; quantity: string; unitAbbreviation: string; producedOn: string; branchName: string
+    /** Cost per unit of the lot. */
+    unitCost: string | null
+  } | null
+}
+
+/** One ingredient of a costed run: the quantity deducted at the price in force (Week 6 Task 3). */
+export type CostLineDto = {
+  materialId: string
+  materialCode: string
+  materialName: string
+  unitAbbreviation: string
+  quantity: string
+  /** Per unit of the material; null when no price is in force on the date. */
+  unitPrice: string | null
+  /** YYYY-MM-DD the price took effect. */
+  priceEffective: string | null
+  /** quantity × unitPrice. */
+  cost: string | null
+}
+
+/** A run priced on one date: its lines and total, or which materials have no price. */
+export type RunCostDto = {
+  /** The date the prices are taken on, YYYY-MM-DD. */
+  pricedOn: string
+  lines: CostLineDto[]
+  /** Null while any line has no price (D5). */
+  total: string | null
+  /** total ÷ the quantity it is spread over (planned or actual yield). */
+  perUnit: string | null
+  /** Material names with no price on the date. */
+  missing: string[]
+}
+
+/**
+ * The order page's Costing card (Week 6 Task 3, D7):
+ *   ESTIMATE  open order — the planned cost only
+ *   PENDING   completion awaiting sign-off — what approving would record
+ *   RECORDED  completed — the figures stored at approval (D4)
+ */
+export type CostingDto = {
+  kind: 'ESTIMATE' | 'PENDING' | 'RECORDED'
+  unitAbbreviation: string
+  plannedQty: string
+  /** At reference prices on the production date, spread over the planned quantity. */
+  planned: RunCostDto
+  /** At prices on the lot's production date, spread over the actual yield. Null for an estimate. */
+  actual: (RunCostDto & { yield: string }) | null
+  /** actual − planned per unit × actual yield. Positive = over plan. */
+  variance: string | null
 }
 
 /** The actual yield against the planned output, in the order's unit (Week 6 Task 1, D5). */
@@ -235,6 +290,8 @@ export type PendingCompletionDto = ProductionOrderSummaryDto & {
   ingredientCount: number
   /** Ingredients approval would take below zero at the branch. */
   negativeCount: number
+  /** What approving records as the cost per unit; null while a price is missing (Week 6 Task 3). */
+  costPerUnit: string | null
 }
 
 /** What "Request missing materials" pre-fills on a new purchase request (Task 4, D3). */
@@ -397,6 +454,161 @@ function consumptionByMaterial(
 }
 
 /**
+ * A run's ingredients priced on one date (Week 6 Task 3, D1–D3): the BOM at
+ * the quantities a completion deducts (consumptionByMaterial), each at the
+ * reference price in force that day — one query for all lines, the same
+ * lookup purchase requests and the BOM viewer use. `spreadOver` is the
+ * quantity the total is divided by for the per-unit figure.
+ *
+ * Returns Decimals as well as the DTO so approval can store exactly what the
+ * card shows.
+ */
+async function costRun(
+  bom: BomWithDetail,
+  order: { batchWeight: Prisma.Decimal; plannedQty: Prisma.Decimal },
+  pricedOn: string,
+  spreadOver: Prisma.Decimal,
+): Promise<{ dto: RunCostDto; total: Prisma.Decimal | null; prices: Map<string, Prisma.Decimal> }> {
+  const consumption = consumptionByMaterial(bom, order.batchWeight, order.plannedQty)
+  // Date-only prices are stored at UTC midnight, so the end of that UTC day
+  // takes in every price effective "on" the date, not only before it.
+  const prices = await ItemPriceRepository.findPricesAsOf([...consumption.keys()], new Date(`${pricedOn}T23:59:59.999Z`), null)
+
+  let total: Prisma.Decimal | null = new Prisma.Decimal(0)
+  const missing: string[] = []
+  const lines = [...consumption.values()].map<CostLineDto>(({ item, quantity }) => {
+    const price = prices.get(item.materialId)
+    const cost  = price ? quantity.mul(price.unitPrice) : null
+    if (cost === null) missing.push(item.material.name)
+    total = total !== null && cost !== null ? total.add(cost) : null
+    return {
+      materialId:       item.materialId,
+      materialCode:     item.material.code,
+      materialName:     item.material.name,
+      unitAbbreviation: item.unit.abbreviation,
+      quantity:         toDecimalString(quantity),
+      unitPrice:        price ? toDecimalString(price.unitPrice) : null,
+      priceEffective:   price ? price.effectiveDate.toISOString().slice(0, 10) : null,
+      cost:             cost === null ? null : toDecimalString(cost),
+    }
+  })
+
+  const finalTotal: Prisma.Decimal | null = total
+  return {
+    dto: {
+      pricedOn,
+      lines,
+      total:   finalTotal === null ? null : toDecimalString(finalTotal),
+      perUnit: finalTotal === null ? null : toDecimalString(finalTotal.div(spreadOver)),
+      missing,
+    },
+    total: finalTotal,
+    prices: new Map([...prices].map(([materialId, price]) => [materialId, price.unitPrice])),
+  }
+}
+
+/**
+ * The variance (D3): what the output cost beyond what that much output should
+ * have cost at the planned cost per unit. Positive = over plan.
+ */
+function costVariance(
+  plannedCost: Prisma.Decimal,
+  plannedQty: Prisma.Decimal,
+  actualCost: Prisma.Decimal,
+  actualQty: Prisma.Decimal,
+): Prisma.Decimal {
+  return actualCost.sub(plannedCost.div(plannedQty).mul(actualQty))
+}
+
+/**
+ * The Costing card for an order (D7), by status: an estimate while the run is
+ * still to happen, the figures approving would record while a completion
+ * waits, and the stored figures once completed. None for a run that will
+ * never happen (rejected, cancelled).
+ */
+async function costingFor(
+  bom: BomWithDetail,
+  order: ProductionOrderWithDetail,
+  stockMoved: CompletionStockDto | null,
+): Promise<CostingDto | null> {
+  const unitAbbreviation = order.bom.batchUnit.abbreviation
+  const plannedOn        = order.plannedDate.toISOString().slice(0, 10)
+
+  if (order.status === ProductionStatus.REJECTED || order.status === ProductionStatus.CANCELLED) return null
+  if (order.status === ProductionStatus.COMPLETED) return recordedCosting(order, stockMoved)
+
+  const planned = await costRun(bom, order, plannedOn, order.plannedQty)
+
+  if (order.status === ProductionStatus.PENDING_COMPLETION && order.actualQty !== null && order.completedAt !== null) {
+    const actual = await costRun(bom, order, isoDateAt(order.completedAt), order.actualQty)
+    return {
+      kind: 'PENDING',
+      unitAbbreviation,
+      plannedQty: toDecimalString(order.plannedQty),
+      planned: planned.dto,
+      actual:  { ...actual.dto, yield: toDecimalString(order.actualQty) },
+      variance: planned.total !== null && actual.total !== null
+        ? toDecimalString(costVariance(planned.total, order.plannedQty, actual.total, order.actualQty))
+        : null,
+    }
+  }
+
+  return {
+    kind: 'ESTIMATE', unitAbbreviation, plannedQty: toDecimalString(order.plannedQty),
+    planned: planned.dto, actual: null, variance: null,
+  }
+}
+
+/**
+ * A completed run's Costing card, from what approval stored (D4) — the cost
+ * columns and the prices on the ledger rows — never recomputed, because
+ * prices may have been back-dated since. The planned figure has no stored
+ * breakdown; the batch cost's lines are the ledger's. Null for a run approved
+ * before costing existed.
+ */
+function recordedCosting(order: ProductionOrderWithDetail, stockMoved: CompletionStockDto | null): CostingDto | null {
+  const { plannedCost, actualCost, costPerUnit, costVariance: variance, actualQty } = order
+  if (plannedCost === null || actualCost === null || costPerUnit === null || variance === null || actualQty === null) return null
+
+  const lines = (stockMoved?.ingredients ?? []).map<CostLineDto>(movement => {
+    const quantity = toDecimal(movement.quantity).abs()
+    return {
+      materialId:       movement.materialId,
+      materialCode:     movement.materialCode,
+      materialName:     movement.materialName,
+      unitAbbreviation: movement.unitAbbreviation,
+      quantity:         toDecimalString(quantity),
+      unitPrice:        movement.unitCost,
+      // Not kept on the ledger; the price itself is what was recorded.
+      priceEffective:   null,
+      cost:             movement.unitCost === null ? null : toDecimalString(quantity.mul(toDecimal(movement.unitCost))),
+    }
+  })
+
+  return {
+    kind:             'RECORDED',
+    unitAbbreviation: order.bom.batchUnit.abbreviation,
+    plannedQty:       toDecimalString(order.plannedQty),
+    planned: {
+      pricedOn: order.plannedDate.toISOString().slice(0, 10),
+      lines:    [],
+      total:    toDecimalString(plannedCost),
+      perUnit:  toDecimalString(plannedCost.div(order.plannedQty)),
+      missing:  [],
+    },
+    actual: {
+      pricedOn: stockMoved?.lot?.producedOn ?? (order.completedAt ? isoDateAt(order.completedAt) : '—'),
+      lines,
+      total:    toDecimalString(actualCost),
+      perUnit:  toDecimalString(costPerUnit),
+      missing:  [],
+      yield:    toDecimalString(actualQty),
+    },
+    variance: toDecimalString(variance),
+  }
+}
+
+/**
  * The approver's preview (D8): each ingredient against what is on hand at the
  * branch now, and the lot that would come in. On hand only, not committed —
  * this is what the books will read straight after approval.
@@ -454,6 +666,7 @@ async function completionStock(orderId: string): Promise<CompletionStockDto> {
       materialName:     movement.material.name,
       unitAbbreviation: movement.material.unit.abbreviation,
       quantity:         toDecimalString(movement.quantity),
+      unitCost:         movement.unitCost === null ? null : toDecimalString(movement.unitCost),
     })),
     lot: lotIn ? {
       lotNumber:        lotIn.lot.lotNumber,
@@ -461,6 +674,7 @@ async function completionStock(orderId: string): Promise<CompletionStockDto> {
       unitAbbreviation: lotIn.lot.finishedGood.unit.abbreviation,
       producedOn:       lotIn.lot.producedOn.toISOString().slice(0, 10),
       branchName:       lotIn.branch.name,
+      unitCost:         lotIn.unitCost === null ? null : toDecimalString(lotIn.unitCost),
     } : null,
   }
 }
@@ -649,10 +863,13 @@ export const ProductionOrderService = {
     // superseded pin also needs the active version.
     // Decisions are read from the status log (with their remarks), not the
     // Approval rows: the timeline shows them in sequence with everything else.
-    const [pinned, active, statusChanges] = await Promise.all([
+    // A completed order's stock moves are read back once, for its Stock moved
+    // card and its recorded costing.
+    const [pinned, active, statusChanges, stockMoved] = await Promise.all([
       BomRepository.findById(order.bomId),
       order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id),
       ProductionOrderRepository.findStatusChanges(order.id),
+      order.status === ProductionStatus.COMPLETED ? completionStock(order.id) : null,
     ])
     // bomId is a foreign key and BOM rows are never deleted, so this cannot
     // happen short of a hand-edited database.
@@ -692,7 +909,8 @@ export const ProductionOrderService = {
         completionEffect: order.status === ProductionStatus.PENDING_COMPLETION && order.actualQty !== null
           ? await completionEffect(pinned, order, order.actualQty)
           : null,
-        stockMoved: order.status === ProductionStatus.COMPLETED ? await completionStock(order.id) : null,
+        stockMoved,
+        costing:    await costingFor(pinned, order, stockMoved),
       },
     }
   },
@@ -941,23 +1159,30 @@ export const ProductionOrderService = {
 
   /**
    * The approvals inbox's reported completions (Week 6 Task 2, D9): each with
-   * its yield against plan and how many ingredients approval would take below
-   * zero — the same figures as the order page's preview. One stock query per
-   * order, bounded by `take`.
+   * its yield against plan, how many ingredients approval would take below
+   * zero and the cost per unit it would record — the same figures as the
+   * order page's preview. One stock and one price query per order, bounded by
+   * `take`.
    */
   async listPendingCompletions(take = 100): Promise<PendingCompletionDto[]> {
     const orders = await ProductionOrderRepository.findPendingWithBom(ProductionStatus.PENDING_COMPLETION, take)
 
     return Promise.all(orders.flatMap(order => {
-      if (order.actualQty === null) return []
-      const actualQty = order.actualQty
-      return [completionEffect(order.bom, order, actualQty).then(effect => ({
+      if (order.actualQty === null || order.completedAt === null) return []
+      const actualQty  = order.actualQty
+      const producedOn = isoDateAt(order.completedAt)
+      return [Promise.all([
+        completionEffect(order.bom, order, actualQty),
+        // The cost per unit approving would record (Week 6 Task 3).
+        costRun(order.bom, order, producedOn, actualQty),
+      ]).then(([effect, cost]) => ({
         ...toSummaryDto(order),
         actualQty:       toDecimalString(actualQty),
         percentOfPlan:   toDecimalString(actualQty.div(order.plannedQty).mul(100).toDecimalPlaces(1)),
         completedByName: order.completedBy?.name ?? null,
         ingredientCount: effect.ingredients.length,
         negativeCount:   effect.negativeCount,
+        costPerUnit:     cost.dto.perUnit,
       }))]
     }))
   },
@@ -1210,6 +1435,28 @@ export const ProductionOrderService = {
       // figures the approver's preview showed.
       const consumption = consumptionByMaterial(bom, order.batchWeight, order.plannedQty)
 
+      // The cost is part of what accounting approves (Week 6 Task 3, D5): with
+      // a price missing on either date it cannot be worked out, and a partial
+      // cost would be stored wrong for good, so nothing is approved.
+      const producedOn = isoDateAt(order.completedAt)
+      const plannedOn  = order.plannedDate.toISOString().slice(0, 10)
+      const [planned, actual] = await Promise.all([
+        costRun(bom, order, plannedOn, order.plannedQty),
+        costRun(bom, order, producedOn, order.actualQty),
+      ])
+      if (planned.total === null || actual.total === null) {
+        // On the same date both lists are the same; name each gap once.
+        const gaps = actual.dto.missing.map(name => `${name} on ${producedOn}`)
+        if (plannedOn !== producedOn) gaps.push(...planned.dto.missing.map(name => `${name} on ${plannedOn}`))
+        return {
+          success: false,
+          error:   `No reference price for ${gaps.join(', ')} — an admin adds one in Master Data (it may be back-dated), then approve`,
+          status:  409,
+        }
+      }
+      const unitPrices  = actual.prices
+      const costPerUnit = actual.total.div(order.actualQty)
+
       decided = await ProductionOrderRepository.decideCompletion({
         id,
         approverId:  viewer.userId,
@@ -1221,14 +1468,25 @@ export const ProductionOrderService = {
           orderNumber: order.orderNumber,
           consumption: [...consumption]
             .filter(([, line]) => line.quantity.greaterThan(0))
-            .map(([materialId, line]) => ({ materialId, quantity: line.quantity })),
+            .flatMap(([materialId, line]) => {
+              // Always present: actual.total is non-null only when every line was priced.
+              const unitCost = unitPrices.get(materialId)
+              return unitCost ? [{ materialId, quantity: line.quantity, unitCost }] : []
+            }),
           lot: {
             lotNumber:         order.orderNumber,
             finishedGoodId:    order.finishedGood.id,
             productionOrderId: order.id,
             quantity:          order.actualQty,
+            unitCost:          costPerUnit,
             // The Manila day the kitchen reported it done, stored as UTC midnight.
-            producedOn:        new Date(isoDateAt(order.completedAt)),
+            producedOn:        new Date(producedOn),
+          },
+          costs: {
+            plannedCost:  planned.total,
+            actualCost:   actual.total,
+            costPerUnit,
+            costVariance: costVariance(planned.total, order.plannedQty, actual.total, order.actualQty),
           },
         },
       })

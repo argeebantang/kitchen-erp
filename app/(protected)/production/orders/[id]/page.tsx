@@ -19,6 +19,7 @@ import { CancelProductionOrder } from '@/components/production/CancelProductionO
 import { CompleteProductionOrder } from '@/components/production/CompleteProductionOrder'
 import { CompletionReview } from '@/components/production/CompletionReview'
 import { CompletionStock } from '@/components/production/CompletionStock'
+import { CostingCard } from '@/components/production/CostingCard'
 import { StatusTimeline } from '@/components/production/StatusTimeline'
 
 type PageProps = {
@@ -190,7 +191,7 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
       )}
       {isCompletionPending && isApprover && !isOwnCompletion && order.completionEffect && (
         <>
-          <CompletionReview effect={order.completionEffect} finishedGoodName={order.finishedGoodName} />
+          <CompletionReview effect={order.completionEffect} finishedGoodName={order.finishedGoodName} costing={order.costing} />
           <ApprovalActions referenceType="ProductionCompletion" referenceId={order.id} />
         </>
       )}
@@ -221,6 +222,9 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           Submitted — waiting for accounting&apos;s decision.
         </p>
       )}
+
+      {/* Week 6 Task 3: what the run costs, from estimate to recorded. */}
+      {order.costing && <CostingCard costing={order.costing} />}
 
       {order.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
