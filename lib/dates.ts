@@ -12,8 +12,13 @@ export const BUSINESS_TIME_ZONE = 'Asia/Manila'
  * Manila before 8am.
  */
 export function todayIsoDate(): string {
+  return isoDateAt(new Date())
+}
+
+/** The business date (YYYY-MM-DD, Asia/Manila) of a moment — e.g. the day a run was reported done. */
+export function isoDateAt(moment: Date): string {
   // en-CA is the locale whose short date format is YYYY-MM-DD.
-  return new Date().toLocaleDateString('en-CA', { timeZone: BUSINESS_TIME_ZONE })
+  return moment.toLocaleDateString('en-CA', { timeZone: BUSINESS_TIME_ZONE })
 }
 
 /** A calendar month as YYYY-MM, e.g. the schedule's ?month=. */

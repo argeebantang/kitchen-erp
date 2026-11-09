@@ -2,6 +2,7 @@ import { Role } from '@prisma/client'
 import { trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
+import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { CreateNotificationInput, NotificationRepository } from '@/repositories/notification.repository'
 import { InventoryService, reorderAlerts } from '@/services/inventory.service'
 import { PurchaseRequestRepository } from '@/repositories/purchase-request.repository'
@@ -179,12 +180,20 @@ export const NotificationService = {
 
   /**
    * The daily ledger reconciliation: if any stock level disagrees with its
-   * ledger total, one notification to each ADMIN naming them. Everything
-   * agreeing is the normal case and sends nothing. Same per-day guard as the
-   * low-stock summary, keyed by `date`.
+   * ledger total — materials, or finished-goods lots (Week 6 Task 2) — one
+   * notification to each ADMIN naming them. Everything agreeing is the normal
+   * case and sends nothing. Same per-day guard as the low-stock summary,
+   * keyed by `date`.
    */
   async notifyStockMismatches(date: string): Promise<{ mismatches: number; written: number }> {
-    const mismatches = await InventoryRepository.mismatchedLevels()
+    const [materials, finishedGoods] = await Promise.all([
+      InventoryRepository.mismatchedLevels(),
+      FinishedGoodStockRepository.mismatchedLevels(),
+    ])
+    const mismatches = [
+      ...materials.map(row => ({ ...row, name: row.materialName })),
+      ...finishedGoods.map(row => ({ ...row, name: `${row.finishedGoodName} lot ${row.lotNumber}` })),
+    ]
     if (mismatches.length === 0) return { mismatches: 0, written: 0 }
 
     const [admins, alreadyTold] = await Promise.all([
@@ -194,7 +203,7 @@ export const NotificationService = {
 
     const named = mismatches.slice(0, SUMMARY_NAMES).map(row => {
       const unit = row.unitAbbreviation
-      return `${row.materialName} at ${row.branchName}: ledger ${trimDecimal(row.ledgerTotal.toString())} ${unit}, `
+      return `${row.name} at ${row.branchName}: ledger ${trimDecimal(row.ledgerTotal.toString())} ${unit}, `
         + `level ${trimDecimal(row.stockLevel.toString())} ${unit}`
     })
     const more = mismatches.length - named.length
@@ -293,5 +302,69 @@ export const NotificationService = {
     }
 
     return createAndPush(inputs)
+  },
+
+  /**
+   * The kitchen reported a run done: tell everyone who can sign it off except
+   * whoever reported it (Week 6 Task 2, D11). Re-reads the order — gone, or
+   * already decided, means nothing to say.
+   */
+  async notifyCompletionReported(productionOrderId: string): Promise<number> {
+    const order = await ProductionOrderRepository.findById(productionOrderId)
+    if (!order || order.status !== 'PENDING_COMPLETION' || order.actualQty === null) return 0
+
+    const actualQty  = order.actualQty
+    const unit       = order.bom.batchUnit.abbreviation
+    const percent    = actualQty.div(order.plannedQty).mul(100).toDecimalPlaces(1)
+    const approvers  = await UserRepository.findByRoles(APPROVER_ROLES)
+    const recipients = approvers.filter(user => user.id !== order.completedBy?.id)
+
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'PRODUCTION_COMPLETION_REPORTED',
+      title:         `${order.orderNumber} is done — waiting for your approval`,
+      body:          `${order.completedBy?.name ?? 'Production'} reported ${order.finishedGood.name} `
+        + `${trimDecimal(actualQty.toString())} ${unit} of ${trimDecimal(order.plannedQty.toString())} ${unit} planned (${percent.toString()}%). `
+        + 'Approving deducts the ingredients and adds it to stock.',
+      referenceType: 'ProductionOrder',
+      referenceId:   order.id,
+    })))
+  },
+
+  /**
+   * A reported completion was decided: tell whoever reported it — approved
+   * with the lot now in stock, or sent back with the reason (D11). The
+   * reporter is read from the status log, because a rejection clears the
+   * order's completedById. Nothing is sent if the order has moved on from
+   * what the decision left (e.g. already re-reported).
+   */
+  async notifyCompletionDecided(productionOrderId: string): Promise<number> {
+    const [order, [latest], changes] = await Promise.all([
+      ProductionOrderRepository.findById(productionOrderId),
+      ApprovalRepository.findByReference('ProductionCompletion', productionOrderId),
+      ProductionOrderRepository.findStatusChanges(productionOrderId),
+    ])
+    if (!order || !latest) return 0
+
+    const approved = latest.decision === 'APPROVED'
+    if (order.status !== (approved ? 'COMPLETED' : 'IN_PROGRESS')) return 0
+
+    const report = [...changes].reverse().find(change => change.toStatus === 'PENDING_COMPLETION')
+    if (!report || report.changedBy.id === latest.approver.id) return 0
+
+    const unit = order.bom.batchUnit.abbreviation
+    return createAndPush([{
+      userId:        report.changedBy.id,
+      type:          approved ? 'PRODUCTION_COMPLETION_APPROVED' : 'PRODUCTION_COMPLETION_REJECTED',
+      title:         approved
+        ? `${order.orderNumber} completion approved`
+        : `${order.orderNumber} completion sent back`,
+      body:          approved
+        ? `${latest.approver.name} approved it: ${trimDecimal(order.actualQty?.toString() ?? '0')} ${unit} ${order.finishedGood.name} `
+          + `is in stock at ${order.branch.name} as lot ${order.orderNumber}.`
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Report the run again when corrected.`,
+      referenceType: 'ProductionOrder',
+      referenceId:   order.id,
+    }])
   },
 }

@@ -5,6 +5,8 @@ import {
   LOW_STOCK_CHECK,
   NOTIFICATIONS_QUEUE,
   PR_SUBMITTED,
+  PRODUCTION_COMPLETION_DECIDED,
+  PRODUCTION_COMPLETION_REPORTED,
   PRODUCTION_ORDER_DECIDED,
   PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
@@ -46,6 +48,16 @@ async function handleProductionOrderDecided(job: Job<ProductionOrderJob>) {
   console.log(`  → wrote ${count} notification(s)`)
 }
 
+async function handleCompletionReported(job: Job<ProductionOrderJob>) {
+  const count = await NotificationService.notifyCompletionReported(job.data.productionOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleCompletionDecided(job: Job<ProductionOrderJob>) {
+  const count = await NotificationService.notifyCompletionDecided(job.data.productionOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
 async function handleLowStockCheck() {
   // The run's own date, in Manila — it is also what stops a second run today.
   const date = todayIsoDate()
@@ -75,6 +87,10 @@ const worker = new Worker(
         return handleProductionOrderSubmitted(job)
       case PRODUCTION_ORDER_DECIDED:
         return handleProductionOrderDecided(job)
+      case PRODUCTION_COMPLETION_REPORTED:
+        return handleCompletionReported(job)
+      case PRODUCTION_COMPLETION_DECIDED:
+        return handleCompletionDecided(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:

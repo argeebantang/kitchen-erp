@@ -27,6 +27,12 @@ export const PRODUCTION_ORDER_SUBMITTED = 'production-order-submitted'
  */
 export const PRODUCTION_ORDER_DECIDED = 'production-order-decided'
 
+/** The kitchen reported a run done: tell the approvers (Week 6 Task 2, D11). */
+export const PRODUCTION_COMPLETION_REPORTED = 'production-completion-reported'
+
+/** A reported completion was approved or sent back: tell whoever reported it. */
+export const PRODUCTION_COMPLETION_DECIDED = 'production-completion-decided'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.

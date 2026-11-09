@@ -36,6 +36,9 @@ export type StockInInput = {
   notes: string | null
 }
 
+/** Same fields as stock in; `quantity` is the positive amount leaving. */
+export type StockOutInput = StockInInput
+
 export const InventoryRepository = {
   /**
    * Stock coming in: one IN row on the ledger and the matching increase in
@@ -65,6 +68,37 @@ export const InventoryRepository = {
       where:  { materialId_branchId: { materialId: input.materialId, branchId: input.branchId } },
       create: { materialId: input.materialId, branchId: input.branchId, quantity: input.quantity },
       update: { quantity: { increment: input.quantity } },
+    })
+  },
+
+  /**
+   * Stock going out: one OUT row with the quantity negated (the ledger is
+   * signed) and the matching decrease in InventoryLevel, on the caller's
+   * transaction — stockIn's mirror. `quantity` is the positive amount taken.
+   *
+   * Nothing stops the level going below zero (Week 6 Task 2, D3): the books
+   * record what physically left the shelf, and a negative balance shows a
+   * delivery or adjustment that was never recorded. A material that has never
+   * been stocked at the branch gets its level row created at the negative.
+   */
+  async stockOut(tx: Prisma.TransactionClient, input: StockOutInput): Promise<void> {
+    await tx.stockMovement.create({
+      data: {
+        materialId:    input.materialId,
+        branchId:      input.branchId,
+        type:          MovementType.OUT,
+        quantity:      input.quantity.negated(),
+        unitCost:      input.unitCost,
+        referenceType: input.referenceType,
+        referenceId:   input.referenceId,
+        notes:         input.notes,
+      },
+    })
+
+    await tx.inventoryLevel.upsert({
+      where:  { materialId_branchId: { materialId: input.materialId, branchId: input.branchId } },
+      create: { materialId: input.materialId, branchId: input.branchId, quantity: input.quantity.negated() },
+      update: { quantity: { decrement: input.quantity } },
     })
   },
 

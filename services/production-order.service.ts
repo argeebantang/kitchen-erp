@@ -1,8 +1,10 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
-import { todayIsoDate } from '@/lib/dates'
+import { isoDateAt, todayIsoDate } from '@/lib/dates'
 import {
   getNotificationQueue,
+  PRODUCTION_COMPLETION_DECIDED,
+  PRODUCTION_COMPLETION_REPORTED,
   PRODUCTION_ORDER_DECIDED,
   PRODUCTION_ORDER_SUBMITTED,
   type ProductionOrderJob,
@@ -12,6 +14,7 @@ import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
+import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import {
   ProductionOrderListFilters,
@@ -147,6 +150,54 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   /** Who reported the run done, and when (ISO); null until then. */
   completedByName: string | null
   completedAt: string | null
+  /** Who reported it, for the "nobody approves their own completion" check on the page. */
+  completedById: string | null
+  /** While a completion awaits sign-off: what approving will do (Week 6 Task 2). */
+  completionEffect: CompletionEffectDto | null
+  /** Once completed: what it moved. */
+  stockMoved: CompletionStockDto | null
+}
+
+/**
+ * What approving a reported completion will do to the books, shown to the
+ * approver before deciding (Week 6 Task 2, D8). Only for PENDING_COMPLETION.
+ */
+export type CompletionEffectDto = {
+  /** One per material, in BOM order, at the planned quantity — exactly what approval deducts. */
+  ingredients: {
+    materialId: string
+    materialCode: string
+    materialName: string
+    unitAbbreviation: string
+    deduct: string
+    /** On hand at the branch now. */
+    onHand: string
+    /** onHand − deduct. */
+    after: string
+    /** after < 0 — allowed, but the approver is told (D3). */
+    goesNegative: boolean
+  }[]
+  negativeCount: number
+  lot: { lotNumber: string; quantity: string; unitAbbreviation: string; branchName: string }
+}
+
+/**
+ * What an approved completion moved, read back from both ledgers so the card
+ * shows the books as they are (D8). Only for COMPLETED.
+ */
+export type CompletionStockDto = {
+  ingredients: {
+    id: string
+    materialId: string
+    branchId: string
+    materialCode: string
+    materialName: string
+    unitAbbreviation: string
+    /** Signed: negative, out of stock. */
+    quantity: string
+  }[]
+  /** Null only if the lot is missing, which approval makes impossible. */
+  lot: { lotNumber: string; quantity: string; unitAbbreviation: string; producedOn: string; branchName: string } | null
 }
 
 /** The actual yield against the planned output, in the order's unit (Week 6 Task 1, D5). */
@@ -173,6 +224,17 @@ export type StatusChangeDto = {
 export type PendingProductionOrderDto = ProductionOrderSummaryDto & {
   ingredientCount: number
   shortCount: number
+}
+
+/** A reported completion in the approvals inbox (Week 6 Task 2, D9). */
+export type PendingCompletionDto = ProductionOrderSummaryDto & {
+  actualQty: string
+  /** actualQty ÷ plannedQty × 100, one decimal place. */
+  percentOfPlan: string
+  completedByName: string | null
+  ingredientCount: number
+  /** Ingredients approval would take below zero at the branch. */
+  negativeCount: number
 }
 
 /** What "Request missing materials" pre-fills on a new purchase request (Task 4, D3). */
@@ -313,6 +375,94 @@ function scaleOrder(bom: BomWithDetail, batchWeight: Prisma.Decimal, plannedQty:
     perBatch: perBatch.get(item.id) ?? item.quantity,
     total:    total.get(item.id) ?? item.quantity,
   }))
+}
+
+/**
+ * What a completed run takes out of stock: the pinned BOM at the planned
+ * quantity, one entry per material (merged if a BOM lists one twice), in BOM
+ * order (Week 6 Task 2, D2). The approval transaction writes exactly this, and
+ * the approver's preview shows exactly this, so the two cannot disagree.
+ */
+function consumptionByMaterial(
+  bom: BomWithDetail,
+  batchWeight: Prisma.Decimal,
+  plannedQty: Prisma.Decimal,
+): Map<string, { item: BomWithDetail['items'][number]; quantity: Prisma.Decimal }> {
+  const byMaterial = new Map<string, { item: BomWithDetail['items'][number]; quantity: Prisma.Decimal }>()
+  for (const line of scaleOrder(bom, batchWeight, plannedQty)) {
+    const current = byMaterial.get(line.item.materialId)
+    byMaterial.set(line.item.materialId, { item: line.item, quantity: (current?.quantity ?? new Prisma.Decimal(0)).add(line.total) })
+  }
+  return byMaterial
+}
+
+/**
+ * The approver's preview (D8): each ingredient against what is on hand at the
+ * branch now, and the lot that would come in. On hand only, not committed —
+ * this is what the books will read straight after approval.
+ */
+async function completionEffect(
+  bom: BomWithDetail,
+  order: ProductionOrderWithDetail,
+  actualQty: Prisma.Decimal,
+): Promise<CompletionEffectDto> {
+  const consumption = consumptionByMaterial(bom, order.batchWeight, order.plannedQty)
+  const onHand      = await InventoryRepository.levelsAtBranch(order.branch.id, [...consumption.keys()])
+  const zero        = new Prisma.Decimal(0)
+
+  const ingredients = [...consumption.values()].map(({ item, quantity }) => {
+    const lineOnHand = onHand.get(item.materialId) ?? zero
+    const after      = lineOnHand.sub(quantity)
+    return {
+      materialId:       item.materialId,
+      materialCode:     item.material.code,
+      materialName:     item.material.name,
+      unitAbbreviation: item.unit.abbreviation,
+      deduct:           toDecimalString(quantity),
+      onHand:           toDecimalString(lineOnHand),
+      after:            toDecimalString(after),
+      goesNegative:     after.lessThan(0),
+    }
+  })
+
+  return {
+    ingredients,
+    negativeCount: ingredients.filter(line => line.goesNegative).length,
+    lot: {
+      lotNumber:        order.orderNumber,
+      quantity:         toDecimalString(actualQty),
+      unitAbbreviation: order.bom.batchUnit.abbreviation,
+      branchName:       order.branch.name,
+    },
+  }
+}
+
+/** Both ledgers' rows for an approved completion (D8). */
+async function completionStock(orderId: string): Promise<CompletionStockDto> {
+  const [materials, finished] = await Promise.all([
+    InventoryRepository.findMovementsByReference('ProductionOrder', orderId),
+    FinishedGoodStockRepository.findMovementsByReference('ProductionOrder', orderId),
+  ])
+  const lotIn = finished.find(movement => movement.quantity.greaterThan(0))
+
+  return {
+    ingredients: materials.map(movement => ({
+      id:               movement.id,
+      materialId:       movement.materialId,
+      branchId:         movement.branchId,
+      materialCode:     movement.material.code,
+      materialName:     movement.material.name,
+      unitAbbreviation: movement.material.unit.abbreviation,
+      quantity:         toDecimalString(movement.quantity),
+    })),
+    lot: lotIn ? {
+      lotNumber:        lotIn.lot.lotNumber,
+      quantity:         toDecimalString(lotIn.quantity),
+      unitAbbreviation: lotIn.lot.finishedGood.unit.abbreviation,
+      producedOn:       lotIn.lot.producedOn.toISOString().slice(0, 10),
+      branchName:       lotIn.branch.name,
+    } : null,
+  }
 }
 
 /**
@@ -538,6 +688,11 @@ export const ProductionOrderService = {
         },
         completedByName: order.completedBy?.name ?? null,
         completedAt:     order.completedAt?.toISOString() ?? null,
+        completedById:   order.completedBy?.id ?? null,
+        completionEffect: order.status === ProductionStatus.PENDING_COMPLETION && order.actualQty !== null
+          ? await completionEffect(pinned, order, order.actualQty)
+          : null,
+        stockMoved: order.status === ProductionStatus.COMPLETED ? await completionStock(order.id) : null,
       },
     }
   },
@@ -769,7 +924,7 @@ export const ProductionOrderService = {
    * to here). Two stock queries per order, bounded by `take`.
    */
   async listPending(take = 100): Promise<PendingProductionOrderDto[]> {
-    const orders = await ProductionOrderRepository.findPendingWithBom(take)
+    const orders = await ProductionOrderRepository.findPendingWithBom(ProductionStatus.PENDING_APPROVAL, take)
 
     return Promise.all(orders.map(async order => {
       const lines = await materialRequirements(
@@ -781,6 +936,29 @@ export const ProductionOrderService = {
         ingredientCount: lines.length,
         shortCount:      lines.filter(line => line.stock !== null && !line.stock.enough).length,
       }
+    }))
+  },
+
+  /**
+   * The approvals inbox's reported completions (Week 6 Task 2, D9): each with
+   * its yield against plan and how many ingredients approval would take below
+   * zero — the same figures as the order page's preview. One stock query per
+   * order, bounded by `take`.
+   */
+  async listPendingCompletions(take = 100): Promise<PendingCompletionDto[]> {
+    const orders = await ProductionOrderRepository.findPendingWithBom(ProductionStatus.PENDING_COMPLETION, take)
+
+    return Promise.all(orders.flatMap(order => {
+      if (order.actualQty === null) return []
+      const actualQty = order.actualQty
+      return [completionEffect(order.bom, order, actualQty).then(effect => ({
+        ...toSummaryDto(order),
+        actualQty:       toDecimalString(actualQty),
+        percentOfPlan:   toDecimalString(actualQty.div(order.plannedQty).mul(100).toDecimalPlaces(1)),
+        completedByName: order.completedBy?.name ?? null,
+        ingredientCount: effect.ingredients.length,
+        negativeCount:   effect.negativeCount,
+      }))]
     }))
   },
 
@@ -960,10 +1138,107 @@ export const ProductionOrderService = {
       }
     }
 
-    const completed = await ProductionOrderRepository.complete(id, { completedById: viewer.userId, actualQty: yieldQty })
+    const completed = await ProductionOrderRepository.complete(id, {
+      completedById: viewer.userId,
+      actualQty:     yieldQty,
+      note:          `Yield ${trimDecimal(toDecimalString(yieldQty))} ${unit}`,
+    })
     if (!completed) {
       return { success: false, error: 'This order changed just now — reload and try again', status: 409 }
     }
+
+    await enqueue(PRODUCTION_COMPLETION_REPORTED, id)
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * Accounting's decision on a reported completion (Week 6 Task 2). Called
+   * from POST /api/approvals with referenceType 'ProductionCompletion', which
+   * middleware restricts to ACCOUNTING and ADMIN.
+   *
+   * Approving deducts every ingredient of the pinned BOM at the planned
+   * quantity (D2 — what the recipe says the run used; over- or under-use shows
+   * as yield) and adds the actual yield as a new lot, numbered after the order,
+   * produced on the day the kitchen reported it (D6). Stock may go negative
+   * (D3). Rejecting sends the run back to the kitchen (D4).
+   *
+   * Whoever reported the completion cannot decide it, ADMIN included (D1).
+   */
+  async applyCompletionDecision(
+    id: string,
+    viewer: Viewer,
+    decision: 'APPROVED' | 'REJECTED',
+    remarks: string | null,
+  ): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+
+    if (order.completedBy?.id === viewer.userId) {
+      return {
+        success: false,
+        error:   'You reported this completion, so someone else has to decide it',
+        status:  403,
+      }
+    }
+
+    if (order.status !== ProductionStatus.PENDING_COMPLETION || order.completedAt === null || order.actualQty === null) {
+      return {
+        success: false,
+        error:   `This order is ${order.status.replace(/_/g, ' ').toLowerCase()} — there is no reported completion to decide`,
+        status:  409,
+      }
+    }
+
+    if (decision === 'REJECTED' && (remarks === null || remarks.trim() === '')) {
+      return { success: false, error: 'Give a reason when rejecting, so the kitchen knows what to correct', status: 400 }
+    }
+
+    let decided: boolean
+    if (decision === 'REJECTED') {
+      decided = await ProductionOrderRepository.decideCompletion({
+        id, approverId: viewer.userId, remarks, completedAt: order.completedAt, decision: { kind: 'REJECTED' },
+      })
+    } else {
+      const bom = await BomRepository.findById(order.bom.id)
+      if (!bom) {
+        return { success: false, error: 'The BOM this order is pinned to no longer exists', status: 404 }
+      }
+
+      // One movement per material, even if a BOM lists one twice — the same
+      // figures the approver's preview showed.
+      const consumption = consumptionByMaterial(bom, order.batchWeight, order.plannedQty)
+
+      decided = await ProductionOrderRepository.decideCompletion({
+        id,
+        approverId:  viewer.userId,
+        remarks,
+        completedAt: order.completedAt,
+        decision: {
+          kind:        'APPROVED',
+          branchId:    order.branch.id,
+          orderNumber: order.orderNumber,
+          consumption: [...consumption]
+            .filter(([, line]) => line.quantity.greaterThan(0))
+            .map(([materialId, line]) => ({ materialId, quantity: line.quantity })),
+          lot: {
+            lotNumber:         order.orderNumber,
+            finishedGoodId:    order.finishedGood.id,
+            productionOrderId: order.id,
+            quantity:          order.actualQty,
+            // The Manila day the kitchen reported it done, stored as UTC midnight.
+            producedOn:        new Date(isoDateAt(order.completedAt)),
+          },
+        },
+      })
+    }
+
+    if (!decided) {
+      return { success: false, error: 'This completion was decided or changed by someone else just now — reload and try again', status: 409 }
+    }
+
+    await enqueue(PRODUCTION_COMPLETION_DECIDED, id)
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },
 

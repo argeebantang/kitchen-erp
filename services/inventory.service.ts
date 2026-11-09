@@ -3,6 +3,8 @@ import { toDecimalString } from '@/lib/decimal'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository, LedgerFilters } from '@/repositories/inventory.repository'
 import { ReceivingReportRepository } from '@/repositories/receiving-report.repository'
+import { ProductionOrderRepository } from '@/repositories/production-order.repository'
+import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 
 /** The document a movement came from, as the ledger shows it. */
 export type SourceDocumentDto = {
@@ -117,6 +119,42 @@ const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => stri
     roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'],
     href:  id => `/procurement/receiving/${id}`,
   },
+  // Ingredients deducted when a completed run was signed off (Week 6 Task 2).
+  ProductionOrder: {
+    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
+    href:  id => `/production/orders/${id}`,
+  },
+}
+
+/** The most lots the Finished Goods page lists (D10). */
+export const FINISHED_GOOD_LOT_LIMIT = 500
+
+/** One lot at one branch, on the Finished Goods page (Week 6 Task 2, D10). */
+export type FinishedGoodLotDto = {
+  lotNumber: string
+  finishedGoodId: string
+  finishedGoodCode: string
+  finishedGoodName: string
+  unitAbbreviation: string
+  branchId: string
+  branchName: string
+  quantity: string
+  /** YYYY-MM-DD. */
+  producedOn: string
+  /** When this lot last moved at this branch (ISO). */
+  lastMovementAt: string
+  /** The run that made it — a link for roles that can open production orders. */
+  source: { number: string; href: string | null } | null
+}
+
+/** On hand per finished good and branch, summed over its lots in Decimal. */
+export type FinishedGoodTotalDto = {
+  finishedGoodId: string
+  finishedGoodName: string
+  branchName: string
+  unitAbbreviation: string
+  quantity: string
+  lotCount: number
 }
 
 export const InventoryService = {
@@ -144,11 +182,14 @@ export const InventoryService = {
         ])
       : [null, null]
 
-    const receivingIds = rows
-      .filter(row => row.referenceType === 'ReceivingReport')
-      .map(row => row.referenceId)
+    const idsOf = (type: string) => [...new Set(rows.filter(row => row.referenceType === type).map(row => row.referenceId))]
+    const [receivingNumbers, productionNumbers] = await Promise.all([
+      ReceivingReportRepository.numbersByIds(idsOf('ReceivingReport')),
+      ProductionOrderRepository.numbersByIds(idsOf('ProductionOrder')),
+    ])
     const numbers = new Map<string, Map<string, string>>([
-      ['ReceivingReport', await ReceivingReportRepository.numbersByIds([...new Set(receivingIds)])],
+      ['ReceivingReport', receivingNumbers],
+      ['ProductionOrder', productionNumbers],
     ])
 
     const movements = rows.map<LedgerRowDto>(row => {
@@ -187,6 +228,56 @@ export const InventoryService = {
     }
 
     return { movements, total, reconciliation }
+  },
+
+  /**
+   * Finished goods on hand (Week 6 Task 2, D10): every lot with stock at a
+   * branch, newest production first, and the total per finished good and
+   * branch. Readable by every signed-in role, like Stock Levels.
+   */
+  async finishedGoodStock(filters: { branchId?: string }, viewer: { role: string }) {
+    const rows = await FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 })
+    const truncated = rows.length > FINISHED_GOOD_LOT_LIMIT
+    const shown     = rows.slice(0, FINISHED_GOOD_LOT_LIMIT)
+    const orderPage = SOURCE_PAGES.ProductionOrder
+
+    const lots = shown.map<FinishedGoodLotDto>(row => ({
+      lotNumber:        row.lot.lotNumber,
+      finishedGoodId:   row.lot.finishedGood.id,
+      finishedGoodCode: row.lot.finishedGood.code,
+      finishedGoodName: row.lot.finishedGood.name,
+      unitAbbreviation: row.lot.finishedGood.unit.abbreviation,
+      branchId:         row.branch.id,
+      branchName:       row.branch.name,
+      quantity:         toDecimalString(row.quantity),
+      producedOn:       row.lot.producedOn.toISOString().slice(0, 10),
+      lastMovementAt:   row.updatedAt.toISOString(),
+      // A production lot is numbered after its order (D6).
+      source: row.lot.productionOrderId === null ? null : {
+        number: row.lot.lotNumber,
+        href:   orderPage.roles.includes(viewer.role) ? orderPage.href(row.lot.productionOrderId) : null,
+      },
+    }))
+
+    const totals = new Map<string, FinishedGoodTotalDto & { sum: Prisma.Decimal }>()
+    for (const [index, lot] of lots.entries()) {
+      const key = `${lot.finishedGoodId}:${lot.branchId}`
+      const current = totals.get(key) ?? {
+        finishedGoodId: lot.finishedGoodId, finishedGoodName: lot.finishedGoodName, branchName: lot.branchName,
+        unitAbbreviation: lot.unitAbbreviation, quantity: '0', lotCount: 0, sum: new Prisma.Decimal(0),
+      }
+      current.sum = current.sum.add(shown[index].quantity)
+      current.lotCount += 1
+      totals.set(key, current)
+    }
+
+    return {
+      lots,
+      totals: [...totals.values()]
+        .map(({ sum, ...total }) => ({ ...total, quantity: toDecimalString(sum) }))
+        .sort((a, b) => a.branchName.localeCompare(b.branchName) || a.finishedGoodName.localeCompare(b.finishedGoodName)),
+      truncated,
+    }
   },
 
   /**
