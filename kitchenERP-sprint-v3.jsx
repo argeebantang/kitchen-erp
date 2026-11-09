@@ -129,14 +129,13 @@ const plan = {
         },
         {
           week: "Week 6",
-          status: "next",
+          status: "done",
           title: "Production Execution & Basic Costing",
           tag: "costing",
           tasks: [
             { t: "Kitchen supervisor marks production as In Progress → Completed", done: true },
             { t: "On completion: raw materials deducted per BOM, finished goods added to stock", done: true },
-            { t: "Batch number, production date, expiry date assigned to finished goods",
-              partial: "Each run's output is a lot numbered after its order (PRD-000005) with its production date; expiry (shelf life per finished good) remains" },
+            { t: "Batch number, production date, expiry date assigned to finished goods", done: true },
             { t: "Actual yield recorded vs planned yield", done: true },
             { t: "COSTING: compute total batch cost = sum of (ingredient qty × unit price on production date)", done: true },
             { t: "COSTING: compute cost per kg = total cost ÷ actual yield", done: true },
@@ -147,6 +146,7 @@ const plan = {
         },
         {
           week: "Week 7",
+          status: "next",
           title: "Conversion, Write-off & Expiry",
           tag: "costing",
           tasks: [

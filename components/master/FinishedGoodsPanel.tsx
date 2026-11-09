@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Plus, Pencil, Ban, ClipboardList } from 'lucide-react'
-import { formatPeso } from '@/lib/format'
+import { formatPeso, formatShelfLife } from '@/lib/format'
 import { Modal } from '@/components/ui/Modal'
 import {
   Field, inputClass, primaryButtonClass, secondaryButtonClass,
@@ -16,13 +16,15 @@ type Props = {
   finishedGoods: FinishedGoodDto[]
   categories: CategoryDto[]
   units: UnitDto[]
+  /** The service's MAX_SHELF_LIFE_HOURS, so the form can say it up front. */
+  maxShelfLifeHours: number
 }
 
 const emptyForm = {
-  code: '', name: '', description: '', categoryId: '', unitId: '', sellingPrice: '0',
+  code: '', name: '', description: '', categoryId: '', unitId: '', sellingPrice: '0', shelfLifeHours: '',
 }
 
-export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) {
+export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfLifeHours }: Props) {
   const router = useRouter()
 
   const [creating, setCreating] = useState(false)
@@ -45,6 +47,7 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
       categoryId:   good.categoryId,
       unitId:       good.unitId,
       sellingPrice: good.sellingPrice,
+      shelfLifeHours: good.shelfLifeHours === null ? '' : String(good.shelfLifeHours),
     })
     setError('')
     setEditing(good)
@@ -56,6 +59,13 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
   }
 
   async function save() {
+    // Blank means not set yet. The server re-checks; this is for the person typing.
+    const shelfLife = form.shelfLifeHours.trim()
+    if (shelfLife !== '' && !(/^\d+$/.test(shelfLife) && Number(shelfLife) >= 1 && Number(shelfLife) <= maxShelfLifeHours)) {
+      setError(`Shelf life must be a whole number of hours from 1 to ${maxShelfLifeHours}, or blank.`)
+      return
+    }
+
     setSaving(true)
     setError('')
 
@@ -66,6 +76,7 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
       categoryId:   form.categoryId,
       unitId:       form.unitId,
       sellingPrice: form.sellingPrice,
+      shelfLifeHours: shelfLife === '' ? null : Number(shelfLife),
       ...(isEdit ? {} : { code: form.code }),
     }
 
@@ -115,13 +126,14 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
               <th className="px-4 py-3 font-medium">Category</th>
               <th className="px-4 py-3 font-medium">Unit</th>
               <th className="px-4 py-3 text-right font-medium">Selling price</th>
+              <th className="px-4 py-3 font-medium">Shelf life</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {finishedGoods.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                   No finished goods yet.
                 </td>
               </tr>
@@ -134,6 +146,12 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
                 <td className="px-4 py-3 text-gray-600">{good.unitAbbreviation}</td>
                 <td className="px-4 py-3 text-right tabular-nums text-gray-800">
                   {formatPeso(good.sellingPrice)}
+                </td>
+                <td className="px-4 py-3 text-gray-600">
+                  {/* Needed before a run of it can be approved (Week 6 Task 4). */}
+                  {good.shelfLifeHours === null
+                    ? <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">Not set</span>
+                    : formatShelfLife(good.shelfLifeHours)}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-1">
@@ -231,6 +249,20 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units }: Props) 
                 onChange={e => setForm({ ...form, sellingPrice: e.target.value })}
                 inputMode="decimal"
               />
+            </Field>
+
+            <Field label="Shelf life (hours)">
+              <input
+                className={inputClass}
+                value={form.shelfLifeHours}
+                onChange={e => setForm({ ...form, shelfLifeHours: e.target.value })}
+                inputMode="numeric"
+                placeholder="e.g. 72 for 3 days"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                How long it keeps once cooked, 1–{maxShelfLifeHours} hours. Each lot expires this long after its run is
+                reported done; a run cannot be approved until this is set.
+              </p>
             </Field>
 
             <div className="flex justify-end gap-2 pt-2">

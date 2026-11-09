@@ -1,5 +1,5 @@
 import { Check, X } from 'lucide-react'
-import { BUSINESS_TIME_ZONE } from '@/lib/dates'
+import { BUSINESS_TIME_ZONE, formatDateTime } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
 // Type-only: this renders on the server, for the order page.
 import type { ProductionOrderDetailDto } from '@/services/production-order.service'
@@ -28,12 +28,6 @@ type Step = {
   note?: string | null
   /** A figure the step recorded, e.g. the reported yield; shown plainly. */
   detail?: string
-}
-
-function formatAt(iso: string): string {
-  return new Date(iso).toLocaleString('en-PH', {
-    timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  })
 }
 
 /**
@@ -90,7 +84,7 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
       detail: step.status === 'PENDING_COMPLETION' && order.actualYield
         ? `Yield ${trimDecimal(order.actualYield.actualQty)} ${order.unitAbbreviation} of ${trimDecimal(order.plannedQty)} ${order.unitAbbreviation} planned`
         : step.status === 'IN_PROGRESS' && sentBack
-          ? `Completion sent back by ${sentBack.changedByName} · ${formatAt(sentBack.at)}`
+          ? `Completion sent back by ${sentBack.changedByName} · ${formatDateTime(sentBack.at)}`
           : undefined,
     }
   })
@@ -128,7 +122,7 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
               </p>
               {(step.who || step.at) && (
                 <p className="text-xs text-gray-500">
-                  {step.who}{step.who && step.at && ' · '}{step.at && formatAt(step.at)}
+                  {step.who}{step.who && step.at && ' · '}{step.at && formatDateTime(step.at)}
                 </p>
               )}
               {step.detail && <p className="mt-0.5 text-xs text-gray-600">{step.detail}</p>}

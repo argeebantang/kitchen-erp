@@ -1,4 +1,5 @@
-import { formatPeso, formatSignedPeso, trimDecimal } from '@/lib/format'
+import { formatDateTime } from '@/lib/dates'
+import { formatPeso, formatShelfLife, formatSignedPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the order page.
 import type { CompletionEffectDto, CostingDto } from '@/services/production-order.service'
 
@@ -27,8 +28,19 @@ export function CompletionReview({
         Deducts {ingredients.length} {ingredients.length === 1 ? 'ingredient' : 'ingredients'} at {lot.branchName} (the BOM at
         the planned quantity) and adds{' '}
         <span className="font-medium text-emerald-700">+{trimDecimal(lot.quantity)} {lot.unitAbbreviation} {finishedGoodName}</span>
-        {' '}as lot <span className="font-mono">{lot.lotNumber}</span>.
+        {' '}as lot <span className="font-mono">{lot.lotNumber}</span>
+        {lot.expiresAt !== null && lot.shelfLifeHours !== null && (
+          <>, expiring <span className="font-medium">{formatDateTime(lot.expiresAt)}</span> ({formatShelfLife(lot.shelfLifeHours)} after it was reported done)</>
+        )}.
       </p>
+
+      {/* Week 6 Task 4, D3: the service refuses this; say so before the click. */}
+      {lot.expiresAt === null && (
+        <p className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          Approving will be refused: {finishedGoodName} has no shelf life, so the lot could not be given an expiry. An
+          admin sets it in Master Data → Finished Goods; you can still reject.
+        </p>
+      )}
 
       {actual?.total && actual.perUnit && (
         <p className="mb-3 text-sm text-gray-700">

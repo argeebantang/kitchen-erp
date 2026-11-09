@@ -8,6 +8,8 @@ export type CreateFinishedGoodInput = {
   categoryId: string
   unitId: string
   sellingPrice: Prisma.Decimal
+  /** Null clears it; omitted on an update leaves it as it is. */
+  shelfLifeHours?: number | null
 }
 
 export type UpdateFinishedGoodInput = Partial<Omit<CreateFinishedGoodInput, 'code'>> & {

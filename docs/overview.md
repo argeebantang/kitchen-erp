@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–5, Week 6 in progress):
+Built (Weeks 1–6):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -23,12 +23,12 @@ Built (Weeks 1–5, Week 6 in progress):
 * Production orders are submitted for approval and approved or rejected by accounting (with a shortage badge in the inbox); the submitter is notified, and procurement is told what to order when an approved run is short. Production starts an approved run or cancels one (with a reason) before it starts; every status change is logged and shown as a timeline on the order
 * Completing a run (Week 6): production reports an in-progress run done with its actual yield, shown against the plan ("9.6 kg of 10 kg planned · −0.4 kg (96%)"). Accounting sees what approving will do — every ingredient deducted, with the ones going below zero flagged, and the lot added — and approves (stock moves: ingredients out per BOM, the yield in as a lot numbered after the order) or sends it back with a reason. Both sides are notified
 * Production costing (Week 6): each run's ingredients at the reference prices in force — an estimate on open orders, then the batch cost, cost per kg and the variance against plan, recorded when accounting approves the completion ("₱1,905.50 for 9.6 kg — ₱198.49/kg, +₱76.22 over plan"); finished-goods lots carry their cost per kg and value
-* Finished Goods: lots on hand per branch, with totals per finished good; the Stock Ledger links production movements to their order
+* Finished Goods: lots on hand per branch, soonest to expire first, with expiry (each finished good's shelf life, set in Master Data, from the moment its run was reported done; expired lots flagged), unit cost and value, and totals per finished good; the Stock Ledger links production movements to their order
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): expiry dates on finished goods, transfers, conversions, write-offs, AI features.
+Planned (see the roadmap): 24/48-hour expiry warnings, transfers, conversions, write-offs, AI features.
 
 ## Tech Stack
 

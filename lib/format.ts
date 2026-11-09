@@ -46,6 +46,13 @@ export function formatPeso(value: string): string {
   return `₱${centavos === 0 ? '' : sign}${digits.slice(0, -2)}.${digits.slice(-2)}`
 }
 
+/** A shelf life for people: "72 h · 3 days", "36 h · 1.5 days", "12 h". */
+export function formatShelfLife(hours: number): string {
+  if (hours < 24) return `${hours} h`
+  const days = Math.round((hours / 24) * 10) / 10
+  return `${hours} h · ${days} ${days === 1 ? 'day' : 'days'}`
+}
+
 /** A difference in pesos with its sign spelled out: "+₱80.54", "−₱12.00" (a true minus), "±₱0.00". */
 export function formatSignedPeso(value: string): string {
   const amount = formatPeso(value.replace(/^-/, ''))

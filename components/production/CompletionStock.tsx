@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the order page.
 import type { CompletionStockDto } from '@/services/production-order.service'
@@ -20,7 +21,9 @@ export function CompletionStock({ stock, finishedGoodName }: { stock: Completion
           </span>
           <span className="text-gray-700"> {finishedGoodName}</span>
           <span className="text-gray-400">
-            {' '}· lot <span className="font-mono">{stock.lot.lotNumber}</span> · produced {stock.lot.producedOn} → {stock.lot.branchName}
+            {' '}· lot <span className="font-mono">{stock.lot.lotNumber}</span> · produced {stock.lot.producedOn}
+            {stock.lot.expiresAt !== null && <> · expires {formatDateTime(stock.lot.expiresAt)}</>}
+            {' '}→ {stock.lot.branchName}
           </span>
           {stock.lot.unitCost !== null && (
             <span className="text-gray-500"> @ {formatPeso(stock.lot.unitCost)}/{stock.lot.unitAbbreviation}</span>

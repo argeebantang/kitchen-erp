@@ -141,6 +141,10 @@ export type FinishedGoodLotDto = {
   quantity: string
   /** YYYY-MM-DD. */
   producedOn: string
+  /** ISO; null for a lot made before expiry was tracked (Week 6 Task 4). */
+  expiresAt: string | null
+  /** Past its expiry as of this read — must not be used. */
+  expired: boolean
   /** When this lot last moved at this branch (ISO). */
   lastMovementAt: string
   /** The lot's cost per unit, recorded when its run was approved; null before costing (Week 6 Task 3). */
@@ -251,8 +255,8 @@ export const InventoryService = {
 
   /**
    * Finished goods on hand (Week 6 Task 2, D10): every lot with stock at a
-   * branch, newest production first, and the total per finished good and
-   * branch. Readable by every signed-in role, like Stock Levels.
+   * branch, soonest expiry first (Week 6 Task 4), and the total per finished
+   * good and branch. Readable by every signed-in role, like Stock Levels.
    */
   async finishedGoodStock(filters: { branchId?: string }, viewer: { role: string }) {
     const rows = await FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 })
@@ -260,6 +264,8 @@ export const InventoryService = {
     const shown     = rows.slice(0, FINISHED_GOOD_LOT_LIMIT)
     const orderPage = SOURCE_PAGES.ProductionOrder
 
+    // One clock for the whole page, so two lots expiring together read alike.
+    const now  = Date.now()
     const lots = shown.map<FinishedGoodLotDto>(row => {
       const unitCost = unitCostOf(row)
       const value    = valueOf(row)
@@ -273,6 +279,8 @@ export const InventoryService = {
         branchName:       row.branch.name,
         quantity:         toDecimalString(row.quantity),
         producedOn:       row.lot.producedOn.toISOString().slice(0, 10),
+        expiresAt:        row.lot.expiresAt?.toISOString() ?? null,
+        expired:          row.lot.expiresAt !== null && row.lot.expiresAt.getTime() <= now,
         lastMovementAt:   row.updatedAt.toISOString(),
         unitCost:         unitCost === null ? null : toDecimalString(unitCost),
         value:            value === null ? null : toDecimalString(value),

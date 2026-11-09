@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
-import { BUSINESS_TIME_ZONE } from '@/lib/dates'
+import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { FINISHED_GOOD_LOT_LIMIT, InventoryService } from '@/services/inventory.service'
@@ -9,12 +9,6 @@ import { BranchRepository } from '@/repositories/branch.repository'
 
 type PageProps = {
   searchParams: Promise<{ branch?: string }>
-}
-
-function formatAt(iso: string): string {
-  return new Date(iso).toLocaleString('en-PH', {
-    timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  })
 }
 
 /**
@@ -39,8 +33,9 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Finished Goods</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Cooked goods on hand, by lot. A lot is one production run&apos;s output, numbered after its order; it is
-          added here when accounting approves the run&apos;s completion.
+          Cooked goods on hand, by lot, soonest to expire first — use them in this order. A lot is one production
+          run&apos;s output, numbered after its order; it is added here when accounting approves the run&apos;s
+          completion, and expires its finished good&apos;s shelf life after the run was reported done.
         </p>
       </div>
 
@@ -101,12 +96,16 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                   <th className="px-4 py-3 text-right font-medium">Unit cost</th>
                   <th className="px-4 py-3 text-right font-medium">Value</th>
                   <th className="px-4 py-3 font-medium">Produced on</th>
+                  <th className="px-4 py-3 font-medium">Expires</th>
                   <th className="px-4 py-3 font-medium">Last movement</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {lots.map(lot => (
-                  <tr key={`${lot.lotNumber}:${lot.branchId}`} className="transition-colors hover:bg-gray-50">
+                  <tr
+                    key={`${lot.lotNumber}:${lot.branchId}`}
+                    className={`transition-colors ${lot.expired ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
+                  >
                     <td className="px-4 py-3">
                       {/* The lot number is the order's; it links there for roles that can open it. */}
                       {lot.source?.href ? (
@@ -133,7 +132,20 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                       {lot.value === null ? <span className="text-gray-400">—</span> : formatPeso(lot.value)}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{lot.producedOn}</td>
-                    <td className="px-4 py-3 text-gray-500">{formatAt(lot.lastMovementAt)}</td>
+                    <td className="px-4 py-3">
+                      {/* 24 / 48-hour warnings before this are Week 7's. */}
+                      {lot.expiresAt === null ? (
+                        <span className="text-gray-400">—</span>
+                      ) : (
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className={lot.expired ? 'font-medium text-red-700' : 'text-gray-700'}>{formatDateTime(lot.expiresAt)}</span>
+                          {lot.expired && (
+                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">Expired</span>
+                          )}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{formatDateTime(lot.lastMovementAt)}</td>
                   </tr>
                 ))}
               </tbody>

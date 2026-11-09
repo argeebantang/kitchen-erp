@@ -16,6 +16,8 @@ export type ReceiveLotInput = {
   productionOrderId: string
   /** Date-only, UTC midnight. */
   producedOn: Date
+  /** The run's completion moment + the finished good's shelf life (Week 6 Task 4). */
+  expiresAt: Date
   branchId: string
   quantity: Prisma.Decimal
   /** Cost per unit of the lot — the run's batch cost ÷ its yield (Week 6 Task 3). */
@@ -40,6 +42,7 @@ export const FinishedGoodStockRepository = {
         finishedGoodId:    input.finishedGoodId,
         productionOrderId: input.productionOrderId,
         producedOn:        input.producedOn,
+        expiresAt:         input.expiresAt,
       },
       select: { id: true },
     })
@@ -65,8 +68,10 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
-   * Lots on hand: every lot-and-branch level that is not zero, newest
-   * production first — the Finished Goods page (Week 6 Task 2, D10). Cooked
+   * Lots on hand: every lot-and-branch level that is not zero, soonest expiry
+   * first — first to expire, first used (Week 6 Task 4, D5) — and lots with
+   * no expiry last; served by @@index([expiresAt]). The Finished Goods page
+   * (Week 6 Task 2, D10). Cooked
    * food is perishable, so this stays small; `take` bounds it anyway and the
    * caller asks for one more than it shows to know if it was cut short.
    * A negative level (more went out than came in) is listed: it needs fixing.
@@ -80,7 +85,7 @@ export const FinishedGoodStockRepository = {
       include: {
         lot: {
           select: {
-            lotNumber: true, producedOn: true, productionOrderId: true,
+            lotNumber: true, producedOn: true, expiresAt: true, productionOrderId: true,
             finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
             // The lot's first movement is the IN that created it; its unitCost
             // is the lot's cost per unit (Week 6 Task 3).
@@ -89,7 +94,7 @@ export const FinishedGoodStockRepository = {
         },
         branch: { select: { id: true, name: true } },
       },
-      orderBy: [{ lot: { producedOn: 'desc' } }, { lot: { lotNumber: 'desc' } }],
+      orderBy: [{ lot: { expiresAt: { sort: 'asc', nulls: 'last' } } }, { lot: { lotNumber: 'asc' } }],
       take: filters.take,
     })
   },
@@ -139,7 +144,7 @@ export const FinishedGoodStockRepository = {
     return prisma.finishedGoodMovement.findMany({
       where:   { referenceType, referenceId },
       include: {
-        lot:    { select: { lotNumber: true, producedOn: true, finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } } } },
+        lot:    { select: { lotNumber: true, producedOn: true, expiresAt: true, finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } } } },
         branch: { select: { name: true } },
       },
       orderBy: { createdAt: 'asc' },

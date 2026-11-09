@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { FinishedGoodService } from '@/services/finished-good.service'
+import { FinishedGoodService, MAX_SHELF_LIFE_HOURS } from '@/services/finished-good.service'
 
 const DecimalString = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal')
 
@@ -20,6 +20,8 @@ const CreateFinishedGoodSchema = z.object({
   categoryId:   z.string().cuid(),
   unitId:       z.string().cuid(),
   sellingPrice: DecimalString,
+  // Whole hours it keeps once cooked; null or absent = not set yet (Week 6 Task 4).
+  shelfLifeHours: z.number().int().min(1).max(MAX_SHELF_LIFE_HOURS).nullish(),
 })
 
 export async function GET(req: NextRequest) {
