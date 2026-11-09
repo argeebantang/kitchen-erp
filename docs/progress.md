@@ -289,8 +289,13 @@ table; it's a UI/UX decision, not an architecture change.
       `IN_PROGRESS` with a reason. Approval preview and "Stock moved" card on the order page, a
       Production completions section in the inbox, the new **Finished Goods** page, PRD links in the
       Stock Ledger, finished goods in the daily reconciliation, and notifications both ways.
-- [~] Batch/expiry tracking on finished goods — *lot number (= the order number) and production date
-      done 2026-11-09 with the sign-off; expiry (shelf life per finished good) remains.*
+- [x] Batch/expiry tracking on finished goods — *lot number (= the order number) and production date
+      done 2026-11-09 with the sign-off.* **Expiry done 2026-11-09**
+      (`docs/2026-11-09-week6-finished-goods-expiry.md`): `FinishedGood.shelfLifeHours` (1–720 h, set in
+      Master Data); each lot's `expiresAt` = the moment its run was reported done + the shelf life,
+      stored at approval (migration `20261109150000_finished_good_expiry`); approval refused while
+      the finished good has no shelf life. Finished Goods lists lots soonest to expire first with an
+      Expires column and an Expired badge. The 24/48 h warnings are Week 7.
 - [x] Actual vs planned yield — **done 2026-11-09** with the completion report: "9.6 kg of 10 kg planned ·
       −0.4 kg (96%)" on the order page, computed in Decimal; the timeline shows the yield reported.
 - [x] Costing: batch cost, cost/kg, variance — **done 2026-11-09**
@@ -305,6 +310,8 @@ table; it's a UI/UX decision, not an architecture change.
       inbox, unit cost and value on Finished Goods. Also fixed: `formatPeso` rounded half-centavos
       down (float); it now rounds on the digits.
 - [x] Accounting approval of completion — **done 2026-11-09** with the stock movements (see the first item).
+
+**Week 6 complete (2026-11-09).**
 
 ### Week 7 — Conversion, Write-off & Expiry
 - [ ] Conversion order + costing

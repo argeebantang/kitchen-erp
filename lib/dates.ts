@@ -15,6 +15,13 @@ export function todayIsoDate(): string {
   return isoDateAt(new Date())
 }
 
+/** A moment as the kitchen reads it, in Manila time: "Nov 12, 3:00 PM". */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-PH', {
+    timeZone: BUSINESS_TIME_ZONE, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
 /** The business date (YYYY-MM-DD, Asia/Manila) of a moment — e.g. the day a run was reported done. */
 export function isoDateAt(moment: Date): string {
   // en-CA is the locale whose short date format is YYYY-MM-DD.

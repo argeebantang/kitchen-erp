@@ -44,7 +44,8 @@ export type ProductionOrderListFilters = {
  * bom.isActive tells a draft whose recipe has since been superseded.
  */
 const orderInclude = {
-  finishedGood: { select: { id: true, code: true, name: true } },
+  // shelfLifeHours: a completed run's lot expires that long after it was cooked (Week 6 Task 4).
+  finishedGood: { select: { id: true, code: true, name: true, shelfLifeHours: true } },
   bom: {
     select: {
       id: true, version: true, isActive: true, batchSize: true,

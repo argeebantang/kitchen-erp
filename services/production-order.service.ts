@@ -181,7 +181,12 @@ export type CompletionEffectDto = {
     goesNegative: boolean
   }[]
   negativeCount: number
-  lot: { lotNumber: string; quantity: string; unitAbbreviation: string; branchName: string }
+  lot: {
+    lotNumber: string; quantity: string; unitAbbreviation: string; branchName: string
+    /** ISO; null when the finished good has no shelf life — approval is then refused (Week 6 Task 4, D3). */
+    expiresAt: string | null
+    shelfLifeHours: number | null
+  }
 }
 
 /**
@@ -206,6 +211,8 @@ export type CompletionStockDto = {
     lotNumber: string; quantity: string; unitAbbreviation: string; producedOn: string; branchName: string
     /** Cost per unit of the lot. */
     unitCost: string | null
+    /** ISO; null for a lot made before expiry was tracked. */
+    expiresAt: string | null
   } | null
 }
 
@@ -609,6 +616,15 @@ function recordedCosting(order: ProductionOrderWithDetail, stockMoved: Completio
 }
 
 /**
+ * When a run's lot must no longer be used (Week 6 Task 4, D2): the moment the
+ * kitchen reported it done plus the finished good's shelf life — food ages
+ * from cooking, not from accounting's approval. Null without a shelf life.
+ */
+function lotExpiry(completedAt: Date, shelfLifeHours: number | null): Date | null {
+  return shelfLifeHours === null ? null : new Date(completedAt.getTime() + shelfLifeHours * 60 * 60 * 1000)
+}
+
+/**
  * The approver's preview (D8): each ingredient against what is on hand at the
  * branch now, and the lot that would come in. On hand only, not committed —
  * this is what the books will read straight after approval.
@@ -645,6 +661,8 @@ async function completionEffect(
       quantity:         toDecimalString(actualQty),
       unitAbbreviation: order.bom.batchUnit.abbreviation,
       branchName:       order.branch.name,
+      expiresAt:        order.completedAt === null ? null : lotExpiry(order.completedAt, order.finishedGood.shelfLifeHours)?.toISOString() ?? null,
+      shelfLifeHours:   order.finishedGood.shelfLifeHours,
     },
   }
 }
@@ -675,6 +693,7 @@ async function completionStock(orderId: string): Promise<CompletionStockDto> {
       producedOn:       lotIn.lot.producedOn.toISOString().slice(0, 10),
       branchName:       lotIn.branch.name,
       unitCost:         lotIn.unitCost === null ? null : toDecimalString(lotIn.unitCost),
+      expiresAt:        lotIn.lot.expiresAt?.toISOString() ?? null,
     } : null,
   }
 }
@@ -1426,6 +1445,17 @@ export const ProductionOrderService = {
         id, approverId: viewer.userId, remarks, completedAt: order.completedAt, decision: { kind: 'REJECTED' },
       })
     } else {
+      // A lot without an expiry could never be flagged, and cannot be given
+      // one afterwards (Week 6 Task 4, D3): a one-time setting per finished good.
+      const expiresAt = lotExpiry(order.completedAt, order.finishedGood.shelfLifeHours)
+      if (expiresAt === null) {
+        return {
+          success: false,
+          error:   `${order.finishedGood.name} has no shelf life — an admin sets it in Master Data (Finished Goods), then approve`,
+          status:  409,
+        }
+      }
+
       const bom = await BomRepository.findById(order.bom.id)
       if (!bom) {
         return { success: false, error: 'The BOM this order is pinned to no longer exists', status: 404 }
@@ -1481,6 +1511,7 @@ export const ProductionOrderService = {
             unitCost:          costPerUnit,
             // The Manila day the kitchen reported it done, stored as UTC midnight.
             producedOn:        new Date(producedOn),
+            expiresAt,
           },
           costs: {
             plannedCost:  planned.total,

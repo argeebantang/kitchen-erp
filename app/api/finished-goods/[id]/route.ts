@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { FinishedGoodService } from '@/services/finished-good.service'
+import { FinishedGoodService, MAX_SHELF_LIFE_HOURS } from '@/services/finished-good.service'
 
 const DecimalString = z.string().regex(/^\d+(\.\d+)?$/, 'Must be a non-negative decimal')
 
@@ -10,6 +10,8 @@ const UpdateFinishedGoodSchema = z.object({
   categoryId:   z.string().cuid().optional(),
   unitId:       z.string().cuid().optional(),
   sellingPrice: DecimalString.optional(),
+  // Absent leaves it unchanged; null clears it (Week 6 Task 4).
+  shelfLifeHours: z.number().int().min(1).max(MAX_SHELF_LIFE_HOURS).nullish(),
   isActive:     z.boolean().optional(),
 })
 

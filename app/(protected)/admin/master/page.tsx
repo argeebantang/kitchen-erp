@@ -1,5 +1,5 @@
 import { MaterialService } from '@/services/material.service'
-import { FinishedGoodService } from '@/services/finished-good.service'
+import { FinishedGoodService, MAX_SHELF_LIFE_HOURS } from '@/services/finished-good.service'
 import { ReferenceDataService } from '@/services/reference-data.service'
 import { SupplierRepository } from '@/repositories/supplier.repository'
 import { MasterTabs, isMasterTab, type MasterTabKey } from '@/components/master/MasterTabs'
@@ -83,6 +83,7 @@ async function FinishedGoodsTab({
       finishedGoods={finishedGoods}
       categories={categories.filter(c => c.type === 'FINISHED_GOOD')}
       units={units}
+      maxShelfLifeHours={MAX_SHELF_LIFE_HOURS}
     />
   )
 }

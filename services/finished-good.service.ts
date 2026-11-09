@@ -1,4 +1,10 @@
 import { toDecimal, toDecimalString } from '@/lib/decimal'
+
+/**
+ * Longest shelf life a finished good may have, in hours (Week 6 Task 4, D1):
+ * 30 days. Catches a typed 7200 for 720; cooked food keeps days, not months.
+ */
+export const MAX_SHELF_LIFE_HOURS = 720
 import {
   FinishedGoodRepository,
   FinishedGoodListFilters,
@@ -15,6 +21,8 @@ export type FinishedGoodDto = {
   unitId: string
   unitAbbreviation: string
   sellingPrice: string
+  /** Whole hours it keeps once cooked; null until an admin sets it. */
+  shelfLifeHours: number | null
   isActive: boolean
 }
 
@@ -25,6 +33,7 @@ export type CreateFinishedGoodServiceInput = {
   categoryId: string
   unitId: string
   sellingPrice: string
+  shelfLifeHours?: number | null
 }
 
 export type UpdateFinishedGoodServiceInput =
@@ -45,6 +54,7 @@ function toDto(good: FinishedGoodWithRelations): FinishedGoodDto {
     unitId:           good.unitId,
     unitAbbreviation: good.unit.abbreviation,
     sellingPrice:     toDecimalString(good.sellingPrice),
+    shelfLifeHours:   good.shelfLifeHours,
     isActive:         good.isActive,
   }
 }
@@ -75,6 +85,7 @@ export const FinishedGoodService = {
       categoryId:   input.categoryId,
       unitId:       input.unitId,
       sellingPrice: toDecimal(input.sellingPrice),
+      shelfLifeHours: input.shelfLifeHours ?? null,
     })
 
     return { success: true, data: toDto(good) }
@@ -96,6 +107,8 @@ export const FinishedGoodService = {
       unitId:       input.unitId,
       isActive:     input.isActive,
       sellingPrice: input.sellingPrice === undefined ? undefined : toDecimal(input.sellingPrice),
+      // undefined leaves it unchanged; null clears it.
+      shelfLifeHours: input.shelfLifeHours,
     })
 
     return { success: true, data: toDto(good) }

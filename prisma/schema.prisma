@@ -210,6 +210,10 @@ model FinishedGood {
   unitId       String
   unit         Unit     @relation(fields: [unitId], references: [id])
   sellingPrice Decimal  @default(0)
+  /// How long it keeps once cooked, in whole hours (1–720). A lot's expiry is
+  /// the moment its run was reported done plus this (Week 6 Task 4). Null
+  /// until an admin sets it; a completion cannot be approved without it.
+  shelfLifeHours Int?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -506,12 +510,19 @@ model FinishedGoodLot {
   productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id])
   /// Date-only (UTC midnight): the Manila date the kitchen reported the run done.
   producedOn        DateTime
+  /// When it must no longer be used: the moment the run was reported done
+  /// plus the finished good's shelf life, fixed when the lot is created so a
+  /// later shelf-life change never moves a labelled lot (Week 6 Task 4).
+  /// Null only for lots made before expiry was tracked.
+  expiresAt         DateTime?
   createdAt         DateTime         @default(now())
 
   levels    FinishedGoodLevel[]
   movements FinishedGoodMovement[]
 
   @@index([finishedGoodId])
+  // First-to-expire ordering, and Week 7's "expiring within 24/48 h".
+  @@index([expiresAt])
 }
 
 /// Current quantity of one lot at one branch — InventoryLevel's counterpart.
