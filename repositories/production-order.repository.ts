@@ -19,11 +19,16 @@ export type CreateProductionOrderInput = {
 export type UpdateProductionOrderDraftInput = Omit<CreateProductionOrderInput, 'requestedById'>
 
 /**
- * Orders whose ingredients are spoken for but still on the shelf: approved,
- * or running and not yet completed. Stock is only deducted on completion
- * (Week 6), so until then the stock check subtracts what these still need.
+ * Orders whose ingredients are spoken for but still on the books: approved,
+ * running, or reported done and awaiting accounting's sign-off. Stock is only
+ * deducted when the completion is approved (Week 6), so until then the stock
+ * check subtracts what these still need.
  */
-const COMMITTING_STATUSES: ProductionStatus[] = [ProductionStatus.APPROVED, ProductionStatus.IN_PROGRESS]
+const COMMITTING_STATUSES: ProductionStatus[] = [
+  ProductionStatus.APPROVED,
+  ProductionStatus.IN_PROGRESS,
+  ProductionStatus.PENDING_COMPLETION,
+]
 
 export type ProductionOrderListFilters = {
   status?: ProductionStatus
@@ -47,6 +52,7 @@ const orderInclude = {
   branch:      { select: { id: true, name: true } },
   requestedBy: { select: { id: true, name: true } },
   submittedBy: { select: { id: true, name: true } },
+  completedBy: { select: { id: true, name: true } },
 } as const
 
 export type ProductionOrderWithDetail = Prisma.ProductionOrderGetPayload<{ include: typeof orderInclude }>
@@ -268,6 +274,23 @@ export const ProductionOrderRepository = {
       from:        ProductionStatus.APPROVED,
       to:          ProductionStatus.IN_PROGRESS,
       changedById: startedById,
+    }))
+  },
+
+  /**
+   * IN_PROGRESS → PENDING_COMPLETION: the kitchen reports the run done with
+   * its actual yield (Week 6 Task 1). The yield, when and who are set by the
+   * same UPDATE as the status, so they cannot land on an order that had moved
+   * on. False if it was not in progress by then. No stock moves here — that
+   * happens when accounting approves the completion.
+   */
+  async complete(id: string, input: { completedById: string; actualQty: Prisma.Decimal }): Promise<boolean> {
+    return prisma.$transaction(tx => transition(tx, {
+      id,
+      from:        ProductionStatus.IN_PROGRESS,
+      to:          ProductionStatus.PENDING_COMPLETION,
+      changedById: input.completedById,
+      data:        { actualQty: input.actualQty, completedAt: new Date(), completedById: input.completedById },
     }))
   },
 

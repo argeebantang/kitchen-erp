@@ -13,11 +13,12 @@ type PageProps = {
 }
 
 const LEGEND: { status: string; label: string }[] = [
-  { status: 'DRAFT',            label: 'Draft' },
-  { status: 'PENDING_APPROVAL', label: 'Pending approval' },
-  { status: 'APPROVED',         label: 'Approved' },
-  { status: 'IN_PROGRESS',      label: 'In progress' },
-  { status: 'COMPLETED',        label: 'Completed' },
+  { status: 'DRAFT',              label: 'Draft' },
+  { status: 'PENDING_APPROVAL',   label: 'Pending approval' },
+  { status: 'APPROVED',           label: 'Approved' },
+  { status: 'IN_PROGRESS',        label: 'In progress' },
+  { status: 'PENDING_COMPLETION', label: 'Completion pending' },
+  { status: 'COMPLETED',          label: 'Completed' },
 ]
 const CLOSED_LEGEND = [
   { status: 'REJECTED',  label: 'Rejected' },

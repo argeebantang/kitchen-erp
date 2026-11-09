@@ -18,7 +18,7 @@ const COPY = {
     busy:   'Submitting…',
   },
   start: {
-    intro:  'Marks the run as started in the kitchen. Stock is deducted when it is completed (Week 6).',
+    intro:  'Marks the run as started in the kitchen. Stock is deducted once its completion is reported and approved by accounting.',
     short:  'you can still start if the kitchen has them on hand.',
     button: 'Start production',
     busy:   'Starting…',

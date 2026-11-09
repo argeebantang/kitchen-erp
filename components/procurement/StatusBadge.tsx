@@ -15,7 +15,8 @@ const STATUS_STYLES: Record<string, string> = {
   PARTIALLY_RECEIVED: 'bg-amber-50 text-amber-700',
   FULLY_RECEIVED:     'bg-emerald-50 text-emerald-700',
   IN_PROGRESS:        'bg-blue-50 text-blue-700',
-  COMPLETED:          'bg-emerald-50 text-emerald-700',
+  PENDING_COMPLETION: 'bg-violet-50 text-violet-700',
+  COMPLETED:         'bg-emerald-50 text-emerald-700',
   CANCELLED:          'bg-gray-100 text-gray-400',
 }
 

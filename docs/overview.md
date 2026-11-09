@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–5):
+Built (Weeks 1–5, Week 6 in progress):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -21,11 +21,12 @@ Built (Weeks 1–5):
 * Daily 06:00 jobs: a low-stock summary for procurement and admins, and a ledger-vs-stock-level check for admins
 * Production Orders (Week 5): plan a run of a finished good from its active BOM — batch weight × number of batches, production date, branch — saved as a draft `PRD-000001` and editable while a draft; each save pins the active BOM version. The order page and the form list every ingredient the run needs, per batch and in total, against the stock available at the branch (on hand less what approved runs still need), marked Enough or Short, with a shortage banner naming what is missing and a "Request missing materials" shortcut to a pre-filled purchase request
 * Production orders are submitted for approval and approved or rejected by accounting (with a shortage badge in the inbox); the submitter is notified, and procurement is told what to order when an approved run is short. Production starts an approved run or cancels one (with a reason) before it starts; every status change is logged and shown as a timeline on the order
+* Completing a run (Week 6): production reports an in-progress run done with its actual yield, shown against the plan ("9.6 kg of 10 kg planned · −0.4 kg (96%)"); the order then waits for accounting's sign-off, which is when stock moves (Task 2). Until then its ingredients still count as committed
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): production order stock check and approval, transfers, conversions, costing, AI features.
+Planned (see the roadmap): accounting sign-off of completed runs with finished-goods stock, costing, batch numbers and expiry, transfers, conversions, AI features.
 
 ## Tech Stack
 
