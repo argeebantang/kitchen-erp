@@ -22,6 +22,13 @@ import {
 /** Upper bound on batches per order: catches a typed 1000 for 10. */
 export const MAX_BATCH_COUNT = 100
 
+/**
+ * The most a reported yield may be, as a multiple of the planned output
+ * (Week 6 Task 1, D3): catches a typed 100 for 10. Above plan is normal — a
+ * stew takes on liquid — so the cap is generous.
+ */
+export const MAX_YIELD_FACTOR = 2
+
 /** A finished good the form can plan, with the BOM version it would pin today. */
 export type PlannableGoodDto = {
   finishedGoodId: string
@@ -135,6 +142,20 @@ export type ProductionOrderDetailDto = ProductionOrderSummaryDto & {
   requirements: MaterialRequirementDto[]
   /** Every status change, oldest first — the timeline (Week 5 Task 6). */
   statusChanges: StatusChangeDto[]
+  /** What the kitchen reported it actually yielded; null until completion is reported (Week 6 Task 1). */
+  actualYield: ActualYieldDto | null
+  /** Who reported the run done, and when (ISO); null until then. */
+  completedByName: string | null
+  completedAt: string | null
+}
+
+/** The actual yield against the planned output, in the order's unit (Week 6 Task 1, D5). */
+export type ActualYieldDto = {
+  actualQty: string
+  /** actualQty − plannedQty: negative when the run came out short. */
+  difference: string
+  /** actualQty ÷ plannedQty × 100, to one decimal place — "96" or "103.5". */
+  percentOfPlan: string
 }
 
 export type StatusChangeDto = {
@@ -194,6 +215,7 @@ const SCHEDULED_STATUSES: ProductionStatus[] = [
   ProductionStatus.PENDING_APPROVAL,
   ProductionStatus.APPROVED,
   ProductionStatus.IN_PROGRESS,
+  ProductionStatus.PENDING_COMPLETION,
   ProductionStatus.COMPLETED,
 ]
 
@@ -232,14 +254,17 @@ function toSummaryDto(order: ProductionOrderWithDetail): ProductionOrderSummaryD
 }
 
 /**
- * Statuses whose run is still ahead, so today's stock means something for it
- * (Task 3, D5). Once completed, rejected or cancelled, the check is hidden.
+ * Statuses whose ingredients have not left the books yet, so today's stock
+ * means something for them (Task 3, D5) — including a run reported done but
+ * not yet signed off, whose deduction is still to come (Week 6 Task 1). Once
+ * completed, rejected or cancelled, the check is hidden.
  */
 const STOCK_CHECK_STATUSES: ProductionStatus[] = [
   ProductionStatus.DRAFT,
   ProductionStatus.PENDING_APPROVAL,
   ProductionStatus.APPROVED,
   ProductionStatus.IN_PROGRESS,
+  ProductionStatus.PENDING_COMPLETION,
 ]
 
 /**
@@ -504,6 +529,15 @@ export const ProductionOrderService = {
           note:          change.note,
           at:            change.createdAt.toISOString(),
         })),
+        // Computed in Decimal here so the page only formats: plannedQty is
+        // never zero (batch weight > 0, at least one batch).
+        actualYield: order.actualQty === null ? null : {
+          actualQty:     toDecimalString(order.actualQty),
+          difference:    toDecimalString(order.actualQty.sub(order.plannedQty)),
+          percentOfPlan: toDecimalString(order.actualQty.div(order.plannedQty).mul(100).toDecimalPlaces(1)),
+        },
+        completedByName: order.completedBy?.name ?? null,
+        completedAt:     order.completedAt?.toISOString() ?? null,
       },
     }
   },
@@ -875,6 +909,59 @@ export const ProductionOrderService = {
 
     const started = await ProductionOrderRepository.start(id, viewer.userId)
     if (!started) {
+      return { success: false, error: 'This order changed just now — reload and try again', status: 409 }
+    }
+    return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
+  },
+
+  /**
+   * IN_PROGRESS → PENDING_COMPLETION: the kitchen reports the run done with
+   * what it actually yielded (Week 6 Task 1). Nothing moves in stock yet —
+   * accounting signs the completion off first, and the order keeps counting
+   * as committed until then (W6-1). No date rule, like start (D8).
+   *
+   * A zero yield is not a completion: a run that produced nothing is a
+   * write-off (Week 7).
+   */
+  async complete(
+    id: string,
+    viewer: Viewer,
+    actualQty: string,
+  ): Promise<ProductionOrderResult<{ id: string; orderNumber: string }>> {
+    if (!canPlan(viewer.role)) {
+      return { success: false, error: 'Only production can complete a production run', status: 403 }
+    }
+
+    const order = await ProductionOrderRepository.findById(id)
+    if (!order) {
+      return { success: false, error: 'Production order not found', status: 404 }
+    }
+    if (order.status !== ProductionStatus.IN_PROGRESS) {
+      return {
+        success: false,
+        error:   order.status === ProductionStatus.PENDING_COMPLETION
+          ? 'This run has already been reported complete and is waiting for accounting'
+          : `This order is ${order.status === ProductionStatus.DRAFT ? 'still a draft' : order.status.replace(/_/g, ' ').toLowerCase()} — only a run in progress can be completed`,
+        status:  409,
+      }
+    }
+
+    const yieldQty = toDecimal(actualQty)
+    const unit     = order.bom.batchUnit.abbreviation
+    if (yieldQty.lessThanOrEqualTo(0)) {
+      return { success: false, error: 'The actual yield must be greater than zero — a run that produced nothing is a write-off', status: 400 }
+    }
+    const maxYield = order.plannedQty.mul(MAX_YIELD_FACTOR)
+    if (yieldQty.greaterThan(maxYield)) {
+      return {
+        success: false,
+        error:   `The actual yield cannot be more than ${MAX_YIELD_FACTOR} × the planned ${trimDecimal(toDecimalString(order.plannedQty))} ${unit} (${trimDecimal(toDecimalString(maxYield))} ${unit}) — check the figure`,
+        status:  400,
+      }
+    }
+
+    const completed = await ProductionOrderRepository.complete(id, { completedById: viewer.userId, actualQty: yieldQty })
+    if (!completed) {
       return { success: false, error: 'This order changed just now — reload and try again', status: 409 }
     }
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }

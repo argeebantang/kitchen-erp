@@ -4,13 +4,19 @@ import { ArrowLeft, Pencil } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { todayIsoDate } from '@/lib/dates'
-import { CANCELLABLE_STATUSES, ProductionOrderService, SHORTFALL_REQUEST_STATUSES } from '@/services/production-order.service'
+import {
+  CANCELLABLE_STATUSES,
+  MAX_YIELD_FACTOR,
+  ProductionOrderService,
+  SHORTFALL_REQUEST_STATUSES,
+} from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { MaterialRequirementsTable } from '@/components/production/MaterialRequirementsTable'
 import { ShortageBanner } from '@/components/production/ShortageBanner'
 import { ProductionOrderActions } from '@/components/production/ProductionOrderActions'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 import { CancelProductionOrder } from '@/components/production/CancelProductionOrder'
+import { CompleteProductionOrder } from '@/components/production/CompleteProductionOrder'
 import { StatusTimeline } from '@/components/production/StatusTimeline'
 
 type PageProps = {
@@ -50,6 +56,8 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
   // Task 6: production starts an approved run and may call one off before it starts.
   const canStart  = canPlan && order.status === 'APPROVED'
   const canCancel = canPlan && CANCELLABLE_STATUSES.includes(order.status)
+  // Week 6 Task 1: production reports the run done with its actual yield.
+  const canComplete = canPlan && order.status === 'IN_PROGRESS'
 
   return (
     <div>
@@ -120,6 +128,18 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
         <Detail label="Created · last saved">
           {order.createdAt.slice(0, 10)} <span className="text-gray-400">· {order.updatedAt.slice(0, 10)}</span>
         </Detail>
+        {/* Week 6 Task 1, D5: once the kitchen has reported it, the yield against the plan. */}
+        {order.actualYield && (
+          <div className="border-t border-gray-100 pt-3 sm:col-span-3">
+            <Detail label="Actual yield">
+              <span className="font-medium">{trimDecimal(order.actualYield.actualQty)} {unit}</span>
+              <span className="text-gray-500"> of {trimDecimal(order.plannedQty)} {unit} planned</span>
+              <span className={order.actualYield.difference.startsWith('-') ? 'text-amber-700' : 'text-gray-500'}>
+                {' · '}{signed(order.actualYield.difference)} {unit} ({order.actualYield.percentOfPlan}%)
+              </span>
+            </Detail>
+          </div>
+        )}
       </div>
 
       {canEdit && (
@@ -143,9 +163,26 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
           blockedReason={null}
         />
       )}
-      {order.status === 'IN_PROGRESS' && (
+      {canComplete && (
+        <CompleteProductionOrder
+          productionOrderId={order.id}
+          orderNumber={order.orderNumber}
+          finishedGoodName={order.finishedGoodName}
+          plannedQty={order.plannedQty}
+          unitAbbreviation={unit}
+          maxYieldFactor={MAX_YIELD_FACTOR}
+        />
+      )}
+      {order.status === 'IN_PROGRESS' && !canPlan && (
         <p className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          In the kitchen. Completing the run — deducting the ingredients and recording the actual yield — arrives in Week 6.
+          In the kitchen. Production reports the actual yield when the run is done.
+        </p>
+      )}
+      {/* W6-1: nothing has moved in stock yet; accounting's sign-off does that (Task 2). */}
+      {order.status === 'PENDING_COMPLETION' && (
+        <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Completion reported — waiting for accounting to approve it. The ingredients are deducted and the
+          {' '}{order.finishedGoodName} is added to stock on approval.
         </p>
       )}
 
@@ -175,7 +212,7 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
         {order.requirements.length} {order.requirements.length === 1 ? 'ingredient' : 'ingredients'} from BOM
         v{order.bomVersion}, scaled to this order.
         {order.requirements.some(line => line.stock !== null) && (
-          <> Stock is what {order.branchName} holds right now, less what other approved or in-progress orders there still need.</>
+          <> Stock is what {order.branchName} holds right now, less what other approved runs there still need — their ingredients leave stock when accounting approves their completion.</>
         )}
       </p>
       <ShortageBanner
@@ -192,6 +229,13 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
       />
     </div>
   )
+}
+
+/** A difference with its sign spelled out: "+1.2", "−0.4" (a true minus sign), "±0". */
+function signed(value: string): string {
+  const trimmed = trimDecimal(value)
+  if (trimmed.startsWith('-')) return `−${trimmed.slice(1)}`
+  return /^0(\.0*)?$/.test(trimmed) ? '±0' : `+${trimmed}`
 }
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {

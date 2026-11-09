@@ -1,20 +1,34 @@
 import { Check, X } from 'lucide-react'
 import { BUSINESS_TIME_ZONE } from '@/lib/dates'
+import { trimDecimal } from '@/lib/format'
 // Type-only: this renders on the server, for the order page.
 import type { ProductionOrderDetailDto } from '@/services/production-order.service'
 
-/** The happy path, in order (Week 5 Task 6, D6). */
+/**
+ * The happy path, in order (Week 5 Task 6, D6). "Completion pending" is the
+ * kitchen's report awaiting accounting's sign-off (Week 6 Task 1).
+ */
 const STEPS = [
-  { status: 'DRAFT',            label: 'Draft' },
-  { status: 'PENDING_APPROVAL', label: 'Pending approval' },
-  { status: 'APPROVED',         label: 'Approved' },
-  { status: 'IN_PROGRESS',      label: 'In progress' },
-  { status: 'COMPLETED',        label: 'Completed' },
+  { status: 'DRAFT',              label: 'Draft' },
+  { status: 'PENDING_APPROVAL',   label: 'Pending approval' },
+  { status: 'APPROVED',           label: 'Approved' },
+  { status: 'IN_PROGRESS',        label: 'In progress' },
+  { status: 'PENDING_COMPLETION', label: 'Completion pending' },
+  { status: 'COMPLETED',          label: 'Completed' },
 ] as const
 
 const ENDINGS: Record<string, string> = { REJECTED: 'Rejected', CANCELLED: 'Cancelled' }
 
-type Step = { label: string; state: 'done' | 'current' | 'todo' | 'ended'; who?: string; at?: string; note?: string | null }
+type Step = {
+  label: string
+  state: 'done' | 'current' | 'todo' | 'ended'
+  who?: string
+  at?: string
+  /** Someone's words — remarks or a reason — shown in quotes. */
+  note?: string | null
+  /** A figure the step recorded, e.g. the reported yield; shown plainly. */
+  detail?: string
+}
 
 function formatAt(iso: string): string {
   return new Date(iso).toLocaleString('en-PH', {
@@ -57,6 +71,10 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
       who:   change?.changedByName ?? (step.status === 'PENDING_APPROVAL' ? order.submittedByName ?? undefined : undefined),
       at:    change?.at,
       note:  step.status === 'APPROVED' ? change?.note : undefined,
+      // The order holds the latest report (Week 6 Task 1, D5).
+      detail: step.status === 'PENDING_COMPLETION' && order.actualYield
+        ? `Yield ${trimDecimal(order.actualYield.actualQty)} ${order.unitAbbreviation} of ${trimDecimal(order.plannedQty)} ${order.unitAbbreviation} planned`
+        : undefined,
     }
   })
 
@@ -97,6 +115,7 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
                   {step.who}{step.who && step.at && ' · '}{step.at && formatAt(step.at)}
                 </p>
               )}
+              {step.detail && <p className="mt-0.5 text-xs text-gray-600">{step.detail}</p>}
               {step.note && <p className="mt-0.5 text-xs text-gray-600">“{step.note}”</p>}
             </div>
           </li>

@@ -134,10 +134,10 @@ const plan = {
           tag: "costing",
           tasks: [
             { t: "Kitchen supervisor marks production as In Progress → Completed",
-              partial: "Start (→ In Progress) built in Week 5 Task 6 with a status log and timeline; Complete remains, with the stock deduction" },
+              partial: "Start built in Week 5 Task 6; the kitchen now reports a run done with its actual yield (→ awaiting accounting). COMPLETED, with the stock moves, comes with accounting's sign-off in Task 2" },
             "On completion: raw materials deducted per BOM, finished goods added to stock",
             "Batch number, production date, expiry date assigned to finished goods",
-            "Actual yield recorded vs planned yield",
+            { t: "Actual yield recorded vs planned yield", done: true },
             "COSTING: compute total batch cost = sum of (ingredient qty × unit price on production date)",
             "COSTING: compute cost per kg = total cost ÷ actual yield",
             "COSTING: planned vs actual cost variance recorded",

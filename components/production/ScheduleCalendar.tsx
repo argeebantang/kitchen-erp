@@ -11,13 +11,14 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
  * rather than green like Approved: on a calendar, done work should recede.
  */
 export const CHIP_STYLES: Record<string, string> = {
-  DRAFT:            'border-gray-200 bg-gray-50 text-gray-600',
-  PENDING_APPROVAL: 'border-amber-200 bg-amber-50 text-amber-800',
-  APPROVED:         'border-emerald-200 bg-emerald-50 text-emerald-800',
-  IN_PROGRESS:      'border-blue-200 bg-blue-50 text-blue-800',
-  COMPLETED:        'border-slate-200 bg-slate-100 text-slate-500',
-  REJECTED:         'border-red-200 bg-red-50 text-red-700 line-through',
-  CANCELLED:        'border-gray-200 bg-white text-gray-400 line-through',
+  DRAFT:              'border-gray-200 bg-gray-50 text-gray-600',
+  PENDING_APPROVAL:   'border-amber-200 bg-amber-50 text-amber-800',
+  APPROVED:           'border-emerald-200 bg-emerald-50 text-emerald-800',
+  IN_PROGRESS:        'border-blue-200 bg-blue-50 text-blue-800',
+  PENDING_COMPLETION: 'border-violet-200 bg-violet-50 text-violet-800',
+  COMPLETED:          'border-slate-200 bg-slate-100 text-slate-500',
+  REJECTED:           'border-red-200 bg-red-50 text-red-700 line-through',
+  CANCELLED:          'border-gray-200 bg-white text-gray-400 line-through',
 }
 
 /**

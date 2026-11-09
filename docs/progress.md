@@ -272,12 +272,21 @@ table; it's a UI/UX decision, not an architecture change.
 **Week 5 complete (2026-11-08).**
 
 ### Week 6 — Production Execution & Basic Costing
-- [ ] Execution flow (In Progress → Completed) with stock deduction/addition — *Start (→ In Progress)
-      was built in Week 5 Task 6; Complete remains, logging to `ProductionStatusChange`.*
+- [~] Execution flow (In Progress → Completed) with stock deduction/addition — *Start (→ In Progress)
+      was built in Week 5 Task 6.* **Completion report done 2026-11-09**
+      (`docs/2026-11-09-week6-report-completion.md`): production reports an in-progress run done with
+      its actual yield (`POST /api/production-orders/[id]/complete`, > 0 and ≤ 2 × planned) → new
+      status `PENDING_COMPLETION`, recording `actualQty`, `completedAt` and the new `completedById`
+      (migration `20261109054500_production_completion_pending`), logged through `transition()`.
+      Decided: **stock moves only when accounting approves the completion** (like receiving), so a
+      completion-pending run still counts as committed and nothing is deducted yet. Remaining (Task 2):
+      accounting approves → `COMPLETED` with the ingredient `OUT` movements and finished goods into
+      new lot-tracked stock tables, or rejects → back to `IN_PROGRESS`.
 - [ ] Batch/expiry tracking on finished goods
-- [ ] Actual vs planned yield
+- [x] Actual vs planned yield — **done 2026-11-09** with the completion report: "9.6 kg of 10 kg planned ·
+      −0.4 kg (96%)" on the order page, computed in Decimal; the timeline shows the yield reported.
 - [ ] Costing: batch cost, cost/kg, variance
-- [ ] Accounting approval of completion
+- [ ] Accounting approval of completion — next (Week 6 Task 2), together with the stock movements.
 
 ### Week 7 — Conversion, Write-off & Expiry
 - [ ] Conversion order + costing
