@@ -17,6 +17,8 @@ import { ProductionOrderActions } from '@/components/production/ProductionOrderA
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 import { CancelProductionOrder } from '@/components/production/CancelProductionOrder'
 import { CompleteProductionOrder } from '@/components/production/CompleteProductionOrder'
+import { CompletionReview } from '@/components/production/CompletionReview'
+import { CompletionStock } from '@/components/production/CompletionStock'
 import { StatusTimeline } from '@/components/production/StatusTimeline'
 
 type PageProps = {
@@ -58,6 +60,12 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
   const canCancel = canPlan && CANCELLABLE_STATUSES.includes(order.status)
   // Week 6 Task 1: production reports the run done with its actual yield.
   const canComplete = canPlan && order.status === 'IN_PROGRESS'
+  // Week 6 Task 2: accounting signs the completion off; never whoever reported it.
+  const isCompletionPending = order.status === 'PENDING_COMPLETION'
+  const isOwnCompletion     = order.completedById === session.userId
+  // The last change was accounting sending a reported completion back.
+  const lastChange = order.statusChanges.at(-1)
+  const sentBack   = lastChange?.fromStatus === 'PENDING_COMPLETION' && lastChange.toStatus === 'IN_PROGRESS'
 
   return (
     <div>
@@ -175,11 +183,25 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
       )}
       {order.status === 'IN_PROGRESS' && !canPlan && (
         <p className="mb-6 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          In the kitchen. Production reports the actual yield when the run is done.
+          {sentBack
+            ? 'Completion sent back — waiting for production to report the run again. It comes back here for approval then.'
+            : 'In the kitchen. Production reports the actual yield when the run is done.'}
         </p>
       )}
-      {/* W6-1: nothing has moved in stock yet; accounting's sign-off does that (Task 2). */}
-      {order.status === 'PENDING_COMPLETION' && (
+      {isCompletionPending && isApprover && !isOwnCompletion && order.completionEffect && (
+        <>
+          <CompletionReview effect={order.completionEffect} finishedGoodName={order.finishedGoodName} />
+          <ApprovalActions referenceType="ProductionCompletion" referenceId={order.id} />
+        </>
+      )}
+      {isCompletionPending && isApprover && isOwnCompletion && (
+        <p className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+          You reported this completion, so someone else has to approve it.
+        </p>
+      )}
+      {order.stockMoved && <CompletionStock stock={order.stockMoved} finishedGoodName={order.finishedGoodName} />}
+      {/* W6-1: nothing has moved in stock yet; accounting's sign-off does that. */}
+      {isCompletionPending && !isApprover && (
         <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Completion reported — waiting for accounting to approve it. The ingredients are deducted and the
           {' '}{order.finishedGoodName} is added to stock on approval.

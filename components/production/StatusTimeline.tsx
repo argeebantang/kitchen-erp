@@ -49,6 +49,13 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
   // The latest log row into a status (a status is only entered once today,
   // but latest is the right reading if that ever changes).
   const changeTo = (status: string) => [...order.statusChanges].reverse().find(change => change.toStatus === status)
+  // A completion accounting sent back also moves the order into IN_PROGRESS
+  // (Week 6 Task 2, D4), so the run's start is the change out of APPROVED,
+  // and the latest send-back is shown on that step as what happened since.
+  const started  = order.statusChanges.find(change => change.fromStatus === 'APPROVED' && change.toStatus === 'IN_PROGRESS')
+  const sentBack = [...order.statusChanges].reverse()
+    .find(change => change.fromStatus === 'PENDING_COMPLETION' && change.toStatus === 'IN_PROGRESS')
+  const entered  = (status: string) => (status === 'IN_PROGRESS' ? started : changeTo(status))
   const endingLabel = ENDINGS[order.status]
   const ending      = endingLabel ? changeTo(order.status) : undefined
   // Where the happy path stops: the current status, or for a rejected or
@@ -58,11 +65,16 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
   const visible = endingLabel ? STEPS.slice(0, reachedIndex + 1) : STEPS
 
   const steps: Step[] = visible.map((step, index) => {
-    const state: Step['state'] = endingLabel || index < reachedIndex ? 'done' : index === reachedIndex ? 'current' : 'todo'
+    // COMPLETED is the end of the happy path: nothing is current any more.
+    const finished = endingLabel !== undefined || order.status === 'COMPLETED'
+    const state: Step['state'] = finished || index < reachedIndex ? 'done' : index === reachedIndex ? 'current' : 'todo'
     if (index === 0) {
       return { label: step.label, state, who: order.requestedByName, at: order.createdAt }
     }
-    const change = changeTo(step.status)
+    // Not reached yet. After a send-back, "Completion pending" has a log row
+    // from the rejected report; it belongs to the past, not to this step now.
+    if (state === 'todo') return { label: step.label, state }
+    const change = entered(step.status)
     return {
       label: step.label,
       state,
@@ -70,11 +82,16 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
       // order row still knows who submitted.
       who:   change?.changedByName ?? (step.status === 'PENDING_APPROVAL' ? order.submittedByName ?? undefined : undefined),
       at:    change?.at,
-      note:  step.status === 'APPROVED' ? change?.note : undefined,
+      // Accounting's remarks on its two approvals: the plan and the completion.
+      note:  step.status === 'APPROVED' || step.status === 'COMPLETED'
+        ? change?.note
+        : step.status === 'IN_PROGRESS' ? sentBack?.note : undefined,
       // The order holds the latest report (Week 6 Task 1, D5).
       detail: step.status === 'PENDING_COMPLETION' && order.actualYield
         ? `Yield ${trimDecimal(order.actualYield.actualQty)} ${order.unitAbbreviation} of ${trimDecimal(order.plannedQty)} ${order.unitAbbreviation} planned`
-        : undefined,
+        : step.status === 'IN_PROGRESS' && sentBack
+          ? `Completion sent back by ${sentBack.changedByName} · ${formatAt(sentBack.at)}`
+          : undefined,
     }
   })
 
@@ -83,7 +100,6 @@ export function StatusTimeline({ order }: { order: ProductionOrderDetailDto }) {
   }
 
   // D4: no rule against starting early, but the record says so.
-  const started = changeTo('IN_PROGRESS')
   const startedDay = started
     ? new Date(started.at).toLocaleDateString('en-CA', { timeZone: BUSINESS_TIME_ZONE })
     : null

@@ -13,7 +13,7 @@ export default async function ApprovalsInboxPage() {
   const session = await getSession()
   if (!session) redirect('/login')
 
-  const [requests, orders, receiving, productionOrders] = await Promise.all([
+  const [requests, orders, receiving, productionOrders, completions] = await Promise.all([
     PurchaseRequestService.list(
       { userId: session.userId, role: session.role },
       { status: 'PENDING_APPROVAL', sort: 'neededBy', take: 100 },
@@ -21,6 +21,7 @@ export default async function ApprovalsInboxPage() {
     PurchaseOrderService.list({ status: 'PENDING_APPROVAL', take: 100 }),
     ReceivingReportService.list({ status: 'PENDING_APPROVAL', take: 100 }),
     ProductionOrderService.listPending(100),
+    ProductionOrderService.listPendingCompletions(100),
   ])
 
   const { purchaseRequests,  total: requestTotal }   = requests
@@ -31,6 +32,7 @@ export default async function ApprovalsInboxPage() {
     { count: orderTotal,     noun: 'purchase order' },
     { count: receivingTotal, noun: 'receiving report' },
     { count: productionOrders.length, noun: 'production order' },
+    { count: completions.length, noun: 'production completion' },
   ].filter(part => part.count > 0)
 
   return (
@@ -236,6 +238,65 @@ export default async function ApprovalsInboxPage() {
                     ) : (
                       <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
                         Short · {order.shortCount} of {order.ingredientCount}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={order.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Week 6 Task 2, D9: runs the kitchen reported done. Approving moves the stock. */}
+      <h2 className="mb-3 mt-8 text-sm font-semibold text-gray-700">Production completions</h2>
+
+      {completions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
+          <p className="text-sm font-medium text-gray-600">No completions waiting</p>
+          <p className="mt-1 text-sm text-gray-400">Runs the kitchen reports done will appear here.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Number</th>
+                <th className="px-4 py-3 font-medium">Finished good</th>
+                <th className="px-4 py-3 font-medium">Yield</th>
+                <th className="px-4 py-3 font-medium">Branch</th>
+                <th className="px-4 py-3 font-medium">Reported by</th>
+                <th className="px-4 py-3 font-medium">Stock after</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {completions.map(order => (
+                <tr key={order.id} className="transition-colors hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/production/orders/${order.id}`}
+                      className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      {order.orderNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">{order.finishedGoodName}</td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {trimDecimal(order.actualQty)} <span className="text-gray-400">of {trimDecimal(order.plannedQty)} {order.unitAbbreviation} ({order.percentOfPlan}%)</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{order.branchName}</td>
+                  <td className="px-4 py-3 text-gray-500">{order.completedByName ?? '—'}</td>
+                  <td className="px-4 py-3">
+                    {/* What approving would leave at the branch — the order page lists each ingredient. */}
+                    {order.negativeCount === 0 ? (
+                      <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">All in stock</span>
+                    ) : (
+                      <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
+                        {order.negativeCount} of {order.ingredientCount} go negative
                       </span>
                     )}
                   </td>

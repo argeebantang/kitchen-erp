@@ -1,6 +1,8 @@
 import { Prisma, ProductionStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { bomDetailInclude } from '@/repositories/bom.repository'
+import { InventoryRepository } from '@/repositories/inventory.repository'
+import { FinishedGoodStockRepository, ReceiveLotInput } from '@/repositories/finished-good-stock.repository'
 
 export type CreateProductionOrderInput = {
   finishedGoodId: string
@@ -140,19 +142,30 @@ export const ProductionOrderRepository = {
     })
   },
 
+  /** Order numbers for a batch of ids, for the Stock Ledger's source column — one query per page. */
+  async numbersByIds(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map()
+    const rows = await prisma.productionOrder.findMany({ where: { id: { in: ids } }, select: { id: true, orderNumber: true } })
+    return new Map(rows.map(row => [row.id, row.orderNumber]))
+  },
+
   async findById(id: string): Promise<ProductionOrderWithDetail | null> {
     return prisma.productionOrder.findUnique({ where: { id }, include: orderInclude })
   },
 
   /**
    * Orders awaiting a decision, each with its pinned BOM's lines, for the
-   * approvals inbox's shortage badge — one query, oldest submission first so
-   * the longest-waiting order heads the list. The bom include is a superset
-   * of orderInclude's, so a row still fits ProductionOrderWithDetail.
+   * approvals inbox — a plan (PENDING_APPROVAL, the shortage badge) or a
+   * reported completion (PENDING_COMPLETION, the go-negative badge). One
+   * query, longest-waiting first. The bom include is a superset of
+   * orderInclude's, so a row still fits ProductionOrderWithDetail.
    */
-  async findPendingWithBom(take = 100) {
+  async findPendingWithBom(
+    status: typeof ProductionStatus.PENDING_APPROVAL | typeof ProductionStatus.PENDING_COMPLETION,
+    take = 100,
+  ) {
     return prisma.productionOrder.findMany({
-      where:   { status: ProductionStatus.PENDING_APPROVAL },
+      where:   { status },
       include: { ...orderInclude, bom: { include: bomDetailInclude } },
       orderBy: { updatedAt: 'asc' },
       take,
@@ -283,15 +296,104 @@ export const ProductionOrderRepository = {
    * same UPDATE as the status, so they cannot land on an order that had moved
    * on. False if it was not in progress by then. No stock moves here — that
    * happens when accounting approves the completion.
+   *
+   * `note` ("Yield 9.6 kg") goes on the log row: a rejection clears the
+   * order's columns, and the append-only log keeps every report (Task 2, D4).
    */
-  async complete(id: string, input: { completedById: string; actualQty: Prisma.Decimal }): Promise<boolean> {
+  async complete(id: string, input: { completedById: string; actualQty: Prisma.Decimal; note: string }): Promise<boolean> {
     return prisma.$transaction(tx => transition(tx, {
       id,
       from:        ProductionStatus.IN_PROGRESS,
       to:          ProductionStatus.PENDING_COMPLETION,
       changedById: input.completedById,
+      note:        input.note,
       data:        { actualQty: input.actualQty, completedAt: new Date(), completedById: input.completedById },
     }))
+  },
+
+  /**
+   * Accounting's decision on a reported completion (Week 6 Task 2), all in
+   * one transaction:
+   *
+   *   approve: PENDING_COMPLETION → COMPLETED and its log row, the Approval
+   *            row, one OUT per ingredient, then the run's lot into
+   *            finished-goods stock at the actual yield
+   *   reject:  PENDING_COMPLETION → IN_PROGRESS with the reason, clearing the
+   *            reported yield, and the Approval row
+   *
+   * `completedAt` is the report the service read and showed: it goes in the
+   * UPDATE's WHERE, so if that report was rejected and a new one made in the
+   * meantime, nothing is decided (false) — the stock written here was
+   * computed from the old figure.
+   *
+   * Ingredients are written in materialId order. Two approvals that share
+   * ingredients then lock the same InventoryLevel rows in the same order and
+   * cannot deadlock (D2).
+   */
+  async decideCompletion(input: {
+    id: string
+    approverId: string
+    remarks: string | null
+    completedAt: Date
+    decision:
+      | { kind: 'REJECTED' }
+      | {
+          kind: 'APPROVED'
+          branchId: string
+          orderNumber: string
+          consumption: { materialId: string; quantity: Prisma.Decimal }[]
+          lot: Omit<ReceiveLotInput, 'branchId' | 'referenceType' | 'referenceId' | 'notes'>
+        }
+  }): Promise<boolean> {
+    return prisma.$transaction(async tx => {
+      const approving = input.decision.kind === 'APPROVED'
+      const moved = await transition(tx, {
+        id:          input.id,
+        from:        ProductionStatus.PENDING_COMPLETION,
+        to:          approving ? ProductionStatus.COMPLETED : ProductionStatus.IN_PROGRESS,
+        changedById: input.approverId,
+        note:        input.remarks,
+        where:       { completedAt: input.completedAt },
+        // A sent-back run is still cooking: no reported yield until the next report.
+        data:        approving ? undefined : { actualQty: null, completedAt: null, completedById: null },
+      })
+      if (!moved) return false
+
+      await tx.approval.create({
+        data: {
+          referenceType: 'ProductionCompletion',
+          referenceId:   input.id,
+          approverId:    input.approverId,
+          decision:      input.decision.kind,
+          remarks:       input.remarks,
+        },
+      })
+
+      if (input.decision.kind === 'REJECTED') return true
+      const approved = input.decision
+
+      const byMaterial = [...approved.consumption].sort((a, b) => (a.materialId < b.materialId ? -1 : 1))
+      for (const line of byMaterial) {
+        await InventoryRepository.stockOut(tx, {
+          materialId:    line.materialId,
+          branchId:      approved.branchId,
+          quantity:      line.quantity,
+          unitCost:      null,
+          referenceType: 'ProductionOrder',
+          referenceId:   input.id,
+          notes:         approved.orderNumber,
+        })
+      }
+
+      await FinishedGoodStockRepository.receiveLot(tx, {
+        ...approved.lot,
+        branchId:      approved.branchId,
+        referenceType: 'ProductionOrder',
+        referenceId:   input.id,
+        notes:         approved.orderNumber,
+      })
+      return true
+    })
   },
 
   /**

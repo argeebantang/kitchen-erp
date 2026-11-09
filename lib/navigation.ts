@@ -11,7 +11,8 @@ import {
   Settings,
   Map,
   ClipboardCheck,
-  ScrollText
+  ScrollText,
+  CookingPot
 } from 'lucide-react'
 
 export type NavItem = {
@@ -55,6 +56,7 @@ export const navigation: NavGroup[] = [
     group: 'Inventory',
     items: [
       { label: 'Stock Levels', href: '/inventory/stock',     icon: BarChart3, roles: [] },
+      { label: 'Finished Goods', href: '/inventory/finished-goods', icon: CookingPot, roles: [] },
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'BRANCH_MANAGER'] },
     ],

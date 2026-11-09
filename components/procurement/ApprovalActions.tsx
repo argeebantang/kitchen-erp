@@ -13,7 +13,7 @@ type Decision = 'APPROVED' | 'REJECTED'
  * guard will cover purchase orders later without a second rule.
  */
 type ApprovalActionsProps = {
-  referenceType: 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport' | 'ProductionOrder'
+  referenceType: 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport' | 'ProductionOrder' | 'ProductionCompletion'
   referenceId:   string
 }
 

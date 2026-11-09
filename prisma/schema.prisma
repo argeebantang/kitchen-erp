@@ -109,6 +109,8 @@ model Branch {
   productionOrders  ProductionOrder[]
   receivingReports  ReceivingReport[]
   stockMovements    StockMovement[]
+  finishedGoodLevels    FinishedGoodLevel[]
+  finishedGoodMovements FinishedGoodMovement[]
 }
 
 // ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
@@ -216,6 +218,7 @@ model FinishedGood {
   productionOrders  ProductionOrder[]
   conversionSources Conversion[] @relation("ConversionSource")
   conversionOutputs Conversion[] @relation("ConversionOutput")
+  lots              FinishedGoodLot[]
 }
 
 // ─── BOM ─────────────────────────────────────────────────────────────────────
@@ -480,6 +483,76 @@ model StockTransferItem {
   quantity        Decimal
 }
 
+// ─── FINISHED GOODS STOCK ────────────────────────────────────────────────────
+
+/// One run's output of a finished good: the unit finished goods are stocked,
+/// moved and (Week 7) expired by. Cooked food is perishable, so stock is kept
+/// per lot rather than per finished good — expiry flags, transfers and
+/// write-offs all need to know how much of which lot is where.
+///
+/// Separate from InventoryLevel / StockMovement, which are per material:
+/// folding finished goods into them would need nullable foreign keys and
+/// partial unique indexes that Prisma's upsert cannot use (Week 6 Task 2, D5).
+model FinishedGoodLot {
+  id                String           @id @default(cuid())
+  /// A production lot takes its order's number (PRD-000005): one run is one
+  /// lot, and the label leads straight back to the order (Week 6 Task 2, D6).
+  lotNumber         String           @unique
+  finishedGoodId    String
+  finishedGood      FinishedGood     @relation(fields: [finishedGoodId], references: [id])
+  /// The run that made it — at most one lot per run. Null for a lot that did
+  /// not come from a production run (Week 7 conversions).
+  productionOrderId String?          @unique
+  productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id])
+  /// Date-only (UTC midnight): the Manila date the kitchen reported the run done.
+  producedOn        DateTime
+  createdAt         DateTime         @default(now())
+
+  levels    FinishedGoodLevel[]
+  movements FinishedGoodMovement[]
+
+  @@index([finishedGoodId])
+}
+
+/// Current quantity of one lot at one branch — InventoryLevel's counterpart.
+/// Changed only together with a FinishedGoodMovement, through
+/// FinishedGoodStockRepository, so updatedAt is the lot's last movement there.
+model FinishedGoodLevel {
+  id        String          @id @default(cuid())
+  lotId     String
+  lot       FinishedGoodLot @relation(fields: [lotId], references: [id])
+  branchId  String
+  branch    Branch          @relation(fields: [branchId], references: [id])
+  quantity  Decimal         @default(0)
+  updatedAt DateTime        @updatedAt
+
+  @@unique([lotId, branchId])
+  @@index([branchId])
+}
+
+/// The finished-goods ledger, under the same two rules as StockMovement:
+/// quantity is SIGNED (in +, out −), so SUM(quantity) per lot and branch must
+/// equal FinishedGoodLevel.quantity; and every row names the document that
+/// caused it (referenceType + referenceId, NOT NULL, polymorphic). Append-only.
+model FinishedGoodMovement {
+  id            String          @id @default(cuid())
+  lotId         String
+  lot           FinishedGoodLot @relation(fields: [lotId], references: [id])
+  branchId      String
+  branch        Branch          @relation(fields: [branchId], references: [id])
+  type          MovementType
+  quantity      Decimal
+  /// Cost per unit; null until the costing method sets it (Week 6).
+  unitCost      Decimal?
+  referenceId   String
+  referenceType String
+  notes         String?
+  createdAt     DateTime        @default(now())
+
+  @@index([lotId, branchId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
 // ─── PRODUCTION ───────────────────────────────────────────────────────────────
 
 model ProductionOrder {
@@ -518,6 +591,8 @@ model ProductionOrder {
   updatedAt      DateTime         @updatedAt
 
   statusChanges ProductionStatusChange[]
+  /// What the run produced, once accounting signed the completion off.
+  lot           FinishedGoodLot?
 
   @@index([status])
   @@index([branchId])
