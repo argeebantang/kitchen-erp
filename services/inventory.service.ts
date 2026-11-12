@@ -4,6 +4,7 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository, LedgerFilters } from '@/repositories/inventory.repository'
 import { ReceivingReportRepository } from '@/repositories/receiving-report.repository'
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
+import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 
 /** The document a movement came from, as the ledger shows it. */
@@ -124,6 +125,11 @@ const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => stri
     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
     href:  id => `/production/orders/${id}`,
   },
+  // Added ingredients deducted when a conversion was approved (Week 7 Task 1).
+  ConversionOrder: {
+    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
+    href:  id => `/production/conversions/${id}`,
+  },
 }
 
 /** The most lots the Finished Goods page lists (D10). */
@@ -206,13 +212,15 @@ export const InventoryService = {
       : [null, null]
 
     const idsOf = (type: string) => [...new Set(rows.filter(row => row.referenceType === type).map(row => row.referenceId))]
-    const [receivingNumbers, productionNumbers] = await Promise.all([
+    const [receivingNumbers, productionNumbers, conversionNumbers] = await Promise.all([
       ReceivingReportRepository.numbersByIds(idsOf('ReceivingReport')),
       ProductionOrderRepository.numbersByIds(idsOf('ProductionOrder')),
+      ConversionOrderRepository.numbersByIds(idsOf('ConversionOrder')),
     ])
     const numbers = new Map<string, Map<string, string>>([
       ['ReceivingReport', receivingNumbers],
       ['ProductionOrder', productionNumbers],
+      ['ConversionOrder', conversionNumbers],
     ])
 
     const movements = rows.map<LedgerRowDto>(row => {
@@ -262,7 +270,8 @@ export const InventoryService = {
     const rows = await FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 })
     const truncated = rows.length > FINISHED_GOOD_LOT_LIMIT
     const shown     = rows.slice(0, FINISHED_GOOD_LOT_LIMIT)
-    const orderPage = SOURCE_PAGES.ProductionOrder
+    const orderPage      = SOURCE_PAGES.ProductionOrder
+    const conversionPage = SOURCE_PAGES.ConversionOrder
 
     // One clock for the whole page, so two lots expiring together read alike.
     const now  = Date.now()
@@ -284,11 +293,15 @@ export const InventoryService = {
         lastMovementAt:   row.updatedAt.toISOString(),
         unitCost:         unitCost === null ? null : toDecimalString(unitCost),
         value:            value === null ? null : toDecimalString(value),
-        // A production lot is numbered after its order (D6).
-        source: row.lot.productionOrderId === null ? null : {
+        // A lot is numbered after the document that made it: a production
+        // order (Week 6 Task 2, D6) or a conversion (Week 7 Task 1, D8).
+        source: row.lot.productionOrderId !== null ? {
           number: row.lot.lotNumber,
           href:   orderPage.roles.includes(viewer.role) ? orderPage.href(row.lot.productionOrderId) : null,
-        },
+        } : row.lot.conversionOrderId !== null ? {
+          number: row.lot.lotNumber,
+          href:   conversionPage.roles.includes(viewer.role) ? conversionPage.href(row.lot.conversionOrderId) : null,
+        } : null,
       }
     })
 

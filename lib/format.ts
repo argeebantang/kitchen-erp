@@ -26,6 +26,28 @@ export function trimDecimal(value: string): string {
 }
 
 /**
+ * A quantity for display, rounded half up to `places` decimals (default 3 —
+ * the gram, for kg) and trimmed: "41.667", "6.25", "-2.542". Needed where a
+ * quantity is divided by something other than a power of ten — a conversion
+ * scales its recipe by kg used ÷ 6 kg, so 1.4583333… kg of sugar (Week 7
+ * Task 1). Display only: stored values stay unrounded. Rounds on the digits,
+ * like formatPeso, not through a binary float.
+ */
+export function formatQuantity(value: string, places = 3): string {
+  const match = /^(-?)(\d+)(?:\.(\d*))?$/.exec(value.trim())
+  // Decimal writes very small or large values in exponent form (1e-7).
+  if (!match) return trimDecimal(Number(value).toFixed(places)).replace(/^-0$/, '0')
+
+  const [, sign, whole, fraction = ''] = match
+  const scale  = 10 ** places
+  const scaled = BigInt(whole) * BigInt(scale) + BigInt((fraction + '0'.repeat(places)).slice(0, places) || '0')
+    + (fraction.charAt(places) >= '5' ? BigInt(1) : BigInt(0))
+  const digits = scaled.toString().padStart(places + 1, '0')
+  const text   = trimDecimal(places === 0 ? digits : `${digits.slice(0, -places)}.${digits.slice(-places)}`)
+  return scaled === BigInt(0) ? text : `${sign}${text}`
+}
+
+/**
  * Display-only peso formatting, rounded half up to the centavo. Never feed the
  * result back into a calculation — all arithmetic happens server-side in
  * Decimal.

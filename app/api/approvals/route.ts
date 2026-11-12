@@ -4,12 +4,14 @@ import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ProductionOrderService } from '@/services/production-order.service'
+import { ConversionOrderService } from '@/services/conversion-order.service'
 
 
 const DecisionSchema = z.object({
   // ProductionCompletion = the kitchen's completion report on a production
   // order (referenceId is the order), decided separately from its plan.
-  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder', 'ProductionCompletion']),
+  // ConversionOrder = a recorded conversion (Week 7 Task 1).
+  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder', 'ProductionCompletion', 'ConversionOrder']),
   referenceId:   z.string().cuid(),
   decision:      z.enum(['APPROVED', 'REJECTED']),
   remarks:       z.string().trim().max(1000).nullish(),
@@ -36,6 +38,16 @@ export async function POST(req: NextRequest) {
     const { referenceType, referenceId, decision } = parsed.data
     const remarks = parsed.data.remarks ?? null
     const viewer  = { userId, role }
+
+    if (referenceType === 'ConversionOrder') {
+      const result = await ConversionOrderService.applyDecision(referenceId, viewer, decision, remarks)
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: result.status })
+      }
+
+      return NextResponse.json({ conversionOrder: result.data })
+    }
 
     if (referenceType === 'ProductionCompletion') {
       const result = await ProductionOrderService.applyCompletionDecision(referenceId, viewer, decision, remarks)

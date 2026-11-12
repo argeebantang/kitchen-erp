@@ -1,5 +1,7 @@
 import { Worker, type Job } from 'bullmq'
 import {
+  CONVERSION_ORDER_DECIDED,
+  CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
   getNotificationQueue,
   LOW_STOCK_CHECK,
@@ -11,6 +13,7 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
   STOCK_RECONCILIATION,
+  type ConversionOrderJob,
   type PrSubmittedJob,
   type ProductionOrderJob,
 } from '@/lib/queue'
@@ -58,6 +61,16 @@ async function handleCompletionDecided(job: Job<ProductionOrderJob>) {
   console.log(`  → wrote ${count} notification(s)`)
 }
 
+async function handleConversionSubmitted(job: Job<ConversionOrderJob>) {
+  const count = await NotificationService.notifyConversionSubmitted(job.data.conversionOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleConversionDecided(job: Job<ConversionOrderJob>) {
+  const count = await NotificationService.notifyConversionDecided(job.data.conversionOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
 async function handleLowStockCheck() {
   // The run's own date, in Manila — it is also what stops a second run today.
   const date = todayIsoDate()
@@ -91,6 +104,10 @@ const worker = new Worker(
         return handleCompletionReported(job)
       case PRODUCTION_COMPLETION_DECIDED:
         return handleCompletionDecided(job)
+      case CONVERSION_ORDER_SUBMITTED:
+        return handleConversionSubmitted(job)
+      case CONVERSION_ORDER_DECIDED:
+        return handleConversionDecided(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:

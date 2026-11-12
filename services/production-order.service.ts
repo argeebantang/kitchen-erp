@@ -1,4 +1,4 @@
-import { Prisma, ProductionStatus } from '@prisma/client'
+import { BomKind, Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { isoDateAt, todayIsoDate } from '@/lib/dates'
 import {
@@ -797,8 +797,9 @@ async function enqueue(jobName: string, productionOrderId: string): Promise<void
  * Shared by create and update, so a draft can never be saved under
  * looser rules than a new order.
  *
- * The BOM is whichever version is active right now: a draft re-pins on every
- * save (D9), and the pin only becomes permanent when the order is submitted.
+ * The BOM is whichever PRODUCTION version is active right now: a draft re-pins
+ * on every save (D9), and the pin only becomes permanent when the order is
+ * submitted. A conversion recipe is never planned here (Week 7 Task 1, D2).
  */
 async function validateOrder(input: CreateProductionOrderServiceInput): Promise<ProductionOrderResult<{
   bomId: string
@@ -809,7 +810,7 @@ async function validateOrder(input: CreateProductionOrderServiceInput): Promise<
 }>> {
   const [good, bom, branch] = await Promise.all([
     FinishedGoodRepository.findById(input.finishedGoodId),
-    BomRepository.findActiveByFinishedGood(input.finishedGoodId),
+    BomRepository.findActiveByFinishedGood(input.finishedGoodId, BomKind.PRODUCTION),
     BranchRepository.findById(input.branchId),
   ])
 
@@ -886,7 +887,7 @@ export const ProductionOrderService = {
     // card and its recorded costing.
     const [pinned, active, statusChanges, stockMoved] = await Promise.all([
       BomRepository.findById(order.bomId),
-      order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id),
+      order.bom.isActive ? null : BomRepository.findActiveByFinishedGood(order.finishedGood.id, BomKind.PRODUCTION),
       ProductionOrderRepository.findStatusChanges(order.id),
       order.status === ProductionStatus.COMPLETED ? completionStock(order.id) : null,
     ])
@@ -980,7 +981,7 @@ export const ProductionOrderService = {
     branchId: string
   }): Promise<ProductionOrderResult<RequirementsPreviewDto>> {
     const [bom, branch] = await Promise.all([
-      BomRepository.findActiveByFinishedGood(input.finishedGoodId),
+      BomRepository.findActiveByFinishedGood(input.finishedGoodId, BomKind.PRODUCTION),
       BranchRepository.findById(input.branchId),
     ])
     if (!bom) {

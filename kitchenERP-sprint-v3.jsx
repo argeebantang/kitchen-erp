@@ -150,9 +150,9 @@ const plan = {
           title: "Conversion, Write-off & Expiry",
           tag: "costing",
           tasks: [
-            "Conversion order: unsold lechon → lechon paksiw with conversion BOM",
-            "COSTING: record conversion cost from added ingredients",
-            "Conversion approval by accounting",
+            { t: "Conversion order: unsold lechon → lechon paksiw with conversion BOM", done: true },
+            { t: "COSTING: record conversion cost from added ingredients", done: true },
+            { t: "Conversion approval by accounting", done: true },
             "Write-off workflow: items that cannot be converted",
             "COSTING: write-off cost = quantity × unit cost of finished good",
             "Write-off approval by accounting",

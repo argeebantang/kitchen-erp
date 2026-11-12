@@ -23,7 +23,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 |---|---|---|
 | `item_prices` | **Done (2026-09-01).** `ItemPrice` added — open-ended effective dating with an optional `supplierId` (null = organisation reference price). `Material.standardCost` is deprecated but retained; nothing reads it. | Week 2 |
 | Production costing fields | **Done (2026-11-09).** `ProductionOrder.plannedCost`, `actualCost`, `costPerUnit`, `costVariance` as columns (one approval per order, so no separate `production_actuals` table); see `docs/2026-11-09-week6-production-costing.md`. | Week 6 |
-| Conversion costing + approval | **Partial.** `Conversion` exists but has no `conversionCost`, `status`, or `approvedById` — it currently records a conversion, it can't route one for approval. | Week 7 |
+| Conversion costing + approval | **Done (2026-11-12).** `ConversionOrder` replaces the unused `Conversion` stub: status, submitter, `sourceCost` / `conversionCost` / `costPerUnit` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-conversion-orders.md`. | Week 7 |
 | `writeoffs` | **Missing** entirely. | Week 7 |
 | `ai_insights` | **Missing.** Required by Features 1, 3, 4, 6. | Week 9 |
 | `ai_query_log` | **Missing.** Required by Feature 2 and its write-action audit trail. | Week 9 |
@@ -314,7 +314,26 @@ table; it's a UI/UX decision, not an architecture change.
 **Week 6 complete (2026-11-09).**
 
 ### Week 7 — Conversion, Write-off & Expiry
-- [ ] Conversion order + costing
+- [x] Conversion order + costing — **done 2026-11-12** (`docs/2026-11-12-week7-conversion-orders.md`),
+      covering the roadmap's "Conversion order…", "COSTING: record conversion cost…" and "Conversion
+      approval by accounting". Lechon is a finished good, roasted through ordinary production orders
+      (its master data and BOM were entered through the app). A BOM now has a **kind**: Lechon Paksiw
+      keeps its production recipe and gains a **conversion** recipe (Conversion v1: 6 kg Lechon + the
+      added ingredients per 10 kg); versions are numbered per kind and production planning only sees
+      production recipes. There is no BOM editor — conversion recipes go in through `POST /api/boms`.
+      Production → **Conversions**: production records a conversion already done (recipe, branch, kg
+      used, kg made — no draft), with a live preview of the source lots soonest-to-expire first
+      (expired lots skipped), the added ingredients scaled by kg used ÷ 6, the cost and the output lot;
+      it goes straight to accounting as `CNV-000001`. Submit checks enough unexpired source is on hand
+      at the branch, less what other pending conversions have claimed. Accounting approves or rejects
+      through `POST /api/approvals` (`referenceType: 'ConversionOrder'`; never whoever recorded it;
+      reason to reject; rejection is final — production records it again). Approval is one
+      transaction: the source lots are locked and re-planned (short → 409), taken out at their recorded
+      cost, the added ingredients go out at reference prices on the conversion date (may go negative),
+      the output comes in as lot `CNV-…` expiring its shelf life after the conversion, and the source
+      cost, conversion cost and cost per kg are recorded. Inbox section, Stock moved card,
+      notifications both ways, CNV links on Finished Goods and the Stock Ledger. Migration
+      `20261112090000_conversion_orders`.
 - [ ] Write-off workflow + costing
 - [ ] Expiry tracking (24/48h flags)
 - [ ] End-of-day reconciliation

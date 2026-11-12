@@ -1,5 +1,5 @@
 import { Role } from '@prisma/client'
-import { formatPeso, trimDecimal } from '@/lib/format'
+import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
@@ -7,6 +7,7 @@ import { CreateNotificationInput, NotificationRepository } from '@/repositories/
 import { InventoryService, reorderAlerts } from '@/services/inventory.service'
 import { PurchaseRequestRepository } from '@/repositories/purchase-request.repository'
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
+import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
@@ -36,6 +37,7 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   // Procurement cannot open production orders; their link is the purchase
   // request pre-filled with the shortfall (Week 5 Task 4).
   ProductionOrderShortfall: id => `/procurement/requests/new?productionOrder=${id}`,
+  ConversionOrder:     id => `/production/conversions/${id}`,
 }
 
 export type NotificationDto = {
@@ -365,6 +367,59 @@ export const NotificationService = {
           + (order.costPerUnit === null ? '.' : ` — it cost ${formatPeso(order.costPerUnit.toString())}/${unit}.`)
         : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Report the run again when corrected.`,
       referenceType: 'ProductionOrder',
+      referenceId:   order.id,
+    }])
+  },
+
+  /**
+   * Production recorded a conversion: tell everyone who can decide it except
+   * whoever recorded it (Week 7 Task 1, D9). Re-reads the order — gone, or
+   * already decided, means nothing to say.
+   */
+  async notifyConversionSubmitted(conversionOrderId: string): Promise<number> {
+    const order = await ConversionOrderRepository.findById(conversionOrderId)
+    if (!order || order.status !== 'PENDING_APPROVAL') return 0
+
+    const approvers  = await UserRepository.findByRoles(APPROVER_ROLES)
+    const recipients = approvers.filter(user => user.id !== order.submittedBy.id)
+
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'CONVERSION_ORDER_SUBMITTED',
+      title:         `${order.orderNumber} is waiting for approval`,
+      body:          `${order.submittedBy.name} converted ${formatQuantity(order.sourceQty.toString())} ${order.sourceFinishedGood.unit.abbreviation} `
+        + `${order.sourceFinishedGood.name} into ${formatQuantity(order.outputQty.toString())} ${order.finishedGood.unit.abbreviation} `
+        + `${order.finishedGood.name} at ${order.branch.name}. Approving moves the stock.`,
+      referenceType: 'ConversionOrder',
+      referenceId:   order.id,
+    })))
+  },
+
+  /**
+   * A conversion was decided: tell whoever recorded it — approved with the
+   * new lot and its cost, or rejected with the reason. The approver is never
+   * told about their own decision (and cannot be the recorder anyway).
+   */
+  async notifyConversionDecided(conversionOrderId: string): Promise<number> {
+    const [order, [latest]] = await Promise.all([
+      ConversionOrderRepository.findById(conversionOrderId),
+      ApprovalRepository.findByReference('ConversionOrder', conversionOrderId),
+    ])
+    if (!order || !latest || order.status === 'PENDING_APPROVAL') return 0
+    if (order.submittedBy.id === latest.approver.id) return 0
+
+    const approved = order.status === 'APPROVED'
+    const unit     = order.finishedGood.unit.abbreviation
+    return createAndPush([{
+      userId:        order.submittedBy.id,
+      type:          approved ? 'CONVERSION_ORDER_APPROVED' : 'CONVERSION_ORDER_REJECTED',
+      title:         `${order.orderNumber} was ${approved ? 'approved' : 'rejected'}`,
+      body:          approved
+        ? `${latest.approver.name} approved it: ${formatQuantity(order.outputQty.toString())} ${unit} ${order.finishedGood.name} `
+          + `is in stock at ${order.branch.name} as lot ${order.orderNumber}`
+          + (order.costPerUnit === null ? '.' : ` — it cost ${formatPeso(order.costPerUnit.toString())}/${unit}.`)
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Record it again with the right figures if it did happen.`,
+      referenceType: 'ConversionOrder',
       referenceId:   order.id,
     }])
   },

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { BomKind, Prisma } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { BomRepository, BomWithDetail, BomListFilters } from '@/repositories/bom.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
@@ -21,8 +21,26 @@ export type BomLineDto = {
   notes: string | null
 }
 
+/**
+ * A conversion recipe's source line (Week 7 Task 1, D2): the finished good it
+ * is made from, per batch and scaled like the ingredient lines. Not priced
+ * here — a source is costed at approval from the lots actually taken, at
+ * their recorded cost (D7), not at a reference price.
+ */
+export type BomSourceDto = {
+  finishedGoodId: string
+  code: string
+  name: string
+  unitAbbreviation: string
+  /** Per batch of batchSize, as authored. */
+  batchQuantity: string
+  /** batchQuantity × (targetQuantity / batchSize). */
+  scaledQuantity: string
+}
+
 export type BomDetailDto = {
   id: string
+  kind: BomKind
   version: number
   isActive: boolean
   finishedGoodId: string
@@ -35,8 +53,14 @@ export type BomDetailDto = {
   createdAt: string
   /** The quantity the lines below were scaled to. Defaults to batchSize. */
   targetQuantity: string
+  /** CONVERSION only; null for a production recipe. */
+  source: BomSourceDto | null
   lines: BomLineDto[]
-  /** Sum of lineCost. Null if ANY line is unpriced — a partial total misleads. */
+  /**
+   * Sum of lineCost. Null if ANY line is unpriced — a partial total misleads.
+   * For a conversion recipe, the added ingredients only (the source is not
+   * priced here, see BomSourceDto).
+   */
   totalCost: string | null
   /** totalCost / targetQuantity, in Decimal. Week 6 costing compares against this. */
   costPerUnit: string | null
@@ -44,6 +68,7 @@ export type BomDetailDto = {
 
 export type BomSummaryDto = {
   id: string
+  kind: BomKind
   version: number
   isActive: boolean
   finishedGoodId: string
@@ -51,12 +76,15 @@ export type BomSummaryDto = {
   finishedGoodName: string
   batchSize: string
   batchUnitAbbreviation: string
+  /** CONVERSION only: "6 kg Lechon" per batch. */
+  source: { name: string; quantity: string; unitAbbreviation: string } | null
   lineCount: number
   createdAt: string
 }
 
 export type BomVersionDto = {
   id: string
+  kind: BomKind
   version: number
   isActive: boolean
   batchSize: string
@@ -67,6 +95,11 @@ export type BomVersionDto = {
 
 export type CreateBomServiceInput = {
   finishedGoodId: string
+  /** Defaults to PRODUCTION. */
+  kind?: BomKind
+  /** CONVERSION only, both required: the finished good converted and how much of it one batch uses. */
+  sourceFinishedGoodId?: string | null
+  sourceQuantity?: string | null
   batchSize: string
   batchUnitId: string
   notes?: string | null
@@ -147,8 +180,20 @@ async function toDetailDto(
     }
   })
 
+  const source = bom.sourceFinishedGood !== null && bom.sourceQuantity !== null
+    ? {
+        finishedGoodId:   bom.sourceFinishedGood.id,
+        code:             bom.sourceFinishedGood.code,
+        name:             bom.sourceFinishedGood.name,
+        unitAbbreviation: bom.sourceFinishedGood.unit.abbreviation,
+        batchQuantity:    toDecimalString(bom.sourceQuantity),
+        scaledQuantity:   toDecimalString(bom.sourceQuantity.mul(targetQuantity.div(bom.batchSize))),
+      }
+    : null
+
   return {
     id:                    bom.id,
+    kind:                  bom.kind,
     version:               bom.version,
     isActive:              bom.isActive,
     finishedGoodId:        bom.finishedGoodId,
@@ -160,6 +205,7 @@ async function toDetailDto(
     notes:                 bom.notes,
     createdAt:             bom.createdAt.toISOString(),
     targetQuantity:        toDecimalString(targetQuantity),
+    source,
     lines,
     totalCost:             everyLinePriced ? toDecimalString(runningTotal) : null,
     // Divided here in Decimal rather than in the view with JS numbers — cost
@@ -170,6 +216,53 @@ async function toDetailDto(
   }
 }
 
+/**
+ * The source line of a recipe (Week 7 Task 1, D2). A production recipe has
+ * none. A conversion recipe names an active finished good other than its own
+ * output, with a quantity per batch in that good's unit; and its batch unit
+ * must be the output's own unit, because a conversion puts its output into
+ * stock in that unit and there is no unit conversion (production checks the
+ * same when an order is planned).
+ */
+async function checkSource(
+  input: CreateBomServiceInput,
+  kind: BomKind,
+  good: { id: string; name: string; unitId: string; unit: { abbreviation: string } },
+): Promise<BomResult<{ finishedGoodId: string; quantity: Prisma.Decimal } | null>> {
+  const hasSource = Boolean(input.sourceFinishedGoodId) || Boolean(input.sourceQuantity)
+
+  if (kind === BomKind.PRODUCTION) {
+    return hasSource
+      ? { success: false, error: 'A production BOM has no source finished good — send kind CONVERSION for a conversion recipe', status: 400 }
+      : { success: true, data: null }
+  }
+
+  if (!input.sourceFinishedGoodId || !input.sourceQuantity) {
+    return { success: false, error: 'A conversion BOM needs the finished good it converts and how much of it one batch uses', status: 400 }
+  }
+  if (input.sourceFinishedGoodId === good.id) {
+    return { success: false, error: `${good.name} cannot be converted into itself`, status: 400 }
+  }
+  const quantity = toDecimal(input.sourceQuantity)
+  if (quantity.lessThanOrEqualTo(0)) {
+    return { success: false, error: 'The source quantity per batch must be greater than zero', status: 400 }
+  }
+  if (input.batchUnitId !== good.unitId) {
+    return {
+      success: false,
+      error:   `${good.name} is stocked in ${good.unit.abbreviation}, so its conversion batch must be stated in ${good.unit.abbreviation} — unit conversion is not supported yet`,
+      status:  400,
+    }
+  }
+
+  const sourceGood = await FinishedGoodRepository.findById(input.sourceFinishedGoodId)
+  if (!sourceGood || !sourceGood.isActive) {
+    return { success: false, error: 'Source finished good not found', status: 400 }
+  }
+
+  return { success: true, data: { finishedGoodId: sourceGood.id, quantity } }
+}
+
 export const BomService = {
   async list(filters: BomListFilters = {}) {
     const { rows, total } = await BomRepository.findMany(filters)
@@ -177,6 +270,7 @@ export const BomService = {
     return {
       boms: rows.map<BomSummaryDto>(bom => ({
         id:                    bom.id,
+        kind:                  bom.kind,
         version:               bom.version,
         isActive:              bom.isActive,
         finishedGoodId:        bom.finishedGoodId,
@@ -184,6 +278,13 @@ export const BomService = {
         finishedGoodName:      bom.finishedGood.name,
         batchSize:             toDecimalString(bom.batchSize),
         batchUnitAbbreviation: bom.batchUnit.abbreviation,
+        source:                bom.sourceFinishedGood !== null && bom.sourceQuantity !== null
+          ? {
+              name:             bom.sourceFinishedGood.name,
+              quantity:         toDecimalString(bom.sourceQuantity),
+              unitAbbreviation: bom.sourceFinishedGood.unit.abbreviation,
+            }
+          : null,
         lineCount:             bom._count.items,
         createdAt:             bom.createdAt.toISOString(),
       })),
@@ -212,18 +313,20 @@ export const BomService = {
     return { success: true, data: await toDetailDto(bom, target) }
   },
 
-  async versions(finishedGoodId: string): Promise<BomResult<BomVersionDto[]>> {
+  /** Every version of every kind, or of one kind when given (each kind numbers its own). */
+  async versions(finishedGoodId: string, kind?: BomKind): Promise<BomResult<BomVersionDto[]>> {
     const good = await FinishedGoodRepository.findById(finishedGoodId)
     if (!good) {
       return { success: false, error: 'Finished good not found', status: 404 }
     }
 
-    const versions = await BomRepository.findVersions(finishedGoodId)
+    const versions = await BomRepository.findVersions(finishedGoodId, kind)
 
     return {
       success: true,
       data: versions.map(v => ({
         id:                    v.id,
+        kind:                  v.kind,
         version:               v.version,
         isActive:              v.isActive,
         batchSize:             toDecimalString(v.batchSize),
@@ -250,6 +353,10 @@ export const BomService = {
       // every scale calculation, so zero would make the viewer return Infinity.
       return { success: false, error: 'Batch size must be greater than zero', status: 400 }
     }
+
+    const kind   = input.kind ?? BomKind.PRODUCTION
+    const source = await checkSource(input, kind, good)
+    if (!source.success) return source
 
     if (input.items.length === 0) {
       return { success: false, error: 'A BOM needs at least one ingredient line', status: 400 }
@@ -288,6 +395,8 @@ export const BomService = {
 
     const bom = await BomRepository.createVersion({
       finishedGoodId: input.finishedGoodId,
+      kind,
+      source:         source.data,
       batchSize,
       batchUnitId:    input.batchUnitId,
       notes:          input.notes ?? null,

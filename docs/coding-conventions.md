@@ -49,7 +49,7 @@
 
 * Never pass a Prisma `Decimal` (or any class instance) to a Client Component. Convert with `toDecimalString` (`lib/decimal.ts`) in the service.
 * Client Components may `import type` from services (DTO types) but never import a value from `services/`, `repositories/` or `lib/decimal.ts` — that pulls Prisma into the browser bundle.
-* Formatting both sides need (`trimDecimal`, `formatPeso`) lives in `lib/format.ts`, which has no `'use client'` and no Prisma import.
+* Formatting both sides need (`trimDecimal`, `formatPeso`, `formatQuantity`) lives in `lib/format.ts`, which has no `'use client'` and no Prisma import. A quantity that can repeat (scaled by something other than a power of ten, e.g. a conversion's kg used ÷ 6) is stored unrounded and shown with `formatQuantity` — to the gram, rounded half up on the digits.
 * Float arithmetic in the browser (e.g. a live "accepted" figure) is compared in integer millionths to avoid `10.3 - 0.1` errors; the server's Decimal check is the one that holds.
 * Anything `middleware.ts` imports must be Edge-safe (`lib/jwt.ts`, not `lib/auth.ts`). `lib/queue.ts` is Node-only. Nothing under `app/` imports `worker/`.
 

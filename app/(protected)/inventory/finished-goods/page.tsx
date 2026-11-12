@@ -13,8 +13,9 @@ type PageProps = {
 
 /**
  * Finished goods on hand (Week 6 Task 2, D10): what completed production runs
- * put into stock, lot by lot. Every signed-in role, like Stock Levels. A lot
- * appears once accounting approves its run's completion.
+ * and approved conversions (Week 7 Task 1) put into stock, lot by lot. Every
+ * signed-in role, like Stock Levels. A lot appears once accounting approves
+ * its run's completion or its conversion.
  */
 export default async function FinishedGoodsPage({ searchParams }: PageProps) {
   const session = await getSession()
@@ -33,9 +34,9 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Finished Goods</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Cooked goods on hand, by lot, soonest to expire first — use them in this order. A lot is one production
-          run&apos;s output, numbered after its order; it is added here when accounting approves the run&apos;s
-          completion, and expires its finished good&apos;s shelf life after the run was reported done.
+          Cooked goods on hand, by lot, soonest to expire first — use them in this order. A lot is the output of
+          one production run (PRD-…) or one conversion (CNV-…), numbered after it; it is added here when accounting
+          approves it, and expires its finished good&apos;s shelf life after it was cooked.
         </p>
       </div>
 
@@ -57,7 +58,7 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
         <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
           <p className="text-sm font-medium text-gray-600">No finished goods on hand</p>
           <p className="mt-1 text-sm text-gray-400">
-            Complete a production run and have accounting approve it — its output appears here as a lot.
+            Complete a production run or record a conversion, and have accounting approve it — its output appears here as a lot.
           </p>
         </div>
       ) : (
@@ -107,7 +108,7 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                     className={`transition-colors ${lot.expired ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
                   >
                     <td className="px-4 py-3">
-                      {/* The lot number is the order's; it links there for roles that can open it. */}
+                      {/* The lot number is its order's or conversion's; it links there for roles that can open it. */}
                       {lot.source?.href ? (
                         <Link href={lot.source.href} className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline">
                           {lot.lotNumber}
