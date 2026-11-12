@@ -23,7 +23,8 @@ export default async function BomListPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Bill of Materials</h1>
           <p className="mt-1 text-sm text-gray-400">
-            Recipes per batch. {showAll ? 'Showing all versions.' : 'Showing active versions only.'}
+            Recipes per batch: production recipes, and conversion recipes that turn one finished good
+            into another. {showAll ? 'Showing all versions.' : 'Showing active versions only.'}
           </p>
         </div>
 
@@ -55,6 +56,11 @@ export default async function BomListPage({ searchParams }: PageProps) {
                   <ClipboardList size={18} />
                 </span>
                 <div className="flex items-center gap-1.5">
+                  {bom.kind === 'CONVERSION' && (
+                    <span className="rounded bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+                      Conversion
+                    </span>
+                  )}
                   <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">
                     v{bom.version}
                   </span>
@@ -73,14 +79,22 @@ export default async function BomListPage({ searchParams }: PageProps) {
               <p className="font-semibold text-gray-800">{bom.finishedGoodName}</p>
               <p className="font-mono text-xs text-gray-400">{bom.finishedGoodCode}</p>
 
-              <div className="mt-4 flex items-center gap-4 text-sm text-gray-500">
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
                 <span>
                   <span className="font-medium text-gray-700">
                     {trimDecimal(bom.batchSize)} {bom.batchUnitAbbreviation}
                   </span>{' '}
                   batch
                 </span>
-                <span>{bom.lineCount} ingredients</span>
+                {bom.source && (
+                  <span>
+                    from{' '}
+                    <span className="font-medium text-violet-700">
+                      {trimDecimal(bom.source.quantity)} {bom.source.unitAbbreviation} {bom.source.name}
+                    </span>
+                  </span>
+                )}
+                <span>{bom.lineCount} {bom.source ? 'added ingredients' : 'ingredients'}</span>
               </div>
             </Link>
           ))}

@@ -12,7 +12,8 @@ import {
   Map,
   ClipboardCheck,
   ScrollText,
-  CookingPot
+  CookingPot,
+  Recycle
 } from 'lucide-react'
 
 export type NavItem = {
@@ -49,6 +50,7 @@ export const navigation: NavGroup[] = [
     items: [
       { label: 'Production Orders', href: '/production/orders', icon: Package,       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Production Schedule', href: '/production/schedule', icon: CalendarDays, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+      { label: 'Conversions',       href: '/production/conversions', icon: Recycle,  roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Bill of Materials', href: '/production/bom',    icon: ClipboardList, roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
     ],
   },

@@ -61,6 +61,24 @@ enum ProductionStatus {
   CANCELLED
 }
 
+/// What a BOM makes its finished good from (Week 7 Task 1, D2):
+///   PRODUCTION  materials only, cooked through a production order
+///   CONVERSION  another finished good (the source, e.g. unsold Lechon) plus
+///               added materials, through a conversion order
+enum BomKind {
+  PRODUCTION
+  CONVERSION
+}
+
+/// A conversion order records a conversion already done (no draft), so it is
+/// created PENDING_APPROVAL; accounting's approval is what moves the stock.
+/// REJECTED is terminal (Week 7 Task 1, D4 / D6).
+enum ConversionStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
 enum MovementType {
   IN
   OUT
@@ -88,6 +106,7 @@ model User {
   productionOrders        ProductionOrder[]   @relation("ProductionOrderRequester")
   submittedProductionOrders ProductionOrder[] @relation("ProductionOrderSubmitter")
   completedProductionOrders ProductionOrder[] @relation("ProductionOrderCompleter")
+  submittedConversionOrders ConversionOrder[] @relation("ConversionOrderSubmitter")
   productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
@@ -111,6 +130,7 @@ model Branch {
   stockMovements    StockMovement[]
   finishedGoodLevels    FinishedGoodLevel[]
   finishedGoodMovements FinishedGoodMovement[]
+  conversionOrders      ConversionOrder[]
 }
 
 // ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
@@ -218,10 +238,12 @@ model FinishedGood {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  boms              BOM[]
+  boms              BOM[]             @relation("BomOutput")
+  /// Conversion BOMs that use this good as their source.
+  conversionBoms    BOM[]             @relation("BomConversionSource")
   productionOrders  ProductionOrder[]
-  conversionSources Conversion[] @relation("ConversionSource")
-  conversionOutputs Conversion[] @relation("ConversionOutput")
+  conversionOrders  ConversionOrder[] @relation("ConversionOrderOutput")
+  conversionSources ConversionOrder[] @relation("ConversionOrderSource")
   lots              FinishedGoodLot[]
 }
 
@@ -239,23 +261,40 @@ model FinishedGood {
 /// (isActive = false on the old); rows are never mutated or deleted, because
 /// ProductionOrder pins bomId and a completed run must keep reporting the
 /// ingredients it actually consumed.
+///
+/// A finished good can have one active version per KIND (Week 7 Task 1, D2):
+/// Lechon Paksiw is cooked from bought roasted pork (PRODUCTION) and also made
+/// from unsold Lechon (CONVERSION). Versions are numbered per kind, so the two
+/// recipes read "v1" and "Conversion v1" rather than one borrowing the other's
+/// numbers. Production planning only ever sees PRODUCTION versions.
 model BOM {
   id             String       @id @default(cuid())
   finishedGoodId String
-  finishedGood   FinishedGood @relation(fields: [finishedGoodId], references: [id])
+  finishedGood   FinishedGood @relation("BomOutput", fields: [finishedGoodId], references: [id])
+  kind           BomKind      @default(PRODUCTION)
   version        Int          @default(1)
   isActive       Boolean      @default(true)
   batchSize      Decimal
   batchUnitId    String
   batchUnit      Unit         @relation(fields: [batchUnitId], references: [id])
+  /// CONVERSION only: the finished good converted (e.g. Lechon) and how much
+  /// of it one batch of batchSize uses, in the source good's own unit — the
+  /// source's line of the recipe, kept apart from BOMItem because it comes
+  /// out of finished-goods lots, not material stock. Both null on a
+  /// PRODUCTION version; a CHECK constraint holds the pairing (migration
+  /// 20261112090000_conversion_orders).
+  sourceFinishedGoodId String?
+  sourceFinishedGood   FinishedGood? @relation("BomConversionSource", fields: [sourceFinishedGoodId], references: [id])
+  sourceQuantity       Decimal?
   notes          String?
   createdAt      DateTime     @default(now())
 
   items            BOMItem[]
   productionOrders ProductionOrder[]
+  conversionOrders ConversionOrder[]
 
-  @@unique([finishedGoodId, version])
-  @@index([finishedGoodId, isActive])
+  @@unique([finishedGoodId, kind, version])
+  @@index([finishedGoodId, kind, isActive])
 }
 
 model BOMItem {
@@ -505,15 +544,21 @@ model FinishedGoodLot {
   finishedGoodId    String
   finishedGood      FinishedGood     @relation(fields: [finishedGoodId], references: [id])
   /// The run that made it — at most one lot per run. Null for a lot that did
-  /// not come from a production run (Week 7 conversions).
+  /// not come from a production run.
   productionOrderId String?          @unique
   productionOrder   ProductionOrder? @relation(fields: [productionOrderId], references: [id])
-  /// Date-only (UTC midnight): the Manila date the kitchen reported the run done.
+  /// The conversion that made it, numbered after it (CNV-000001) — at most one
+  /// lot per conversion (Week 7 Task 1, D8). Exactly one of productionOrderId
+  /// and conversionOrderId is set.
+  conversionOrderId String?          @unique
+  conversionOrder   ConversionOrder? @relation(fields: [conversionOrderId], references: [id])
+  /// Date-only (UTC midnight): the Manila date the kitchen reported the run
+  /// done, or the conversion was recorded.
   producedOn        DateTime
-  /// When it must no longer be used: the moment the run was reported done
-  /// plus the finished good's shelf life, fixed when the lot is created so a
-  /// later shelf-life change never moves a labelled lot (Week 6 Task 4).
-  /// Null only for lots made before expiry was tracked.
+  /// When it must no longer be used: the moment the run was reported done (or
+  /// the conversion recorded) plus the finished good's shelf life, fixed when
+  /// the lot is created so a later shelf-life change never moves a labelled
+  /// lot (Week 6 Task 4). Null only for lots made before expiry was tracked.
   expiresAt         DateTime?
   createdAt         DateTime         @default(now())
 
@@ -646,16 +691,60 @@ model ProductionStatusChange {
 
 // ─── CONVERSIONS ─────────────────────────────────────────────────────────────
 
-model Conversion {
-  id           String       @id @default(cuid())
-  sourceGoodId String
-  sourceGood   FinishedGood @relation("ConversionSource", fields: [sourceGoodId], references: [id])
-  sourceQty    Decimal
-  outputGoodId String
-  outputGood   FinishedGood @relation("ConversionOutput", fields: [outputGoodId], references: [id])
-  outputQty    Decimal
-  notes        String?
-  convertedAt  DateTime     @default(now())
+/// A conversion already done in the kitchen — unsold Lechon made into Lechon
+/// Paksiw — recorded for accounting's approval (Week 7 Task 1). There is no
+/// draft: the kitchen records what it used and made, and it is submitted as
+/// it is created (D4). Nothing moves in stock until approval (D6), which in
+/// one transaction takes the source out of its lots (soonest expiry first),
+/// the added ingredients out of material stock, and puts the output in as a
+/// new lot numbered after this order (D8).
+///
+/// The added ingredients are not stored: they are the pinned conversion BOM
+/// scaled by sourceQty ÷ the BOM's sourceQuantity, like a production order's
+/// requirements. Costs are recorded at approval and never recomputed (D7).
+model ConversionOrder {
+  id                   String           @id @default(cuid())
+  /// CNV-000001, from cnv_number_seq.
+  orderNumber          String           @unique
+  /// The CONVERSION BOM version used, pinned when recorded.
+  bomId                String
+  bom                  BOM              @relation(fields: [bomId], references: [id])
+  /// What it made (= the BOM's finished good) and what it was made from (= the
+  /// BOM's source), kept on the order like ProductionOrder.finishedGoodId.
+  finishedGoodId       String
+  finishedGood         FinishedGood     @relation("ConversionOrderOutput", fields: [finishedGoodId], references: [id])
+  sourceFinishedGoodId String
+  sourceFinishedGood   FinishedGood     @relation("ConversionOrderSource", fields: [sourceFinishedGoodId], references: [id])
+  /// Where it was done: the branch whose lots and stock it moves.
+  branchId             String
+  branch               Branch           @relation(fields: [branchId], references: [id])
+  /// Who recorded it. Never its approver, ADMIN included (D6).
+  submittedById        String
+  submittedBy          User             @relation("ConversionOrderSubmitter", fields: [submittedById], references: [id])
+  status               ConversionStatus @default(PENDING_APPROVAL)
+  /// Source used, in the source good's unit (kg of Lechon).
+  sourceQty            Decimal
+  /// Output made, in the output good's unit (kg of Paksiw).
+  outputQty            Decimal
+  /// Costing (D7), recorded at approval and never recomputed; null until then.
+  /// Pesos, unrounded. What the source lots taken were recorded at: Σ kg ×
+  /// each lot's cost per unit.
+  sourceCost           Decimal?
+  /// The added ingredients at reference prices on the conversion date.
+  conversionCost       Decimal?
+  /// (sourceCost + conversionCost) ÷ outputQty — the output lot's cost per unit.
+  costPerUnit          Decimal?
+  notes                String?
+  /// The moment it was recorded and submitted: its conversion date (Manila)
+  /// and the start of the output's shelf life (D8).
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  /// What it produced, once approved.
+  lot                  FinishedGoodLot?
+
+  @@index([status])
+  @@index([branchId])
 }
 
 // ─── APPROVALS ───────────────────────────────────────────────────────────────
@@ -673,7 +762,7 @@ model Conversion {
 /// StockMovement.referenceId is already treated (see docs/database.md).
 model Approval {
   id            String   @id @default(cuid())
-  referenceType String // 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport'
+  referenceType String // 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport' | 'ProductionOrder' | 'ProductionCompletion' | 'ConversionOrder'
   referenceId   String
   approverId    String
   approver      User     @relation(fields: [approverId], references: [id])

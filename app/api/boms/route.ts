@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { BomKind } from '@prisma/client'
 import { BomService } from '@/services/bom.service'
 
 const PositiveDecimalString = z
@@ -8,6 +9,7 @@ const PositiveDecimalString = z
 
 const ListQuerySchema = z.object({
   finishedGoodId:    z.string().cuid().optional(),
+  kind:              z.nativeEnum(BomKind).optional(),
   // Not z.coerce.boolean(): that is Boolean(value), which reads "false" as true.
   includeSuperseded: z.enum(['true', 'false']).transform(value => value === 'true').optional(),
   skip:              z.coerce.number().int().min(0).optional(),
@@ -16,6 +18,12 @@ const ListQuerySchema = z.object({
 
 const CreateBomSchema = z.object({
   finishedGoodId: z.string().cuid(),
+  // Omitted = PRODUCTION. A CONVERSION recipe also names its source finished
+  // good and how much of it one batch uses (Week 7 Task 1, D2); the service
+  // checks the pairing.
+  kind:                 z.nativeEnum(BomKind).optional(),
+  sourceFinishedGoodId: z.string().cuid().nullish(),
+  sourceQuantity:       PositiveDecimalString.nullish(),
   batchSize:      PositiveDecimalString,
   batchUnitId:    z.string().cuid(),
   notes:          z.string().trim().max(1000).nullish(),
@@ -52,7 +60,7 @@ export async function GET(req: NextRequest) {
 /**
  * Creates a BOM. This is also the edit endpoint — there is no PATCH, because a
  * BOM version is immutable once it exists. Posting for a finished good that
- * already has a BOM supersedes the active version with version + 1.
+ * already has a BOM of that kind supersedes its active version with version + 1.
  */
 export async function POST(req: NextRequest) {
   try {

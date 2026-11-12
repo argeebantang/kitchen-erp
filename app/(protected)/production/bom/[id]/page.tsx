@@ -22,10 +22,13 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
   }
 
   const bom = result.data
-  const [versionsResult] = await Promise.all([BomService.versions(bom.finishedGoodId)])
+  // Only this kind's history: production and conversion recipes number their
+  // versions separately (Week 7 Task 1, D2).
+  const versionsResult = await BomService.versions(bom.finishedGoodId, bom.kind)
   const versions = versionsResult.success ? versionsResult.data : []
 
   const isScaled = trimDecimal(bom.targetQuantity) !== trimDecimal(bom.batchSize)
+  const isConversion = bom.kind === 'CONVERSION'
 
   return (
     <div>
@@ -40,6 +43,11 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold text-gray-800">{bom.finishedGoodName}</h1>
+            {isConversion && (
+              <span className="rounded bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+                Conversion
+              </span>
+            )}
             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">
               v{bom.version}
             </span>
@@ -57,7 +65,9 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
         </div>
 
         <div className="text-right">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Estimated batch cost</p>
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            {isConversion ? 'Estimated added-ingredient cost' : 'Estimated batch cost'}
+          </p>
           {bom.totalCost !== null ? (
             <p className="text-2xl font-bold text-gray-800">
               {formatPeso(bom.totalCost)}
@@ -74,6 +84,15 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
         <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50 p-3 text-sm text-amber-800">
           This is a superseded version, kept for history. Production orders that used it still
           reference these exact quantities.
+        </div>
+      )}
+
+      {bom.source && (
+        <div className="mb-4 rounded-lg border border-violet-100 bg-violet-50 p-3 text-sm text-violet-800">
+          Conversion recipe: makes {bom.finishedGoodName} from {bom.source.name} — used by conversion
+          orders, never by production orders. The {bom.source.name} is costed when a conversion is
+          approved, at the recorded cost of the lots it is taken from, so the cost here is the added
+          ingredients only.
         </div>
       )}
 
@@ -107,6 +126,27 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
+            {bom.source && (
+              <tr className="bg-violet-50/40">
+                <td className="px-4 py-3">
+                  <p className="flex items-center gap-1.5 font-medium text-gray-800">
+                    {bom.source.name}
+                    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-700">
+                      Source · finished good
+                    </span>
+                  </p>
+                  <p className="font-mono text-xs text-gray-400">{bom.source.code}</p>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums text-gray-500">
+                  {trimDecimal(bom.source.batchQuantity)} {bom.source.unitAbbreviation}
+                </td>
+                <td className={`px-4 py-3 text-right tabular-nums font-medium ${isScaled ? 'text-orange-600' : 'text-gray-800'}`}>
+                  {trimDecimal(bom.source.scaledQuantity)} {bom.source.unitAbbreviation}
+                </td>
+                <td className="px-4 py-3 text-right text-xs text-gray-400">at lot cost</td>
+                <td className="px-4 py-3 text-gray-500">Taken from lots on hand, soonest expiry first</td>
+              </tr>
+            )}
             {bom.lines.map(line => (
               <tr key={line.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3">
@@ -132,7 +172,7 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
             <tfoot className="border-t border-gray-200 bg-gray-50">
               <tr>
                 <td colSpan={3} className="px-4 py-3 text-right text-sm font-medium text-gray-600">
-                  Total for {trimDecimal(bom.targetQuantity)} {bom.batchUnitAbbreviation}
+                  {isConversion ? 'Added ingredients' : 'Total'} for {trimDecimal(bom.targetQuantity)} {bom.batchUnitAbbreviation}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums font-bold text-gray-800">
                   {formatPeso(bom.totalCost)}
@@ -141,7 +181,7 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
               </tr>
               <tr>
                 <td colSpan={3} className="px-4 pb-3 text-right text-xs text-gray-400">
-                  Cost per {bom.batchUnitAbbreviation}
+                  {isConversion ? 'Added cost' : 'Cost'} per {bom.batchUnitAbbreviation}
                 </td>
                 <td className="px-4 pb-3 text-right tabular-nums text-xs text-gray-500">
                   {bom.costPerUnit && formatPeso(bom.costPerUnit)}
@@ -163,7 +203,9 @@ export default async function BomDetailPage({ params, searchParams }: PageProps)
       )}
 
       <div className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700">Version history</h2>
+        <h2 className="mb-3 text-sm font-semibold text-gray-700">
+          {isConversion ? 'Conversion recipe versions' : 'Version history'}
+        </h2>
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
             <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">

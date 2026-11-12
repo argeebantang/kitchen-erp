@@ -5,15 +5,16 @@ import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ProductionOrderService } from '@/services/production-order.service'
+import { ConversionOrderService } from '@/services/conversion-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { VarianceBadge } from '@/components/procurement/VarianceChips'
-import { formatPeso, trimDecimal } from '@/lib/format'
+import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
 
 export default async function ApprovalsInboxPage() {
   const session = await getSession()
   if (!session) redirect('/login')
 
-  const [requests, orders, receiving, productionOrders, completions] = await Promise.all([
+  const [requests, orders, receiving, productionOrders, completions, conversions] = await Promise.all([
     PurchaseRequestService.list(
       { userId: session.userId, role: session.role },
       { status: 'PENDING_APPROVAL', sort: 'neededBy', take: 100 },
@@ -22,6 +23,7 @@ export default async function ApprovalsInboxPage() {
     ReceivingReportService.list({ status: 'PENDING_APPROVAL', take: 100 }),
     ProductionOrderService.listPending(100),
     ProductionOrderService.listPendingCompletions(100),
+    ConversionOrderService.listPending(100),
   ])
 
   const { purchaseRequests,  total: requestTotal }   = requests
@@ -33,6 +35,7 @@ export default async function ApprovalsInboxPage() {
     { count: receivingTotal, noun: 'receiving report' },
     { count: productionOrders.length, noun: 'production order' },
     { count: completions.length, noun: 'production completion' },
+    { count: conversions.length, noun: 'conversion' },
   ].filter(part => part.count > 0)
 
   return (
@@ -305,6 +308,83 @@ export default async function ApprovalsInboxPage() {
                       <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">All in stock</span>
                     ) : (
                       <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
+                        {order.negativeCount} of {order.ingredientCount} go negative
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={order.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Week 7 Task 1, D9: conversions recorded by production. Approving moves the stock. */}
+      <h2 className="mb-3 mt-8 text-sm font-semibold text-gray-700">Conversions</h2>
+
+      {conversions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
+          <p className="text-sm font-medium text-gray-600">No conversions waiting</p>
+          <p className="mt-1 text-sm text-gray-400">Conversions production records will appear here.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Number</th>
+                <th className="px-4 py-3 font-medium">Made</th>
+                <th className="px-4 py-3 font-medium">From</th>
+                <th className="px-4 py-3 text-right font-medium">Unit cost</th>
+                <th className="px-4 py-3 font-medium">Branch</th>
+                <th className="px-4 py-3 font-medium">Recorded by</th>
+                <th className="px-4 py-3 font-medium">Stock</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {conversions.map(order => (
+                <tr key={order.id} className="transition-colors hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/production/conversions/${order.id}`}
+                      className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      {order.orderNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {formatQuantity(order.outputQty)} <span className="text-gray-400">{order.unitAbbreviation}</span> {order.finishedGoodName}
+                    <span className="text-gray-400"> ({order.percentOfExpected}%)</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {formatQuantity(order.sourceQty)} <span className="text-gray-400">{order.sourceUnitAbbreviation}</span> {order.sourceName}
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-700">
+                    {/* What approving records; the conversion page has the breakdown. */}
+                    {order.missingPrices > 0 ? (
+                      <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">Price missing</span>
+                    ) : order.costPerUnit === null ? (
+                      <span className="text-gray-400">—</span>
+                    ) : (
+                      <>{formatPeso(order.costPerUnit)}<span className="text-gray-400">/{order.unitAbbreviation}</span></>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{order.branchName}</td>
+                  <td className="px-4 py-3 text-gray-500">{order.submittedByName}</td>
+                  <td className="px-4 py-3">
+                    {/* Right now: the source must be there to approve; ingredients may go negative. */}
+                    {!order.sourceEnough ? (
+                      <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">
+                        {order.sourceName} short
+                      </span>
+                    ) : order.negativeCount === 0 ? (
+                      <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">All in stock</span>
+                    ) : (
+                      <span className="inline-block whitespace-nowrap rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">
                         {order.negativeCount} of {order.ingredientCount} go negative
                       </span>
                     )}

@@ -60,6 +60,11 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/production/bom',        roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/production/orders/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/production-orders', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // Conversions (Week 7 Task 1): the same split — accounting reads
+  // /production/conversions and decides through /api/approvals; only
+  // production records one.
+  { path: '/production/conversions/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/api/conversion-orders',      roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
 ]

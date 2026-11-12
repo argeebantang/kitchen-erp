@@ -25,6 +25,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/approvals` | all | ADMIN, ACCOUNTING |
 | `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
 | `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
+| `/api/conversion-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
@@ -54,7 +55,7 @@ The browser is the only client. Server Components read through services directly
 | GET | `/api/finished-goods/[id]` | — | 200 `{ finishedGood }` | 404 |
 | PATCH | `/api/finished-goods/[id]` | any of `name`, `description`, `categoryId`, `unitId`, `sellingPrice`, `shelfLifeHours` (integer 1–720; `null` clears it), `isActive` | 200 `{ finishedGood }` | 400, 404 |
 | DELETE | `/api/finished-goods/[id]` | — (soft) | 200 `{ finishedGood }` | 404 |
-| GET | `/api/finished-goods/[id]/bom-versions` | — | 200 `{ versions }` | 404 |
+| GET | `/api/finished-goods/[id]/bom-versions` | — | 200 `{ versions }`, every kind, each with its `kind` | 404 |
 | GET | `/api/categories` | `type?` (`RAW_MATERIAL` · `FINISHED_GOOD` · `PACKAGING`) | 200 `{ categories }` | 400 |
 | POST | `/api/categories` | `name`, `type` | 201 `{ category }` | 400, 409 |
 | GET | `/api/units` | — | 200 `{ units }` | — |
@@ -64,9 +65,11 @@ The browser is the only client. Server Components read through services directly
 
 | Method | Path | Body / query | Success | Errors |
 |---|---|---|---|---|
-| GET | `/api/boms` | `finishedGoodId?`, `includeSuperseded?`, `skip?`, `take?` | 200 `{ boms, total }` | 400 |
-| POST | `/api/boms` | `finishedGoodId`, `batchSize`, `batchUnitId`, `notes?`, `items[]` of `materialId`, `quantity`, `unitId`, `notes?` (≥ 1) | 201 `{ bom }` — a new active version; the previous one is superseded | 400, 404 |
-| GET | `/api/boms/[id]` | `targetQuantity?` (scales every line) | 200 `{ bom }` | 400, 404 |
+| GET | `/api/boms` | `finishedGoodId?`, `kind?` (`PRODUCTION` · `CONVERSION`), `includeSuperseded?`, `skip?`, `take?` | 200 `{ boms, total }`, each with `kind` and `source` (`{ name, quantity, unitAbbreviation }` or null) | 400 |
+| POST | `/api/boms` | `finishedGoodId`, `kind?` (default `PRODUCTION`), `sourceFinishedGoodId?` + `sourceQuantity?` (`CONVERSION` only, both required), `batchSize`, `batchUnitId`, `notes?`, `items[]` of `materialId`, `quantity`, `unitId`, `notes?` (≥ 1) | 201 `{ bom }` — a new active version of that kind; the previous version **of the same kind** is superseded | 400, 404 |
+| GET | `/api/boms/[id]` | `targetQuantity?` (scales every line, and a conversion's source) | 200 `{ bom }` with `kind` and `source` (`{ finishedGoodId, code, name, unitAbbreviation, batchQuantity, scaledQuantity }` or null); a conversion's `totalCost` is its added ingredients only | 400, 404 |
+
+Conversion BOMs (Week 7 Task 1): a `CONVERSION` recipe names the finished good it converts and how much of it one batch uses; it must not be its own source, the source must be active, `sourceQuantity` > 0, and the batch must be stated in the output's own unit. A `PRODUCTION` recipe sends neither source field (400). Versions are numbered per kind. There is no BOM editor in the UI; recipes are entered through this endpoint.
 
 ## Purchase requests
 
@@ -88,11 +91,13 @@ The browser is the only client. Server Components read through services directly
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport` · `ProductionOrder` · `ProductionCompletion`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }`, `{ receivingReport: { id, rrNumber } }` or `{ productionOrder: { id, orderNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
+| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport` · `ProductionOrder` · `ProductionCompletion` · `ConversionOrder`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }`, `{ receivingReport: { id, rrNumber } }`, `{ productionOrder: { id, orderNumber } }` or `{ conversionOrder: { id, orderNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
 
 The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`). Approving one also posts its stock and moves the order to `PARTIALLY_RECEIVED` / `FULLY_RECEIVED`, in one transaction under a lock on the order; it returns 409 and changes nothing if the order can no longer take a delivery or a line would end up received beyond what was ordered. A production order cannot be decided by whoever submitted it (`submittedById`); the decision and its `Approval` row are written in one transaction, and the submitter (and, on approval with shortages, procurement) is notified through the queue.
 
 `ProductionCompletion` (referenceId = the production order) decides a run the kitchen reported done (`PENDING_COMPLETION`). Never by whoever reported it (`completedById`, 403), ADMIN included; a reason is required to reject. **Approve** → `COMPLETED`, and in the same transaction: the run's cost (`plannedCost`, `actualCost`, `costPerUnit`, `costVariance`, see [database.md](database.md)), one `OUT` stock movement per ingredient of the pinned BOM at the planned quantity with the price used as `unitCost` (stock may go negative), and the actual yield into finished-goods stock as a new lot numbered after the order, at the cost per unit. 409 naming each material and date if a reference price is missing, or naming the finished good if it has no shelf life (an admin sets it, then approve). The lot's expiry is the moment the run was reported done + the shelf life. **Reject** → back to `IN_PROGRESS`, clearing the reported yield. 409 if the order is not awaiting a completion decision, or the report changed meanwhile (sent back and re-reported). Returns `{ productionOrder: { id, orderNumber } }`. Whoever reported it is notified through the queue; reporting notifies the approvers.
+
+`ConversionOrder` decides a recorded conversion (`PENDING_APPROVAL`). Never by whoever recorded it (`submittedById`, 403), ADMIN included; a reason is required to reject, and `REJECTED` is final. **Approve** → `APPROVED`, in one transaction: the source taken from its lots at the branch, soonest expiry first with expired lots skipped, each at the lot's recorded cost; the added ingredients out of material stock at reference prices on the conversion date (may go negative); the output in as a new lot numbered after the order, expiring its shelf life after the conversion was recorded; `sourceCost`, `conversionCost`, `costPerUnit` recorded. 409 if the output has no shelf life, an ingredient has no reference price on the conversion date (each named), or the unexpired source on hand no longer covers it — all before anything is written. 409 if already decided. Whoever recorded it is notified through the queue.
 
 ## Receiving reports
 
@@ -118,6 +123,15 @@ Rules (create, edit, and re-checked on submit): the order is `SENT` or `PARTIALL
 
 Rules (create and edit): the finished good is active and has an active BOM; the BOM's batch unit equals the finished good's unit (no unit conversion yet); batch weight > 0; the branch is active; the date is not before today (Asia/Manila). The server pins `bomId` to the active version on every save, computes `plannedQty` = `batchWeight × batchCount` in Decimal, and takes `requestedById` from the caller on create only — an edit by someone else keeps the original requester. The pages read through `ProductionOrderService`. `GET …/requirements` is the form's live preview and writes nothing; the order page computes the same lines from the **pinned** BOM. Stock check (both): `onHand` at the branch now; `committed` = what other `APPROVED` / `IN_PROGRESS` / `PENDING_COMPLETION` orders at that branch still need (stock leaves only when accounting approves a completion); `available` = on hand − committed (may be negative); `short` = max(required − max(available, 0), 0) — never more than this order's own requirement; `enough` = required ≤ available. Expected deliveries are not counted. On the order page `stock` is null for `COMPLETED`, `REJECTED` and `CANCELLED` orders.
 
+## Conversion orders
+
+| Method | Path | Body / query | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/conversion-orders` | `bomId` (an active `CONVERSION` BOM), `branchId`, `sourceQty`, `outputQty` (decimal strings), `notes?` | 201 `{ conversionOrder: { id, orderNumber } }` created `PENDING_APPROVAL` — recorded and submitted in one step, numbered `CNV-000001`; queues the approver notification | 400 incl. quantities ≤ 0, output > 2 × what the recipe expects, not enough unexpired source, unknown recipe / branch; 401; 403; 409 the recipe version was superseded |
+| GET | `/api/conversion-orders/preview` | query `bomId`, `branchId`, `sourceQty?`, `outputQty?` | 200 `{ preview: { bomId, bomVersion, effect } }` — `effect`: the source (`unexpiredOnHand`, `expiredOnHand`, `pending`, `available`, `enough`, `lots[]` with `take` and `unitCost`), the added `ingredients[]` (`deduct`, `onHand`, `after`, `goesNegative`, `unitPrice`), `cost` (`sourceCost`, `conversionCost`, `missing[]`, `total`, `perUnit`, `pricedOn`) and `output` (`expected`, `percentOfExpected`, `expiresAt`) | 400, 409 superseded recipe |
+
+Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and ≤ the source's unexpired stock at the branch less what other pending conversions there have claimed; `outputQty` > 0 and ≤ 2 × `batchSize × sourceQty ÷ sourceQuantity`. The submitter is the caller. The pages (`/production/conversions`, `/new`, `/[id]`) read through `ConversionOrderService`; accounting reads them but `/production/conversions/new` is ADMIN + PRODUCTION_MANAGER.
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |
@@ -126,7 +140,7 @@ Rules (create and edit): the finished good is active and has an active BOM; the 
 | GET | `/api/notifications/stream` | — | 200 `text/event-stream`, held open: `retry: 5000`, an `event: notifications` (`data: {}`) whenever the caller's notifications change, `: ping` every 25 s | 401, 503 Redis unavailable |
 | POST | `/api/notifications/read` | `{ id }` or `{ all: true }` | 200 `{ updated }` — how many of the caller's unread notifications were marked; 0 if already read or not theirs | 400, 401 |
 
-Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
+Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `ConversionOrder` → the conversion, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
 
 ## Known gaps
 
