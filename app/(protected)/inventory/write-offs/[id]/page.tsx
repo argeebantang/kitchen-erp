@@ -7,6 +7,7 @@ import { formatPeso, formatQuantity } from '@/lib/format'
 import { WriteOffService } from '@/services/write-off.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { WriteOffReasonBadge } from '@/components/inventory/WriteOffReasonBadge'
+import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
 import { DecisionHistory } from '@/components/procurement/DecisionHistory'
 
@@ -83,7 +84,7 @@ export default async function WriteOffDetailPage({ params }: PageProps) {
           {writeOff.lot.expiresAt === null ? '—' : (
             <>
               <span className={writeOff.lot.expired ? 'font-medium text-red-700' : undefined}>{formatDateTime(writeOff.lot.expiresAt)}</span>
-              {writeOff.lot.expired && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">Expired</span>}
+              {' '}<ExpiryBadge flag={writeOff.lot.expiry} />
             </>
           )}
         </Detail>

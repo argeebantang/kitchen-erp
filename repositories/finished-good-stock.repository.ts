@@ -204,6 +204,30 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
+   * Every lot with stock at any branch whose expiry is on or before `until` —
+   * expired ones included — soonest first, with its good, branch and cost per
+   * unit: what the morning expiry check reports (Week 7 Task 3, X3). Served
+   * by @@index([expiresAt]); small by nature (perishable, at most 48 h ahead).
+   */
+  async findExpiringBy(until: Date) {
+    return prisma.finishedGoodLevel.findMany({
+      where:  { quantity: { gt: 0 }, lot: { expiresAt: { not: null, lte: until } } },
+      select: {
+        quantity: true,
+        branch:   { select: { name: true } },
+        lot: {
+          select: {
+            lotNumber: true, expiresAt: true,
+            finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } },
+            movements:    { where: { type: MovementType.IN }, orderBy: { createdAt: 'asc' }, take: 1, select: { unitCost: true } },
+          },
+        },
+      },
+      orderBy: [{ lot: { expiresAt: 'asc' } }, { lot: { lotNumber: 'asc' } }],
+    })
+  },
+
+  /**
    * Locks every level row of one finished good at one branch (SELECT … FOR
    * UPDATE), in id order, for the rest of the caller's transaction — so a
    * second approval taking from the same lots waits, then reads what the

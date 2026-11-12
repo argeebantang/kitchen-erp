@@ -156,7 +156,7 @@ const plan = {
             { t: "Write-off workflow: items that cannot be converted", done: true },
             { t: "COSTING: write-off cost = quantity × unit cost of finished good", done: true },
             { t: "Write-off approval by accounting", done: true },
-            "Expiry tracking: flag items 24/48 hours before expiry",
+            { t: "Expiry tracking: flag items 24/48 hours before expiry", done: true },
             "End-of-day reconciliation: produced, distributed, converted, written-off",
           ],
           deliverable: "Convert unsold lechon to paksiw in 3 clicks. System tracks the cost of the conversion. Write-offs logged with peso value impact.",

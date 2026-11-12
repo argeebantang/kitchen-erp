@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { formatDateTime } from '@/lib/dates'
+import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { formatPeso, formatQuantity } from '@/lib/format'
 // Type-only, so nothing from the service (or Prisma behind it) is bundled into
 // the browser.
@@ -80,7 +81,7 @@ export function WriteOffForm({ lot, reasons }: { lot: WriteOffLotDto; reasons: R
           <span className="font-mono text-sm font-semibold text-gray-800">{lot.lotNumber}</span>
           <span className="text-gray-700">{lot.finishedGoodName}</span>
           <span className="font-mono text-xs text-gray-400">{lot.finishedGoodCode}</span>
-          {lot.expired && <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">Expired</span>}
+          <ExpiryBadge flag={lot.expiry} />
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-4">
           <Fact label="Branch">{lot.branchName}</Fact>

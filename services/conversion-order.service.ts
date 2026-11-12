@@ -1,6 +1,6 @@
 import { BomKind, ConversionStatus, Prisma } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
-import { isoDateAt } from '@/lib/dates'
+import { expiryFlag, isoDateAt, type ExpiryFlag } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
 import {
   CONVERSION_ORDER_DECIDED,
@@ -69,6 +69,8 @@ export type SourceLotDto = {
   onHand: string
   /** Expired lots are never taken: expired food is a write-off, not an ingredient. */
   expired: boolean
+  /** Expired / within 24 h / within 48 h, on the same clock (Week 7 Task 3, X4). */
+  expiry: ExpiryFlag | null
   take: string
   /** The lot's recorded cost per unit — what the source is costed at (D7). */
   unitCost: string | null
@@ -379,6 +381,7 @@ async function sourceAt(
       expiresAt: level.lot.expiresAt?.toISOString() ?? null,
       onHand:    toDecimalString(level.quantity),
       expired:   isExpired,
+      expiry:    expiryFlag(level.lot.expiresAt, now.getTime()),
       take:      toDecimalString(take),
       unitCost:  unitCost === null ? null : toDecimalString(unitCost),
     }

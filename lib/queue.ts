@@ -58,12 +58,20 @@ export const LOW_STOCK_CHECK = 'low-stock-check'
 export const STOCK_RECONCILIATION = 'stock-reconciliation'
 
 /**
+ * The morning list of finished-goods lots to act on (Week 7 Task 3, X3):
+ * expired but still on hand, or expiring within 24 / 48 h. No payload: it
+ * reads the lots when it runs.
+ */
+export const EXPIRY_CHECK = 'expiry-check'
+
+/**
  * Jobs that run on a clock rather than on an event: cron patterns, read in
  * BUSINESS_TIME_ZONE (lib/dates.ts). The worker registers them at startup.
  */
 export const DAILY_JOBS: { name: string; pattern: string }[] = [
   { name: LOW_STOCK_CHECK,      pattern: '0 6 * * *' }, // 06:00, before the kitchen and procurement start
   { name: STOCK_RECONCILIATION, pattern: '0 6 * * *' },
+  { name: EXPIRY_CHECK,         pattern: '0 6 * * *' }, // before service: what to sell, convert or write off first
 ]
 
 /**

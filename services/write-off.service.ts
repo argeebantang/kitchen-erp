@@ -1,6 +1,7 @@
 import { Prisma, WriteOffReason, WriteOffStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { trimDecimal } from '@/lib/format'
+import { expiryFlag, type ExpiryFlag } from '@/lib/dates'
 import { getNotificationQueue, WRITE_OFF_DECIDED, WRITE_OFF_SUBMITTED, type WriteOffJob } from '@/lib/queue'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
@@ -59,6 +60,8 @@ export type WriteOffLotDto = {
   /** ISO; null for a lot made before expiry was tracked. */
   expiresAt: string | null
   expired: boolean
+  /** Expired / within 24 h / within 48 h, as of this read (Week 7 Task 3, X4). */
+  expiry: ExpiryFlag | null
   /** What the lot holds at the branch now. */
   onHand: string
   /** Claimed by other write-offs of this lot awaiting approval (W5). */
@@ -138,6 +141,7 @@ export type WriteOffDetailDto = WriteOffSummaryDto & {
     expiresAt: string | null
     /** Expired as of this read. */
     expired: boolean
+    expiry: ExpiryFlag | null
     /** Where it came from: a production order or a conversion. */
     source: { kind: 'PRODUCTION' | 'CONVERSION'; id: string } | null
   }
@@ -235,6 +239,7 @@ async function lotAtBranch(lotId: string, branchId: string, excludeId: string | 
       producedOn:       level.lot.producedOn.toISOString().slice(0, 10),
       expiresAt:        level.lot.expiresAt?.toISOString() ?? null,
       expired:          level.lot.expiresAt !== null && level.lot.expiresAt <= now,
+      expiry:           expiryFlag(level.lot.expiresAt, now.getTime()),
       onHand:           toDecimalString(level.quantity),
       pending:          toDecimalString(pending),
       available:        toDecimalString(available),
@@ -298,6 +303,7 @@ export const WriteOffService = {
           producedOn: row.lot.producedOn.toISOString().slice(0, 10),
           expiresAt:  row.lot.expiresAt?.toISOString() ?? null,
           expired:    row.lot.expiresAt !== null && row.lot.expiresAt <= new Date(),
+          expiry:     expiryFlag(row.lot.expiresAt, Date.now()),
           source:     row.lot.productionOrderId !== null
             ? { kind: 'PRODUCTION', id: row.lot.productionOrderId }
             : row.lot.conversionOrderId !== null

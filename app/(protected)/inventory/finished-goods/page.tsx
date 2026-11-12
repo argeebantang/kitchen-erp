@@ -5,11 +5,12 @@ import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
-import { FINISHED_GOOD_LOT_LIMIT, InventoryService } from '@/services/inventory.service'
+import { EXPIRY_FILTERS, FINISHED_GOOD_LOT_LIMIT, InventoryService } from '@/services/inventory.service'
+import { ExpiryBadge, expiryRowClass } from '@/components/inventory/ExpiryBadge'
 import { BranchRepository } from '@/repositories/branch.repository'
 
 type PageProps = {
-  searchParams: Promise<{ branch?: string }>
+  searchParams: Promise<{ branch?: string; expiry?: string }>
 }
 
 /**
@@ -23,15 +24,31 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
   if (!session) redirect('/login')
 
   // A plain query string from the GET form; an unknown branch id matches nothing.
-  const { branch = '' } = await searchParams
+  const { branch = '', expiry = '' } = await searchParams
+  // ?expiry=expired|24h|48h (Week 7 Task 3, X2); an unknown value shows every lot.
+  const expiryFilter = EXPIRY_FILTERS.find(option => option.value === expiry)
 
   // Week 7 Task 2, W7: the roles that record write-offs get a Write off action per lot.
   const canWriteOff = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
-  const [{ lots, totals, truncated }, branchOptions] = await Promise.all([
-    InventoryService.finishedGoodStock({ branchId: branch || undefined }, { role: session.role }),
+  const [{ lots, totals, truncated, expiryCounts }, branchOptions] = await Promise.all([
+    InventoryService.finishedGoodStock({ branchId: branch || undefined, expiry: expiryFilter?.status }, { role: session.role }),
     BranchRepository.findAllActive(),
   ])
+
+  // The chips keep the branch filter; clicking the active chip clears the expiry filter.
+  const chipHref = (value: string | null) => {
+    const query = new URLSearchParams()
+    if (branch) query.set('branch', branch)
+    if (value) query.set('expiry', value)
+    const text = query.toString()
+    return text ? `/inventory/finished-goods?${text}` : '/inventory/finished-goods'
+  }
+  const chips = [
+    { option: EXPIRY_FILTERS[0], count: expiryCounts.expired,   active: 'border-red-300 bg-red-50 text-red-700',       idle: 'text-red-700' },
+    { option: EXPIRY_FILTERS[1], count: expiryCounts.within24h, active: 'border-orange-300 bg-orange-50 text-orange-700', idle: 'text-orange-700' },
+    { option: EXPIRY_FILTERS[2], count: expiryCounts.within48h, active: 'border-amber-300 bg-amber-50 text-amber-800',  idle: 'text-amber-800' },
+  ]
 
   return (
     <div>
@@ -54,11 +71,44 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
             ))}
           </select>
         </label>
+        {/* Keeps the expiry filter when the branch changes. */}
+        {expiryFilter && <input type="hidden" name="expiry" value={expiryFilter.value} />}
         <button type="submit" className={primaryButtonClass}>Apply</button>
-        {branch && <Link href="/inventory/finished-goods" className={secondaryButtonClass}>Clear</Link>}
+        {(branch || expiryFilter) && <Link href="/inventory/finished-goods" className={secondaryButtonClass}>Clear</Link>}
       </form>
 
-      {lots.length === 0 ? (
+      {/* Week 7 Task 3, X2: what needs using, converting or writing off first. Each chip filters the lots below. */}
+      <div className="mb-6 flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-gray-500">Expiry:</span>
+        {chips.map(({ option, count, active, idle }) => {
+          const isActive = expiryFilter?.value === option.value
+          return (
+            <Link
+              key={option.value}
+              href={chipHref(isActive ? null : option.value)}
+              className={`rounded-full border px-3 py-1 font-medium transition-colors ${
+                isActive ? active : count > 0 ? `border-gray-200 bg-white hover:bg-gray-50 ${idle}` : 'border-gray-200 bg-white text-gray-400 hover:bg-gray-50'
+              }`}
+            >
+              {count} {option.label}
+            </Link>
+          )
+        })}
+        {expiryFilter && (
+          <span className="text-xs text-gray-400">
+            Showing lots {expiryFilter.label} only — the totals count every lot. Click the chip again to show all.
+          </span>
+        )}
+      </div>
+
+      {lots.length === 0 && expiryFilter ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
+          <p className="text-sm font-medium text-gray-600">No lots {expiryFilter.label}</p>
+          <p className="mt-1 text-sm text-gray-400">
+            <Link href={chipHref(null)} className="text-orange-600 hover:underline">Show every lot</Link>
+          </p>
+        </div>
+      ) : lots.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
           <p className="text-sm font-medium text-gray-600">No finished goods on hand</p>
           <p className="mt-1 text-sm text-gray-400">
@@ -110,7 +160,7 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                 {lots.map(lot => (
                   <tr
                     key={`${lot.lotNumber}:${lot.branchId}`}
-                    className={`transition-colors ${lot.expired ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-gray-50'}`}
+                    className={`transition-colors ${expiryRowClass(lot.expiry)}`}
                   >
                     <td className="px-4 py-3">
                       {/* The lot number is its order's or conversion's; it links there for roles that can open it. */}
@@ -151,15 +201,13 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                     </td>
                     <td className="px-4 py-3 text-gray-500">{lot.producedOn}</td>
                     <td className="px-4 py-3">
-                      {/* 24 / 48-hour warnings before this are Week 7's. */}
+                      {/* Week 7 Task 3, X1: Expired, or the hours left within 24 / 48 h. */}
                       {lot.expiresAt === null ? (
                         <span className="text-gray-400">—</span>
                       ) : (
                         <span className="flex flex-wrap items-center gap-1.5">
                           <span className={lot.expired ? 'font-medium text-red-700' : 'text-gray-700'}>{formatDateTime(lot.expiresAt)}</span>
-                          {lot.expired && (
-                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700">Expired</span>
-                          )}
+                          <ExpiryBadge flag={lot.expiry} />
                         </span>
                       )}
                     </td>

@@ -1,4 +1,5 @@
 import { formatDateTime } from '@/lib/dates'
+import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { formatPeso, formatQuantity, formatShelfLife } from '@/lib/format'
 // Type-only, so this renders both in the (client) conversion form and on the
 // (server) order page without pulling the service into the browser.
@@ -68,8 +69,11 @@ export function ConversionEffect({ effect, title, lotLabel }: {
                   <td className="py-1.5 pr-4 font-mono text-xs text-gray-700">{lot.lotNumber}</td>
                   <td className="py-1.5 pr-4 text-gray-600">
                     {lot.expiresAt === null ? '—' : formatDateTime(lot.expiresAt)}
-                    {lot.expired && (
+                    {lot.expired ? (
                       <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">Expired — not used</span>
+                    ) : (
+                      // Week 7 Task 3, X4: lots near expiry, which this conversion uses first.
+                      <span className="ml-2"><ExpiryBadge flag={lot.expiry} /></span>
                     )}
                   </td>
                   <td className="py-1.5 pr-4 text-right text-gray-600">{formatQuantity(lot.onHand)} {unit}</td>

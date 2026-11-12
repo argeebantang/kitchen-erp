@@ -1,4 +1,5 @@
-import { Role } from '@prisma/client'
+import { Prisma, Role } from '@prisma/client'
+import { EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
 import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
@@ -20,6 +21,9 @@ const APPROVER_ROLES: Role[] = [Role.ACCOUNTING, Role.ADMIN]
 /** Roles that raise purchase requests, and therefore need to know what to reorder. */
 const ORDERING_ROLES: Role[] = [Role.PROCUREMENT_MANAGER, Role.ADMIN]
 
+/** Roles that act on lots near expiry — sell, convert or write them off (Week 7 Task 3, X3). */
+const EXPIRY_ROLES: Role[] = [Role.PRODUCTION_MANAGER, Role.ADMIN]
+
 /** How many materials the low-stock summary names before "+N more". */
 const SUMMARY_NAMES = 5
 
@@ -34,6 +38,7 @@ const LATEST = 15
 const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   PurchaseRequest:     id => `/procurement/requests/${id}`,
   LowStockCheck:       () => '/inventory/stock',
+  ExpiryCheck:         () => '/inventory/finished-goods',
   StockReconciliation: () => '/inventory/ledger',
   ProductionOrder:     id => `/production/orders/${id}`,
   // Procurement cannot open production orders; their link is the purchase
@@ -181,6 +186,66 @@ export const NotificationService = {
         referenceId:   date,
       })),
     )
+  },
+
+  /**
+   * The morning expiry check (Week 7 Task 3, X3): every lot with stock that
+   * is expired, or expires within 24 / 48 h, in one notification per
+   * production manager and admin — what to sell, convert or write off first.
+   * Most urgent first, naming the first few lots, with the value at stake at
+   * each lot's cost. Once per person per day (the date is the referenceId);
+   * nothing when no lot is flagged. One clock for the whole run.
+   */
+  async notifyExpiringLots(date: string): Promise<{ lots: number; written: number }> {
+    const now    = Date.now()
+    const levels = await FinishedGoodStockRepository.findExpiringBy(new Date(now + EXPIRY_SOON_HOURS * 60 * 60 * 1000))
+    if (levels.length === 0) return { lots: 0, written: 0 }
+
+    const [users, alreadyTold] = await Promise.all([
+      UserRepository.findByRoles(EXPIRY_ROLES),
+      NotificationRepository.userIdsWithReference('ExpiryCheck', date),
+    ])
+    const recipients = users.filter(user => !alreadyTold.has(user.id))
+
+    const flagged = levels.flatMap(level => {
+      const flag = expiryFlag(level.lot.expiresAt, now)
+      return flag === null || flag.status === 'OK' ? [] : [{ level, flag }]
+    })
+    const count = (status: string) => flagged.filter(entry => entry.flag.status === status).length
+    const expired = count('EXPIRED')
+    const urgent  = count('WITHIN_24H')
+    const soon    = count('WITHIN_48H')
+
+    let worth = new Prisma.Decimal(0)
+    for (const { level } of flagged) {
+      const unitCost = level.lot.movements[0]?.unitCost ?? null
+      if (unitCost !== null) worth = worth.add(level.quantity.mul(unitCost))
+    }
+
+    // Already soonest first, so expired lots lead. The branch is only worth
+    // naming when there is more than one.
+    const severalBranches = new Set(flagged.map(entry => entry.level.branch.name)).size > 1
+    const names = flagged.slice(0, SUMMARY_NAMES).map(({ level, flag }) => {
+      const when = flag.status === 'EXPIRED' ? 'expired' : `${formatTimeLeft(flag.minutesLeft)} left`
+      return `${level.lot.lotNumber} ${level.lot.finishedGood.name} ${formatQuantity(level.quantity.toString())} ${level.lot.finishedGood.unit.abbreviation}`
+        + (severalBranches ? ` at ${level.branch.name}` : '') + ` (${when})`
+    })
+    const more  = flagged.length - names.length
+    const parts = [
+      expired > 0 ? `${expired} expired` : null,
+      urgent > 0 ? `${urgent} within 24 h` : null,
+      soon > 0 ? `${soon} within 48 h` : null,
+    ].filter(part => part !== null)
+
+    const written = await createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'EXPIRY_ALERT',
+      title:         `${flagged.length} lot${flagged.length === 1 ? '' : 's'} to sell, convert or write off — ${parts.join(', ')}`,
+      body:          `${names.join(', ')}${more > 0 ? `, +${more} more` : ''}. Worth ${formatPeso(worth.toString())} at cost.`,
+      referenceType: 'ExpiryCheck',
+      referenceId:   date,
+    })))
+    return { lots: flagged.length, written }
   },
 
   /**
