@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { Trash2 } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
@@ -23,6 +24,9 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
 
   // A plain query string from the GET form; an unknown branch id matches nothing.
   const { branch = '' } = await searchParams
+
+  // Week 7 Task 2, W7: the roles that record write-offs get a Write off action per lot.
+  const canWriteOff = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
   const [{ lots, totals, truncated }, branchOptions] = await Promise.all([
     InventoryService.finishedGoodStock({ branchId: branch || undefined }, { role: session.role }),
@@ -99,6 +103,7 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                   <th className="px-4 py-3 font-medium">Produced on</th>
                   <th className="px-4 py-3 font-medium">Expires</th>
                   <th className="px-4 py-3 font-medium">Last movement</th>
+                  {canWriteOff && <th className="px-4 py-3"><span className="sr-only">Actions</span></th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -123,6 +128,18 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                     <td className="px-4 py-3 text-gray-500">{lot.branchName}</td>
                     <td className={`px-4 py-3 text-right font-medium ${lot.quantity.startsWith('-') ? 'text-red-700' : 'text-gray-800'}`}>
                       {trimDecimal(lot.quantity)} <span className="font-normal text-gray-400">{lot.unitAbbreviation}</span>
+                      {/* Week 7 Task 2: still on hand, but a write-off awaiting approval claims it. */}
+                      {lot.pendingWriteOff && (
+                        <span className="block text-xs font-normal">
+                          {lot.pendingWriteOff.href ? (
+                            <Link href={lot.pendingWriteOff.href} className="text-amber-700 hover:underline">
+                              {trimDecimal(lot.pendingWriteOff.quantity)} {lot.unitAbbreviation} pending write-off
+                            </Link>
+                          ) : (
+                            <span className="text-amber-700">{trimDecimal(lot.pendingWriteOff.quantity)} {lot.unitAbbreviation} pending write-off</span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">
                       {lot.unitCost === null
@@ -147,6 +164,24 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{formatDateTime(lot.lastMovementAt)}</td>
+                    {canWriteOff && (
+                      <td className="px-4 py-3 text-right">
+                        {/* Only something on hand can be written off; the form is pre-filled from the lot. */}
+                        {!lot.quantity.startsWith('-') && !/^0(\.0*)?$/.test(lot.quantity) && (
+                          <Link
+                            href={`/inventory/write-offs/new?lot=${lot.lotId}&branch=${lot.branchId}`}
+                            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                              lot.expired
+                                ? 'border-red-200 bg-white text-red-700 hover:bg-red-50'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            <Trash2 size={13} />
+                            Write off
+                          </Link>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

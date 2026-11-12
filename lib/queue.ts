@@ -39,6 +39,12 @@ export const CONVERSION_ORDER_SUBMITTED = 'conversion-order-submitted'
 /** A conversion was approved or rejected: tell whoever recorded it. */
 export const CONVERSION_ORDER_DECIDED = 'conversion-order-decided'
 
+/** Production recorded a write-off: tell the approvers (Week 7 Task 2, W8). */
+export const WRITE_OFF_SUBMITTED = 'write-off-submitted'
+
+/** A write-off was approved or rejected: tell whoever recorded it. */
+export const WRITE_OFF_DECIDED = 'write-off-decided'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.
@@ -78,6 +84,11 @@ export type ProductionOrderJob = {
 /** Same rule: an id, re-read when the job runs. */
 export type ConversionOrderJob = {
   conversionOrderId: string
+}
+
+/** Same rule: an id, re-read when the job runs. */
+export type WriteOffJob = {
+  writeOffId: string
 }
 
 /**

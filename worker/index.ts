@@ -13,9 +13,12 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
   STOCK_RECONCILIATION,
+  WRITE_OFF_DECIDED,
+  WRITE_OFF_SUBMITTED,
   type ConversionOrderJob,
   type PrSubmittedJob,
   type ProductionOrderJob,
+  type WriteOffJob,
 } from '@/lib/queue'
 import { BUSINESS_TIME_ZONE, todayIsoDate } from '@/lib/dates'
 import { NotificationService } from '@/services/notification.service'
@@ -71,6 +74,16 @@ async function handleConversionDecided(job: Job<ConversionOrderJob>) {
   console.log(`  → wrote ${count} notification(s)`)
 }
 
+async function handleWriteOffSubmitted(job: Job<WriteOffJob>) {
+  const count = await NotificationService.notifyWriteOffSubmitted(job.data.writeOffId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleWriteOffDecided(job: Job<WriteOffJob>) {
+  const count = await NotificationService.notifyWriteOffDecided(job.data.writeOffId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
 async function handleLowStockCheck() {
   // The run's own date, in Manila — it is also what stops a second run today.
   const date = todayIsoDate()
@@ -108,6 +121,10 @@ const worker = new Worker(
         return handleConversionSubmitted(job)
       case CONVERSION_ORDER_DECIDED:
         return handleConversionDecided(job)
+      case WRITE_OFF_SUBMITTED:
+        return handleWriteOffSubmitted(job)
+      case WRITE_OFF_DECIDED:
+        return handleWriteOffDecided(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:

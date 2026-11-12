@@ -66,6 +66,11 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/production/conversions/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/conversion-orders',      roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  // Write-offs (Week 7 Task 2, W7): production records them, accounting reads
+  // them and decides through /api/approvals.
+  { path: '/inventory/write-offs',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  { path: '/inventory/write-offs/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/api/write-offs',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
 ]
 

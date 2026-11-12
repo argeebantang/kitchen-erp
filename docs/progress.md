@@ -24,7 +24,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 | `item_prices` | **Done (2026-09-01).** `ItemPrice` added — open-ended effective dating with an optional `supplierId` (null = organisation reference price). `Material.standardCost` is deprecated but retained; nothing reads it. | Week 2 |
 | Production costing fields | **Done (2026-11-09).** `ProductionOrder.plannedCost`, `actualCost`, `costPerUnit`, `costVariance` as columns (one approval per order, so no separate `production_actuals` table); see `docs/2026-11-09-week6-production-costing.md`. | Week 6 |
 | Conversion costing + approval | **Done (2026-11-12).** `ConversionOrder` replaces the unused `Conversion` stub: status, submitter, `sourceCost` / `conversionCost` / `costPerUnit` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-conversion-orders.md`. | Week 7 |
-| `writeoffs` | **Missing** entirely. | Week 7 |
+| `writeoffs` | **Done (2026-11-12).** `WriteOff` — one finished-goods lot at one branch, quantity, reason (`WriteOffReason`), status, `unitCost` / `totalCost` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-write-offs.md`. | Week 7 |
 | `ai_insights` | **Missing.** Required by Features 1, 3, 4, 6. | Week 9 |
 | `ai_query_log` | **Missing.** Required by Feature 2 and its write-action audit trail. | Week 9 |
 
@@ -334,7 +334,21 @@ table; it's a UI/UX decision, not an architecture change.
       cost, conversion cost and cost per kg are recorded. Inbox section, Stock moved card,
       notifications both ways, CNV links on Finished Goods and the Stock Ledger. Migration
       `20261112090000_conversion_orders`.
-- [ ] Write-off workflow + costing
+- [x] Write-off workflow + costing — **done 2026-11-12** (`docs/2026-11-12-week7-write-offs.md`), covering the
+      roadmap's "Write-off workflow…", "COSTING: write-off cost…" and "Write-off approval by accounting".
+      Finished-goods lots only (raw-material write-offs come with stock adjustments). A **Write off** button
+      on each lot of Finished Goods (ADMIN, PRODUCTION_MANAGER) opens a form pre-filled from the lot: quantity
+      (part of a lot allowed), reason (Expired · Spoiled · Damaged · Failed quality · Other — a note required
+      for Other; Expired pre-selected on an expired lot), notes. Recording submits it (`WO-000001`, no draft);
+      the quantity must not exceed what the lot holds less other pending write-offs of it, and conversions now
+      count pending write-offs of unexpired lots as claimed. Accounting approves or rejects through
+      `POST /api/approvals` (`referenceType: 'WriteOff'`; never whoever recorded it; reason to reject; rejection
+      final). Approval is one transaction: the lot is locked and rechecked (short → 409), one `WASTE` movement
+      takes the quantity out at the lot's recorded cost, and `unitCost` / `totalCost` are recorded.
+      **Inventory → Write-offs** lists them with the peso value written off (approved) and value per row, with
+      status and reason filters; the detail page has the approval preview, Approve / Reject, the decision and
+      a Stock moved card. Inbox section, notifications both ways, "N kg pending write-off" on Finished Goods
+      lots. Migration `20261112150000_write_offs`.
 - [ ] Expiry tracking (24/48h flags)
 - [ ] End-of-day reconciliation
 

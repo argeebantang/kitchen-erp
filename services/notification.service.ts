@@ -8,6 +8,8 @@ import { InventoryService, reorderAlerts } from '@/services/inventory.service'
 import { PurchaseRequestRepository } from '@/repositories/purchase-request.repository'
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
+import { WriteOffRepository } from '@/repositories/write-off.repository'
+import { reasonLabel } from '@/services/write-off.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
@@ -38,6 +40,7 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   // request pre-filled with the shortfall (Week 5 Task 4).
   ProductionOrderShortfall: id => `/procurement/requests/new?productionOrder=${id}`,
   ConversionOrder:     id => `/production/conversions/${id}`,
+  WriteOff:            id => `/inventory/write-offs/${id}`,
 }
 
 export type NotificationDto = {
@@ -421,6 +424,60 @@ export const NotificationService = {
         : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Record it again with the right figures if it did happen.`,
       referenceType: 'ConversionOrder',
       referenceId:   order.id,
+    }])
+  },
+
+  /**
+   * Production recorded a write-off: tell everyone who can decide it except
+   * whoever recorded it (Week 7 Task 2, W8). Re-reads it — gone, or already
+   * decided, means nothing to say.
+   */
+  async notifyWriteOffSubmitted(writeOffId: string): Promise<number> {
+    const row = await WriteOffRepository.findById(writeOffId)
+    if (!row || row.status !== 'PENDING_APPROVAL') return 0
+
+    const unit       = row.lot.finishedGood.unit.abbreviation
+    const lotCost    = row.lot.movements[0]?.unitCost ?? null
+    const approvers  = await UserRepository.findByRoles(APPROVER_ROLES)
+    const recipients = approvers.filter(user => user.id !== row.submittedBy.id)
+
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'WRITE_OFF_SUBMITTED',
+      title:         `${row.writeOffNumber} is waiting for approval`,
+      body:          `${row.submittedBy.name} wrote off ${formatQuantity(row.quantity.toString())} ${unit} ${row.lot.finishedGood.name} `
+        + `from lot ${row.lot.lotNumber} at ${row.branch.name} — ${reasonLabel(row.reason).toLowerCase()}`
+        + (lotCost === null ? '.' : `, about ${formatPeso(row.quantity.mul(lotCost).toString())}.`),
+      referenceType: 'WriteOff',
+      referenceId:   row.id,
+    })))
+  },
+
+  /**
+   * A write-off was decided: tell whoever recorded it — approved with the
+   * value written off, or rejected with the reason.
+   */
+  async notifyWriteOffDecided(writeOffId: string): Promise<number> {
+    const [row, [latest]] = await Promise.all([
+      WriteOffRepository.findById(writeOffId),
+      ApprovalRepository.findByReference('WriteOff', writeOffId),
+    ])
+    if (!row || !latest || row.status === 'PENDING_APPROVAL') return 0
+    if (row.submittedBy.id === latest.approver.id) return 0
+
+    const approved = row.status === 'APPROVED'
+    const unit     = row.lot.finishedGood.unit.abbreviation
+    return createAndPush([{
+      userId:        row.submittedBy.id,
+      type:          approved ? 'WRITE_OFF_APPROVED' : 'WRITE_OFF_REJECTED',
+      title:         `${row.writeOffNumber} was ${approved ? 'approved' : 'rejected'}`,
+      body:          approved
+        ? `${latest.approver.name} approved it: ${formatQuantity(row.quantity.toString())} ${unit} ${row.lot.finishedGood.name} `
+          + `left lot ${row.lot.lotNumber} at ${row.branch.name}`
+          + (row.totalCost === null ? '.' : ` — ${formatPeso(row.totalCost.toString())} written off.`)
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Record it again with the right figures if the food was thrown away.`,
+      referenceType: 'WriteOff',
+      referenceId:   row.id,
     }])
   },
 }

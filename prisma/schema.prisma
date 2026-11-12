@@ -79,6 +79,29 @@ enum ConversionStatus {
   REJECTED
 }
 
+/// Why a lot was written off (Week 7 Task 2, W3): categories, not free text,
+/// so waste can be counted by cause (Week 10's Waste Pattern Detector, Week
+/// 11's Waste report). OTHER needs a note.
+enum WriteOffReason {
+  EXPIRED
+  /// Gone bad before its expiry.
+  SPOILED
+  /// Dropped, contaminated.
+  DAMAGED
+  /// Failed a taste or quality check.
+  FAILED_QUALITY
+  OTHER
+}
+
+/// Recording a write-off submits it (no draft), so it is created
+/// PENDING_APPROVAL; accounting's approval is what moves the stock.
+/// REJECTED is terminal (Week 7 Task 2, W4).
+enum WriteOffStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
 enum MovementType {
   IN
   OUT
@@ -107,6 +130,7 @@ model User {
   submittedProductionOrders ProductionOrder[] @relation("ProductionOrderSubmitter")
   completedProductionOrders ProductionOrder[] @relation("ProductionOrderCompleter")
   submittedConversionOrders ConversionOrder[] @relation("ConversionOrderSubmitter")
+  submittedWriteOffs        WriteOff[]        @relation("WriteOffSubmitter")
   productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
@@ -131,6 +155,7 @@ model Branch {
   finishedGoodLevels    FinishedGoodLevel[]
   finishedGoodMovements FinishedGoodMovement[]
   conversionOrders      ConversionOrder[]
+  writeOffs             WriteOff[]
 }
 
 // ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
@@ -564,6 +589,7 @@ model FinishedGoodLot {
 
   levels    FinishedGoodLevel[]
   movements FinishedGoodMovement[]
+  writeOffs WriteOff[]
 
   @@index([finishedGoodId])
   // First-to-expire ordering, and Week 7's "expiring within 24/48 h".
@@ -747,6 +773,47 @@ model ConversionOrder {
   @@index([branchId])
 }
 
+// ─── WRITE-OFFS ──────────────────────────────────────────────────────────────
+
+/// Finished goods that cannot be used or converted — expired, spoiled,
+/// damaged — taken out of stock at what they cost (Week 7 Task 2). One lot at
+/// one branch per write-off (W2): lots are how stock, expiry and cost are kept.
+/// Recording it submits it; nothing moves until accounting approves it, which
+/// in one transaction takes `quantity` out of the lot (a WASTE movement) and
+/// records the cost (W4, W6). Raw-material write-offs are not covered (W1).
+model WriteOff {
+  id             String          @id @default(cuid())
+  /// WO-000001, from wo_number_seq.
+  writeOffNumber String          @unique
+  lotId          String
+  lot            FinishedGoodLot @relation(fields: [lotId], references: [id])
+  /// Where the lot is: the branch whose stock it reduces.
+  branchId       String
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  /// Who recorded it. Never its approver, ADMIN included (W4).
+  submittedById  String
+  submittedBy    User            @relation("WriteOffSubmitter", fields: [submittedById], references: [id])
+  status         WriteOffStatus  @default(PENDING_APPROVAL)
+  /// In the lot's unit; part of a lot is allowed.
+  quantity       Decimal
+  reason         WriteOffReason
+  /// Required when the reason is OTHER.
+  notes          String?
+  /// Costing (W6), recorded at approval and never recomputed; null until then.
+  /// The lot's recorded cost per unit (its IN movement's unitCost).
+  unitCost       Decimal?
+  /// quantity × unitCost: the peso value lost. Pesos, unrounded.
+  totalCost      Decimal?
+  /// When it was recorded and submitted.
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([status])
+  // Other pending write-offs of the same lot, checked on submit (W5).
+  @@index([lotId, status])
+  @@index([branchId])
+}
+
 // ─── APPROVALS ───────────────────────────────────────────────────────────────
 
 /// A recorded approve/reject decision on a workflow document.
@@ -762,7 +829,7 @@ model ConversionOrder {
 /// StockMovement.referenceId is already treated (see docs/database.md).
 model Approval {
   id            String   @id @default(cuid())
-  referenceType String // 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport' | 'ProductionOrder' | 'ProductionCompletion' | 'ConversionOrder'
+  referenceType String // 'PurchaseRequest' | 'PurchaseOrder' | 'ReceivingReport' | 'ProductionOrder' | 'ProductionCompletion' | 'ConversionOrder' | 'WriteOff'
   referenceId   String
   approverId    String
   approver      User     @relation(fields: [approverId], references: [id])

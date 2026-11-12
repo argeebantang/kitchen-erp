@@ -33,7 +33,7 @@ export function ConversionEffect({ effect, title, lotLabel }: {
         <span className="font-medium text-gray-800">{source.finishedGoodName}</span> at {effect.branchName}:{' '}
         <span className="font-medium">{formatQuantity(source.unexpiredOnHand)} {unit}</span> unexpired on hand
         {hasExpired && <>, <span className="text-red-700">{formatQuantity(source.expiredOnHand)} {unit} expired (not usable)</span></>}
-        {hasPending && <>, {formatQuantity(source.pending)} {unit} claimed by conversions awaiting approval</>}
+        {hasPending && <>, {formatQuantity(source.pending)} {unit} claimed by conversions or write-offs awaiting approval</>}
         {' '}— <span className="font-medium">{formatQuantity(source.available)} {unit} available</span>.
       </p>
       {source.required !== null && (
