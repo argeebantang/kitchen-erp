@@ -26,6 +26,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/receiving-reports` | all | ADMIN, PROCUREMENT_MANAGER |
 | `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/conversion-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
+| `/api/write-offs` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
@@ -91,13 +92,15 @@ Conversion BOMs (Week 7 Task 1): a `CONVERSION` recipe names the finished good i
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport` · `ProductionOrder` · `ProductionCompletion` · `ConversionOrder`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }`, `{ receivingReport: { id, rrNumber } }`, `{ productionOrder: { id, orderNumber } }` or `{ conversionOrder: { id, orderNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
+| POST | `/api/approvals` | `referenceType` (`PurchaseRequest` · `PurchaseOrder` · `ReceivingReport` · `ProductionOrder` · `ProductionCompletion` · `ConversionOrder` · `WriteOff`), `referenceId`, `decision` (`APPROVED` · `REJECTED`), `remarks?` (required to reject) | 200 `{ purchaseRequest }`, `{ purchaseOrder }`, `{ receivingReport: { id, rrNumber } }`, `{ productionOrder: { id, orderNumber } }`, `{ conversionOrder: { id, orderNumber } }` or `{ writeOff: { id, writeOffNumber } }` | 400, 401, 403 own submission / own count, 404, 409 already decided |
 
 The one endpoint for every approve/reject decision. Approving a request also creates its draft purchase order and moves the request to `CONVERTED_TO_PO`, in one transaction. A receiving report cannot be decided by whoever counted it (`receivedById`). Approving one also posts its stock and moves the order to `PARTIALLY_RECEIVED` / `FULLY_RECEIVED`, in one transaction under a lock on the order; it returns 409 and changes nothing if the order can no longer take a delivery or a line would end up received beyond what was ordered. A production order cannot be decided by whoever submitted it (`submittedById`); the decision and its `Approval` row are written in one transaction, and the submitter (and, on approval with shortages, procurement) is notified through the queue.
 
 `ProductionCompletion` (referenceId = the production order) decides a run the kitchen reported done (`PENDING_COMPLETION`). Never by whoever reported it (`completedById`, 403), ADMIN included; a reason is required to reject. **Approve** → `COMPLETED`, and in the same transaction: the run's cost (`plannedCost`, `actualCost`, `costPerUnit`, `costVariance`, see [database.md](database.md)), one `OUT` stock movement per ingredient of the pinned BOM at the planned quantity with the price used as `unitCost` (stock may go negative), and the actual yield into finished-goods stock as a new lot numbered after the order, at the cost per unit. 409 naming each material and date if a reference price is missing, or naming the finished good if it has no shelf life (an admin sets it, then approve). The lot's expiry is the moment the run was reported done + the shelf life. **Reject** → back to `IN_PROGRESS`, clearing the reported yield. 409 if the order is not awaiting a completion decision, or the report changed meanwhile (sent back and re-reported). Returns `{ productionOrder: { id, orderNumber } }`. Whoever reported it is notified through the queue; reporting notifies the approvers.
 
 `ConversionOrder` decides a recorded conversion (`PENDING_APPROVAL`). Never by whoever recorded it (`submittedById`, 403), ADMIN included; a reason is required to reject, and `REJECTED` is final. **Approve** → `APPROVED`, in one transaction: the source taken from its lots at the branch, soonest expiry first with expired lots skipped, each at the lot's recorded cost; the added ingredients out of material stock at reference prices on the conversion date (may go negative); the output in as a new lot numbered after the order, expiring its shelf life after the conversion was recorded; `sourceCost`, `conversionCost`, `costPerUnit` recorded. 409 if the output has no shelf life, an ingredient has no reference price on the conversion date (each named), or the unexpired source on hand no longer covers it — all before anything is written. 409 if already decided. Whoever recorded it is notified through the queue.
+
+`WriteOff` decides a recorded write-off (`PENDING_APPROVAL`). Never by whoever recorded it (`submittedById`, 403), ADMIN included; a reason is required to reject, and `REJECTED` is final. **Approve** → `APPROVED`, in one transaction: the lot is locked and rechecked, then one `WASTE` movement takes the quantity out at the lot's recorded cost, and `unitCost` / `totalCost` are recorded. 409 if the lot no longer holds the quantity or has no recorded cost (nothing written), or if already decided. Whoever recorded it is notified through the queue.
 
 ## Receiving reports
 
@@ -132,6 +135,14 @@ Rules (create and edit): the finished good is active and has an active BOM; the 
 
 Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and ≤ the source's unexpired stock at the branch less what other pending conversions there have claimed; `outputQty` > 0 and ≤ 2 × `batchSize × sourceQty ÷ sourceQuantity`. The submitter is the caller. The pages (`/production/conversions`, `/new`, `/[id]`) read through `ConversionOrderService`; accounting reads them but `/production/conversions/new` is ADMIN + PRODUCTION_MANAGER.
 
+## Write-offs
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/write-offs` | `lotId`, `branchId`, `quantity` (decimal string), `reason` (`EXPIRED` · `SPOILED` · `DAMAGED` · `FAILED_QUALITY` · `OTHER`), `notes?` | 201 `{ writeOff: { id, writeOffNumber } }` created `PENDING_APPROVAL` — recorded and submitted in one step, numbered `WO-000001`; queues the approver notification | 400 quantity ≤ 0 or more than the lot has left (on hand − other pending write-offs of it), `OTHER` without notes, a lot with nothing at the branch, unknown branch; 401; 403 |
+
+Finished-goods lots only. The submitter is the caller. The pages (`/inventory/write-offs`, `/new?lot=&branch=`, `/[id]`) read through `WriteOffService`; accounting reads them, `/inventory/write-offs/new` is ADMIN + PRODUCTION_MANAGER.
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |
@@ -140,7 +151,7 @@ Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and 
 | GET | `/api/notifications/stream` | — | 200 `text/event-stream`, held open: `retry: 5000`, an `event: notifications` (`data: {}`) whenever the caller's notifications change, `: ping` every 25 s | 401, 503 Redis unavailable |
 | POST | `/api/notifications/read` | `{ id }` or `{ all: true }` | 200 `{ updated }` — how many of the caller's unread notifications were marked; 0 if already read or not theirs | 400, 401 |
 
-Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `ConversionOrder` → the conversion, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
+Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `ConversionOrder` → the conversion, `WriteOff` → the write-off, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
 
 ## Known gaps
 

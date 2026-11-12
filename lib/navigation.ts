@@ -13,7 +13,8 @@ import {
   ClipboardCheck,
   ScrollText,
   CookingPot,
-  Recycle
+  Recycle,
+  Trash2
 } from 'lucide-react'
 
 export type NavItem = {
@@ -60,6 +61,7 @@ export const navigation: NavGroup[] = [
       { label: 'Stock Levels', href: '/inventory/stock',     icon: BarChart3, roles: [] },
       { label: 'Finished Goods', href: '/inventory/finished-goods', icon: CookingPot, roles: [] },
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },
+      { label: 'Write-offs',   href: '/inventory/write-offs', icon: Trash2,    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'BRANCH_MANAGER'] },
     ],
   },

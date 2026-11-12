@@ -13,6 +13,7 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
+import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import {
   ConversionDecideResult,
@@ -108,7 +109,10 @@ export type ConversionEffectDto = {
     /** Unexpired stock at the branch, now. */
     unexpiredOnHand: string
     expiredOnHand: string
-    /** Claimed by other conversions awaiting approval there — not taken yet, but spoken for. */
+    /**
+     * Claimed by other conversions, and write-offs of unexpired lots, awaiting
+     * approval there — not taken yet, but spoken for (Week 7 Task 2, W5).
+     */
     pending: string
     /** unexpiredOnHand − pending. */
     available: string
@@ -351,10 +355,12 @@ async function sourceAt(
   cost: Prisma.Decimal | null
 }> {
   const zero = new Prisma.Decimal(0)
-  const [levels, pending] = await Promise.all([
+  const [levels, pendingConversions, pendingWriteOffs] = await Promise.all([
     FinishedGoodStockRepository.lotsOnHand(sourceFinishedGoodId, branchId),
     ConversionOrderRepository.pendingSourceAtBranch(sourceFinishedGoodId, branchId, excludeOrderId),
+    WriteOffRepository.pendingOnUnexpiredLots(sourceFinishedGoodId, branchId, now),
   ])
+  const pending = pendingConversions.add(pendingWriteOffs)
   const plan  = planFefoTakes(levels, required ?? zero, now)
   const taken = new Map(plan.takes.map(take => [take.lot.id, take.quantity]))
 
@@ -777,7 +783,7 @@ export const ConversionOrderService = {
       return {
         success: false,
         error:   `Only ${trimDecimal(source.dto.available)} ${sourceUnit} of unexpired ${bom.sourceFinishedGood.name} is available at ${branch.name}`
-          + (toDecimal(source.dto.pending).greaterThan(0) ? ` (${trimDecimal(source.dto.unexpiredOnHand)} on hand, ${trimDecimal(source.dto.pending)} claimed by conversions awaiting approval)` : '')
+          + (toDecimal(source.dto.pending).greaterThan(0) ? ` (${trimDecimal(source.dto.unexpiredOnHand)} on hand, ${trimDecimal(source.dto.pending)} claimed by conversions or write-offs awaiting approval)` : '')
           + ` — you entered ${trimDecimal(toDecimalString(sourceQty))} ${sourceUnit}`,
         status:  400,
       }

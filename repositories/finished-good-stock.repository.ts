@@ -48,6 +48,8 @@ export type TakeFromLotInput = {
   /** Positive: the amount taken. */
   quantity: Prisma.Decimal
   unitCost: Prisma.Decimal | null
+  /** OUT (used, e.g. by a conversion) unless given; WASTE for a write-off (Week 7 Task 2). */
+  type?: MovementType
   referenceType: string
   referenceId: string
   notes: string | null
@@ -135,7 +137,7 @@ export const FinishedGoodStockRepository = {
       include: {
         lot: {
           select: {
-            lotNumber: true, producedOn: true, expiresAt: true, productionOrderId: true, conversionOrderId: true,
+            id: true, lotNumber: true, producedOn: true, expiresAt: true, productionOrderId: true, conversionOrderId: true,
             finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
             // The lot's first movement is the IN that created it; its unitCost
             // is the lot's cost per unit (Week 6 Task 3).
@@ -180,6 +182,28 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
+   * One lot at one branch: what it holds there, its good, its expiry and its
+   * cost per unit — what a write-off is recorded against (Week 7 Task 2).
+   * Null when the lot has never been at that branch.
+   */
+  async findLotAtBranch(lotId: string, branchId: string) {
+    return prisma.finishedGoodLevel.findUnique({
+      where:  { lotId_branchId: { lotId, branchId } },
+      select: {
+        quantity: true,
+        branch:   { select: { id: true, name: true } },
+        lot: {
+          select: {
+            id: true, lotNumber: true, producedOn: true, expiresAt: true,
+            finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
+            movements:    { where: { type: MovementType.IN }, orderBy: { createdAt: 'asc' }, take: 1, select: { unitCost: true } },
+          },
+        },
+      },
+    })
+  },
+
+  /**
    * Locks every level row of one finished good at one branch (SELECT … FOR
    * UPDATE), in id order, for the rest of the caller's transaction — so a
    * second approval taking from the same lots waits, then reads what the
@@ -198,8 +222,8 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
-   * Stock leaving a lot at one branch: one OUT row with the quantity negated
-   * and the level decreased, on the caller's transaction — receiveLot's
+   * Stock leaving a lot at one branch: one OUT (or WASTE) row with the quantity
+   * negated and the level decreased, on the caller's transaction — receiveLot's
    * counterpart. Unlike materials, a lot never goes below zero: you cannot
    * take cooked food that is not there. The decrease only applies while the
    * level covers it; otherwise this throws and the transaction rolls back.
@@ -218,7 +242,7 @@ export const FinishedGoodStockRepository = {
       data: {
         lotId:         input.lotId,
         branchId:      input.branchId,
-        type:          MovementType.OUT,
+        type:          input.type ?? MovementType.OUT,
         quantity:      input.quantity.negated(),
         unitCost:      input.unitCost,
         referenceType: input.referenceType,

@@ -5,6 +5,7 @@ import { InventoryRepository, LedgerFilters } from '@/repositories/inventory.rep
 import { ReceivingReportRepository } from '@/repositories/receiving-report.repository'
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
+import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 
 /** The document a movement came from, as the ledger shows it. */
@@ -137,6 +138,7 @@ export const FINISHED_GOOD_LOT_LIMIT = 500
 
 /** One lot at one branch, on the Finished Goods page (Week 6 Task 2, D10). */
 export type FinishedGoodLotDto = {
+  lotId: string
   lotNumber: string
   finishedGoodId: string
   finishedGoodCode: string
@@ -159,6 +161,12 @@ export type FinishedGoodLotDto = {
   value: string | null
   /** The run that made it — a link for roles that can open production orders. */
   source: { number: string; href: string | null } | null
+  /**
+   * Claimed by write-offs awaiting approval (Week 7 Task 2, W8): still on
+   * hand, but about to leave. Null when there are none. The link is the
+   * pending write-offs list, for roles that can open it.
+   */
+  pendingWriteOff: { quantity: string; href: string | null } | null
 }
 
 type FinishedGoodLevelRow = Awaited<ReturnType<typeof FinishedGoodStockRepository.findLevels>>[number]
@@ -267,7 +275,12 @@ export const InventoryService = {
    * good and branch. Readable by every signed-in role, like Stock Levels.
    */
   async finishedGoodStock(filters: { branchId?: string }, viewer: { role: string }) {
-    const rows = await FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 })
+    const [rows, pendingWriteOffs] = await Promise.all([
+      FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 }),
+      WriteOffRepository.pendingByLot(),
+    ])
+    const pendingByLot = new Map(pendingWriteOffs.map(row => [`${row.lotId}:${row.branchId}`, row.quantity]))
+    const canOpenWriteOffs = ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'].includes(viewer.role)
     const truncated = rows.length > FINISHED_GOOD_LOT_LIMIT
     const shown     = rows.slice(0, FINISHED_GOOD_LOT_LIMIT)
     const orderPage      = SOURCE_PAGES.ProductionOrder
@@ -279,6 +292,7 @@ export const InventoryService = {
       const unitCost = unitCostOf(row)
       const value    = valueOf(row)
       return {
+        lotId:            row.lot.id,
         lotNumber:        row.lot.lotNumber,
         finishedGoodId:   row.lot.finishedGood.id,
         finishedGoodCode: row.lot.finishedGood.code,
@@ -302,6 +316,13 @@ export const InventoryService = {
           number: row.lot.lotNumber,
           href:   conversionPage.roles.includes(viewer.role) ? conversionPage.href(row.lot.conversionOrderId) : null,
         } : null,
+        pendingWriteOff: (() => {
+          const pending = pendingByLot.get(`${row.lot.id}:${row.branch.id}`)
+          return pending === undefined ? null : {
+            quantity: toDecimalString(pending),
+            href:     canOpenWriteOffs ? '/inventory/write-offs?status=PENDING_APPROVAL' : null,
+          }
+        })(),
       }
     })
 

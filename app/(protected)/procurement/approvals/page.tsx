@@ -6,6 +6,8 @@ import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { ConversionOrderService } from '@/services/conversion-order.service'
+import { WriteOffService } from '@/services/write-off.service'
+import { WriteOffReasonBadge } from '@/components/inventory/WriteOffReasonBadge'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { VarianceBadge } from '@/components/procurement/VarianceChips'
 import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
@@ -14,7 +16,7 @@ export default async function ApprovalsInboxPage() {
   const session = await getSession()
   if (!session) redirect('/login')
 
-  const [requests, orders, receiving, productionOrders, completions, conversions] = await Promise.all([
+  const [requests, orders, receiving, productionOrders, completions, conversions, writeOffs] = await Promise.all([
     PurchaseRequestService.list(
       { userId: session.userId, role: session.role },
       { status: 'PENDING_APPROVAL', sort: 'neededBy', take: 100 },
@@ -24,6 +26,7 @@ export default async function ApprovalsInboxPage() {
     ProductionOrderService.listPending(100),
     ProductionOrderService.listPendingCompletions(100),
     ConversionOrderService.listPending(100),
+    WriteOffService.listPending(100),
   ])
 
   const { purchaseRequests,  total: requestTotal }   = requests
@@ -36,6 +39,7 @@ export default async function ApprovalsInboxPage() {
     { count: productionOrders.length, noun: 'production order' },
     { count: completions.length, noun: 'production completion' },
     { count: conversions.length, noun: 'conversion' },
+    { count: writeOffs.length, noun: 'write-off' },
   ].filter(part => part.count > 0)
 
   return (
@@ -391,6 +395,69 @@ export default async function ApprovalsInboxPage() {
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={order.status} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Week 7 Task 2, W8: write-offs recorded by production. Approving takes them out of stock at the lot's cost. */}
+      <h2 className="mb-3 mt-8 text-sm font-semibold text-gray-700">Write-offs</h2>
+
+      {writeOffs.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
+          <p className="text-sm font-medium text-gray-600">No write-offs waiting</p>
+          <p className="mt-1 text-sm text-gray-400">Write-offs production records will appear here.</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Number</th>
+                <th className="px-4 py-3 font-medium">Finished good · lot</th>
+                <th className="px-4 py-3 text-right font-medium">Quantity</th>
+                <th className="px-4 py-3 font-medium">Reason</th>
+                <th className="px-4 py-3 text-right font-medium">Value</th>
+                <th className="px-4 py-3 font-medium">Recorded by</th>
+                <th className="px-4 py-3 font-medium">Stock</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {writeOffs.map(row => (
+                <tr key={row.id} className="transition-colors hover:bg-gray-50">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/inventory/write-offs/${row.id}`}
+                      className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline"
+                    >
+                      {row.writeOffNumber}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-gray-700">
+                    {row.finishedGoodName} <span className="font-mono text-xs text-gray-400">{row.lotNumber}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-700">
+                    {formatQuantity(row.quantity)} <span className="text-gray-400">{row.unitAbbreviation}</span>
+                  </td>
+                  <td className="px-4 py-3"><WriteOffReasonBadge reason={row.reason} label={row.reasonLabel} /></td>
+                  <td className="px-4 py-3 text-right text-gray-700">
+                    {/* What approving records, at the lot's cost. */}
+                    {row.value === null ? <span className="text-gray-400">—</span> : formatPeso(row.value)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-500">{row.submittedByName}</td>
+                  <td className="px-4 py-3">
+                    {row.enough ? (
+                      <span className="inline-block rounded bg-emerald-50 px-1.5 py-0.5 text-xs font-medium text-emerald-700">Lot holds it</span>
+                    ) : (
+                      <span className="inline-block whitespace-nowrap rounded bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">Lot short</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={row.status} />
                   </td>
                 </tr>
               ))}
