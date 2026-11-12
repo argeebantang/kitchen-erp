@@ -3,6 +3,7 @@ import {
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
+  EXPIRY_CHECK,
   getNotificationQueue,
   LOW_STOCK_CHECK,
   NOTIFICATIONS_QUEUE,
@@ -91,6 +92,12 @@ async function handleLowStockCheck() {
   console.log(`  → ${date}: wrote ${count} notification(s)`)
 }
 
+async function handleExpiryCheck() {
+  const date = todayIsoDate()
+  const { lots, written } = await NotificationService.notifyExpiringLots(date)
+  console.log(lots === 0 ? '  → no lots expired or expiring within 48 h' : `  → ${lots} lot(s) flagged; wrote ${written} notification(s)`)
+}
+
 async function handleStockReconciliation() {
   const date = todayIsoDate()
   const { mismatches, written } = await NotificationService.notifyStockMismatches(date)
@@ -129,6 +136,8 @@ const worker = new Worker(
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:
         return handleStockReconciliation()
+      case EXPIRY_CHECK:
+        return handleExpiryCheck()
       default:
         // Throwing marks the job FAILED rather than quietly completing it, so an
         // unrecognised job name is visible instead of vanishing.

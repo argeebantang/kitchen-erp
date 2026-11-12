@@ -349,7 +349,16 @@ table; it's a UI/UX decision, not an architecture change.
       status and reason filters; the detail page has the approval preview, Approve / Reject, the decision and
       a Stock moved card. Inbox section, notifications both ways, "N kg pending write-off" on Finished Goods
       lots. Migration `20261112150000_write_offs`.
-- [ ] Expiry tracking (24/48h flags)
+- [x] Expiry tracking (24/48h flags) — **done 2026-11-12** (`docs/2026-11-12-week7-expiry-flags.md`). Each lot is
+      **Expired**, **within 24 h** (use or convert today), **within 48 h**, or fine — worked out on every read
+      against one clock (`expiryFlag` in `lib/dates.ts`), nothing stored. Finished Goods shows the badge
+      ("Expires in 9 h") with tinted rows and chips ("1 expired · 1 within 24 h · 1 within 48 h") that filter
+      the lots (`?expiry=`); the conversion form's source lots, the write-off form and the write-off page show
+      the same badge. A new daily job, `expiry-check` (06:00 Manila), sends each production manager and admin
+      one summary of the lots to sell, convert or write off, most urgent first, with the value at cost — once
+      per person per day, nothing when nothing is flagged; `npm run job -- expiry-check` runs it now. Fixed
+      thresholds of 24 / 48 h for every product, so Lechon (48 h shelf life) is "within 48 h" from roasting.
+      No schema change.
 - [ ] End-of-day reconciliation
 
 ### Week 8 — Branch Distribution & Costing Dashboard

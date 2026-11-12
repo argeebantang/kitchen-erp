@@ -6,6 +6,7 @@ import { ReceivingReportRepository } from '@/repositories/receiving-report.repos
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
+import { expiryFlag, type ExpiryFlag, type ExpiryStatus } from '@/lib/dates'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 
 /** The document a movement came from, as the ledger shows it. */
@@ -133,6 +134,13 @@ const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => stri
   },
 }
 
+/** The Finished Goods page's expiry filter (Week 7 Task 3, X2): a query-string value and the status it shows. */
+export const EXPIRY_FILTERS: { value: string; status: ExpiryStatus; label: string }[] = [
+  { value: 'expired', status: 'EXPIRED',    label: 'expired' },
+  { value: '24h',     status: 'WITHIN_24H', label: 'within 24 h' },
+  { value: '48h',     status: 'WITHIN_48H', label: 'within 48 h' },
+]
+
 /** The most lots the Finished Goods page lists (D10). */
 export const FINISHED_GOOD_LOT_LIMIT = 500
 
@@ -153,6 +161,8 @@ export type FinishedGoodLotDto = {
   expiresAt: string | null
   /** Past its expiry as of this read — must not be used. */
   expired: boolean
+  /** Expired / within 24 h / within 48 h / OK, as of this read (Week 7 Task 3); null with no expiry. */
+  expiry: ExpiryFlag | null
   /** When this lot last moved at this branch (ISO). */
   lastMovementAt: string
   /** The lot's cost per unit, recorded when its run was approved; null before costing (Week 6 Task 3). */
@@ -274,7 +284,7 @@ export const InventoryService = {
    * branch, soonest expiry first (Week 6 Task 4), and the total per finished
    * good and branch. Readable by every signed-in role, like Stock Levels.
    */
-  async finishedGoodStock(filters: { branchId?: string }, viewer: { role: string }) {
+  async finishedGoodStock(filters: { branchId?: string; expiry?: ExpiryStatus }, viewer: { role: string }) {
     const [rows, pendingWriteOffs] = await Promise.all([
       FinishedGoodStockRepository.findLevels({ branchId: filters.branchId, take: FINISHED_GOOD_LOT_LIMIT + 1 }),
       WriteOffRepository.pendingByLot(),
@@ -304,6 +314,7 @@ export const InventoryService = {
         producedOn:       row.lot.producedOn.toISOString().slice(0, 10),
         expiresAt:        row.lot.expiresAt?.toISOString() ?? null,
         expired:          row.lot.expiresAt !== null && row.lot.expiresAt.getTime() <= now,
+        expiry:           expiryFlag(row.lot.expiresAt, now),
         lastMovementAt:   row.updatedAt.toISOString(),
         unitCost:         unitCost === null ? null : toDecimalString(unitCost),
         value:            value === null ? null : toDecimalString(value),
@@ -341,8 +352,19 @@ export const InventoryService = {
       totals.set(key, current)
     }
 
+    // Week 7 Task 3, X2: how many lots with stock are flagged — over everything
+    // shown, whatever the expiry filter — and the lots the filter keeps. A
+    // negative level holds nothing to use, so it is not counted.
+    const flagged = lots.filter(lot => !lot.quantity.startsWith('-'))
+    const expiryCounts = {
+      expired:   flagged.filter(lot => lot.expiry?.status === 'EXPIRED').length,
+      within24h: flagged.filter(lot => lot.expiry?.status === 'WITHIN_24H').length,
+      within48h: flagged.filter(lot => lot.expiry?.status === 'WITHIN_48H').length,
+    }
+
     return {
-      lots,
+      lots: filters.expiry === undefined ? lots : lots.filter(lot => lot.expiry?.status === filters.expiry),
+      expiryCounts,
       totals: [...totals.values()]
         .map(({ sum, worth, ...total }) => ({ ...total, quantity: toDecimalString(sum), value: worth === null ? null : toDecimalString(worth) }))
         .sort((a, b) => a.branchName.localeCompare(b.branchName) || a.finishedGoodName.localeCompare(b.finishedGoodName)),

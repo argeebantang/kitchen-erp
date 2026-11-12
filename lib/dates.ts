@@ -78,3 +78,41 @@ export function monthGrid(month: string): string[][] {
   }
   return weeks
 }
+
+/**
+ * Lots are flagged when they have this many hours or fewer left (Week 7 Task 3,
+ * X1): within 24 h — use or convert today; within 48 h — plan for it. Fixed
+ * for every finished good, as in the roadmap: Lechon (48 h shelf life) is
+ * "within 48 h" from the moment it is roasted, which is right for it.
+ */
+export const EXPIRY_URGENT_HOURS = 24
+export const EXPIRY_SOON_HOURS   = 48
+
+export type ExpiryStatus = 'EXPIRED' | 'WITHIN_24H' | 'WITHIN_48H' | 'OK'
+
+/** A lot's expiry as of one moment: its status and the whole minutes left (negative once expired). */
+export type ExpiryFlag = { status: ExpiryStatus; minutesLeft: number }
+
+/**
+ * The flag for an expiry, against `now` (ms). Callers pass one clock for a
+ * whole page or job, so two lots expiring together never read differently.
+ * Null for a lot with no expiry (made before expiry was tracked).
+ */
+export function expiryFlag(expiresAt: Date | string | null, now: number): ExpiryFlag | null {
+  if (expiresAt === null) return null
+  // The status is decided to the millisecond, like a lot's `expired` flag, so
+  // the two never disagree in a lot's last minute; minutes are for display.
+  const msLeft = new Date(expiresAt).getTime() - now
+  const hour   = 60 * 60 * 1000
+  const status: ExpiryStatus = msLeft <= 0
+    ? 'EXPIRED'
+    : msLeft <= EXPIRY_URGENT_HOURS * hour
+      ? 'WITHIN_24H'
+      : msLeft <= EXPIRY_SOON_HOURS * hour ? 'WITHIN_48H' : 'OK'
+  return { status, minutesLeft: Math.floor(msLeft / 60_000) }
+}
+
+/** "40 min", "5 h", "30 h" — how long is left, for a badge. */
+export function formatTimeLeft(minutesLeft: number): string {
+  return minutesLeft < 60 ? `${Math.max(minutesLeft, 0)} min` : `${Math.floor(minutesLeft / 60)} h`
+}
