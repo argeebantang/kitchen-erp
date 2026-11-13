@@ -29,7 +29,8 @@ The browser is the only client. Server Components read through services directly
 | `/api/write-offs` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
-| everything else (incl. `/api/notifications`), and reads of the item master and BOMs | GET | any signed-in user |
+| `/api/branches` (incl. `/deactivate`, `/reactivate`) | POST, PUT, PATCH, DELETE | ADMIN |
+| everything else (incl. `/api/notifications`), and reads of the item master, BOMs and branches | GET | any signed-in user |
 
 ## Auth
 
@@ -61,6 +62,18 @@ The browser is the only client. Server Components read through services directly
 | POST | `/api/categories` | `name`, `type` | 201 `{ category }` | 400, 409 |
 | GET | `/api/units` | — | 200 `{ units }` | — |
 | POST | `/api/units` | `name`, `abbreviation` | 201 `{ unit }` | 400, 409 |
+
+## Branches
+
+Week 8 Task 1. Managed from Master Data → Branches. A branch is `{ id, code, name, type, address, phone, manager: { id, name, email } | null, isActive }`.
+
+| Method | Path | Body / query | Success | Errors |
+|---|---|---|---|---|
+| GET | `/api/branches` | `includeInactive?` (`true` · `false`, default `false`) | 200 `{ branches }`, oldest first | 400 |
+| POST | `/api/branches` | `code` (trimmed, upper-cased, 2–10 letters/digits), `name` (2–100), `type` (`COMMISSARY` · `OUTLET`), `address?` (≤ 300), `phone?` (≤ 30; digits, spaces, `+ - ( )`), `managerId?` (a `BRANCH_MANAGER` user or null) | 201 `{ branch }` | 400 incl. not a branch manager, 409 code or name taken (name ignoring case), 409 manager just assigned elsewhere |
+| PATCH | `/api/branches/[id]` | any of `name`, `type`, `address`, `phone`, `managerId` (`null` clears; omitted leaves it). `code` cannot change — ignored if sent | 200 `{ branch }`; a manager running another branch is moved here | 400, 404, 409 name taken, 409 the only active commissary → outlet |
+| POST | `/api/branches/[id]/deactivate` | — | 200 `{ branch }` with `isActive: false` | 404, 409 already inactive, 409 holds stock / has open documents (the message counts them and names up to 3 document numbers each), 409 the only active commissary |
+| POST | `/api/branches/[id]/reactivate` | — | 200 `{ branch }` | 404, 409 already active |
 
 ## BOM
 
