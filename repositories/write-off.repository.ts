@@ -64,6 +64,12 @@ export const WriteOffRepository = {
     })
   },
 
+  async numbersByIds(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map()
+    const rows = await prisma.writeOff.findMany({ where: { id: { in: ids } }, select: { id: true, writeOffNumber: true } })
+    return new Map(rows.map(row => [row.id, row.writeOffNumber]))
+  },
+
   async findById(id: string): Promise<WriteOffWithDetail | null> {
     return prisma.writeOff.findUnique({ where: { id }, include: writeOffInclude })
   },

@@ -1,5 +1,5 @@
 import { Prisma, Role } from '@prisma/client'
-import { EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
+import { BUSINESS_TIME_ZONE, EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
 import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { InventoryRepository } from '@/repositories/inventory.repository'
@@ -11,6 +11,7 @@ import { ProductionOrderRepository } from '@/repositories/production-order.repos
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { reasonLabel } from '@/services/write-off.service'
+import { EndOfDayService } from '@/services/end-of-day.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
@@ -23,6 +24,9 @@ const ORDERING_ROLES: Role[] = [Role.PROCUREMENT_MANAGER, Role.ADMIN]
 
 /** Roles that act on lots near expiry — sell, convert or write them off (Week 7 Task 3, X3). */
 const EXPIRY_ROLES: Role[] = [Role.PRODUCTION_MANAGER, Role.ADMIN]
+
+/** Roles that close the day: the kitchen, and accounting for the money side (Week 7 Task 4, E4). */
+const END_OF_DAY_ROLES: Role[] = [Role.PRODUCTION_MANAGER, Role.ACCOUNTING, Role.ADMIN]
 
 /** How many materials the low-stock summary names before "+N more". */
 const SUMMARY_NAMES = 5
@@ -39,6 +43,8 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   PurchaseRequest:     id => `/procurement/requests/${id}`,
   LowStockCheck:       () => '/inventory/stock',
   ExpiryCheck:         () => '/inventory/finished-goods',
+  // Unlike the other daily jobs, the date matters: the bell opens that day.
+  EndOfDaySummary:     date => `/inventory/end-of-day?date=${date}`,
   StockReconciliation: () => '/inventory/ledger',
   ProductionOrder:     id => `/production/orders/${id}`,
   // Procurement cannot open production orders; their link is the purchase
@@ -246,6 +252,74 @@ export const NotificationService = {
       referenceId:   date,
     })))
     return { lots: flagged.length, written }
+  },
+
+  /**
+   * The evening close (Week 7 Task 4, E4): the End of Day page's figures for
+   * `date` — per finished good that moved, opening → closing and the flows
+   * between; the pesos by flow; the closing value at cost; and any row that
+   * does not reconcile — to every production manager, accountant and admin.
+   * Once per person per day (the date is the referenceId); nothing on a day
+   * with no finished-goods movement. Movements approved after the run are on
+   * the page, not in the notification.
+   */
+  async notifyEndOfDay(date: string): Promise<{ movements: number; written: number }> {
+    const day = await EndOfDayService.forDay(date, null, null)
+    if (day.movementCount === 0) return { movements: 0, written: 0 }
+
+    const [users, alreadyTold] = await Promise.all([
+      UserRepository.findByRoles(END_OF_DAY_ROLES),
+      NotificationRepository.userIdsWithReference('EndOfDaySummary', date),
+    ])
+    const recipients = users.filter(user => !alreadyTold.has(user.id))
+
+    // "+18", "−10" (a true minus).
+    const signed = (quantity: string) => {
+      const shown = formatQuantity(quantity)
+      return shown.startsWith('-') ? `−${shown.slice(1)}` : `+${shown}`
+    }
+    const flowNames = [
+      ['produced', 'produced'], ['convertedIn', 'converted in'], ['convertedOut', 'converted out'],
+      ['writtenOff', 'written off'], ['distributed', 'distributed'],
+    ] as const
+    const moved = day.rows.filter(row => row.movementCount > 0)
+    const severalBranches = new Set(day.rows.map(row => row.branchName)).size > 1
+    const goods = moved.slice(0, SUMMARY_NAMES).map(row => {
+      const flows = flowNames
+        .filter(([key]) => formatQuantity(row[key].quantity) !== '0')
+        .map(([key, name]) => `${name} ${signed(row[key].quantity)}`)
+      return `${row.finishedGoodName}${severalBranches ? ` at ${row.branchName}` : ''} `
+        + `${formatQuantity(row.opening.quantity)} → ${formatQuantity(row.closing.quantity)} ${row.unitAbbreviation}`
+        + (flows.length > 0 ? ` (${flows.join(', ')})` : '')
+    })
+    const more  = moved.length - goods.length
+    const pesos = flowNames
+      .filter(([key]) => formatPeso(day.totals[key]) !== '₱0.00')
+      .map(([key, name]) => `${name} ${formatPeso(day.totals[key].replace(/^-/, ''))}`)
+    const unreconciled = day.rows.filter(row => !row.balanced || row.matchesStock === false).length
+
+    const label = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-PH', {
+      timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+    })
+    // A run for today (the 21:00 job) is a snapshot; a past day is complete.
+    const asOf = day.isToday
+      ? `As of ${new Date().toLocaleTimeString('en-PH', { timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit' })}.`
+      : null
+
+    const written = await createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'END_OF_DAY',
+      title:         `End of day, ${label}: ${day.movementCount} movement${day.movementCount === 1 ? '' : 's'} — closing ${formatPeso(day.totals.closing)} at cost`
+        + (unreconciled > 0 ? ` · ${unreconciled} row${unreconciled === 1 ? '' : 's'} not reconciling` : ''),
+      body:          [
+        `${goods.join('; ')}${more > 0 ? `; +${more} more` : ''}.`,
+        pesos.length > 0 ? `At cost: ${pesos.join(', ')}.` : null,
+        asOf,
+      ].filter(part => part !== null).join(' '),
+      referenceType: 'EndOfDaySummary',
+      referenceId:   date,
+    })))
+    return { movements: day.movementCount, written }
   },
 
   /**

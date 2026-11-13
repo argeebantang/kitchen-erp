@@ -78,6 +78,35 @@ export function planFefoTakes(lots: LotOnHand[], required: Prisma.Decimal, now: 
   return { takes, short: Prisma.Decimal.max(remaining, 0) }
 }
 
+/** A named end-of-day flow (Week 7 Task 4, E1). */
+export type DayFlow = 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'distributed'
+
+/**
+ * Which ledger movements make each end-of-day flow — the one place this is
+ * decided, used by dayFlows and dayDocuments alike. A movement matching none
+ * of them is "other", which the End of Day page reports as unrecognised.
+ */
+const DAY_FLOWS: [DayFlow, Prisma.Sql][] = [
+  ['produced',     Prisma.sql`m.type = 'IN' AND m."referenceType" = 'ProductionOrder'`],
+  ['convertedIn',  Prisma.sql`m.type = 'IN' AND m."referenceType" = 'ConversionOrder'`],
+  ['convertedOut', Prisma.sql`m.type = 'OUT' AND m."referenceType" = 'ConversionOrder'`],
+  ['writtenOff',   Prisma.sql`m.type = 'WASTE' AND m."referenceType" = 'WriteOff'`],
+  // Transfers between branches arrive with Week 8.
+  ['distributed',  Prisma.sql`m.type = 'TRANSFER'`],
+]
+const KNOWN_FLOW = Prisma.sql`(${Prisma.join(DAY_FLOWS.map(([, condition]) => Prisma.sql`(${condition})`), ' OR ')})`
+
+/**
+ * c.cost: the cost per unit of movement m's lot — its first IN's unitCost
+ * (Week 6 Task 3) — for joining after "FinishedGoodLot" AS lot.
+ */
+const LOT_COST = Prisma.sql`
+  LEFT JOIN LATERAL (
+    SELECT first_in."unitCost" AS cost FROM "FinishedGoodMovement" AS first_in
+    WHERE first_in."lotId" = lot.id AND first_in.type = 'IN'
+    ORDER BY first_in."createdAt" LIMIT 1
+  ) AS c ON true`
+
 export const FinishedGoodStockRepository = {
   /**
    * A new lot comes into stock at one branch: the lot row, one IN movement
@@ -201,6 +230,111 @@ export const FinishedGoodStockRepository = {
         },
       },
     })
+  },
+
+  /**
+   * One business day of finished goods, per finished good and branch, from
+   * the ledger alone (Week 7 Task 4, E1): the balance before `start`, each
+   * flow within [start, end) by where it came from, and the balance before
+   * `end`. One statement, one snapshot, so opening + flows = closing unless a
+   * movement fits none of the flows — which lands in `other`, not nowhere.
+   *
+   * Values are each movement's quantity × its lot's recorded cost per unit
+   * (the IN that created the lot, Week 6 Task 3), the same yardstick for
+   * every figure, so the pesos add up like the kilos. A pair with nothing at
+   * all before `end` is left out.
+   */
+  async dayFlows(start: Date, end: Date, branchId: string | null): Promise<{
+    finishedGoodId: string; finishedGoodCode: string; finishedGoodName: string; unitAbbreviation: string
+    branchId: string; branchName: string
+    openingQty: Prisma.Decimal | null; openingValue: Prisma.Decimal | null
+    producedQty: Prisma.Decimal | null; producedValue: Prisma.Decimal | null
+    convertedInQty: Prisma.Decimal | null; convertedInValue: Prisma.Decimal | null
+    convertedOutQty: Prisma.Decimal | null; convertedOutValue: Prisma.Decimal | null
+    writtenOffQty: Prisma.Decimal | null; writtenOffValue: Prisma.Decimal | null
+    distributedQty: Prisma.Decimal | null; distributedValue: Prisma.Decimal | null
+    otherQty: Prisma.Decimal | null; otherValue: Prisma.Decimal | null
+    closingQty: Prisma.Decimal | null; closingValue: Prisma.Decimal | null
+    movementCount: bigint
+  }[]> {
+    const inDay = Prisma.sql`m."createdAt" >= ${start} AND m."createdAt" < ${end}`
+    const flow = (name: DayFlow | 'other', condition: Prisma.Sql) => Prisma.sql`
+      SUM(m.quantity)          FILTER (WHERE ${inDay} AND ${condition}) AS ${Prisma.raw(`"${name}Qty"`)},
+      SUM(m.quantity * c.cost) FILTER (WHERE ${inDay} AND ${condition}) AS ${Prisma.raw(`"${name}Value"`)},`
+
+    return prisma.$queryRaw`
+      SELECT good.id AS "finishedGoodId", good.code AS "finishedGoodCode", good.name AS "finishedGoodName",
+             unit.abbreviation AS "unitAbbreviation", branch.id AS "branchId", branch.name AS "branchName",
+             SUM(m.quantity)          FILTER (WHERE m."createdAt" < ${start}) AS "openingQty",
+             SUM(m.quantity * c.cost) FILTER (WHERE m."createdAt" < ${start}) AS "openingValue",
+             ${Prisma.join(DAY_FLOWS.map(([name, condition]) => flow(name, condition)), ' ')}
+             ${flow('other', Prisma.sql`NOT ${KNOWN_FLOW}`)}
+             SUM(m.quantity)          AS "closingQty",
+             SUM(m.quantity * c.cost) AS "closingValue",
+             COUNT(*) FILTER (WHERE ${inDay}) AS "movementCount"
+      FROM "FinishedGoodMovement" AS m
+      JOIN "FinishedGoodLot" AS lot    ON lot.id = m."lotId"
+      JOIN "FinishedGood"    AS good   ON good.id = lot."finishedGoodId"
+      JOIN "Unit"            AS unit   ON unit.id = good."unitId"
+      JOIN "Branch"          AS branch ON branch.id = m."branchId"
+      ${LOT_COST}
+      WHERE m."createdAt" < ${end}
+        ${branchId === null ? Prisma.empty : Prisma.sql`AND m."branchId" = ${branchId}`}
+      GROUP BY good.id, good.code, good.name, unit.abbreviation, branch.id, branch.name
+      ORDER BY branch.name, good.name
+    `
+  },
+
+  /**
+   * The documents behind one business day's figures (Week 7 Task 4, E3): per
+   * source document, flow, finished good and branch, the quantity and its
+   * value at the lots' recorded cost, the lots touched and when the stock
+   * moved — classified by the same DAY_FLOWS as dayFlows, so each flow's
+   * documents add up to its figure. Oldest first.
+   */
+  async dayDocuments(start: Date, end: Date, branchId: string | null): Promise<{
+    flow: DayFlow | 'other'
+    referenceType: string; referenceId: string
+    finishedGoodName: string; finishedGoodCode: string; unitAbbreviation: string
+    branchName: string
+    lotNumbers: string[]
+    quantity: Prisma.Decimal; value: Prisma.Decimal | null
+    movedAt: Date
+  }[]> {
+    const flowCase = Prisma.join(DAY_FLOWS.map(([name, condition]) => Prisma.sql`WHEN ${condition} THEN ${name}`), ' ')
+    return prisma.$queryRaw`
+      SELECT CASE ${flowCase} ELSE 'other' END AS flow,
+             m."referenceType", m."referenceId",
+             good.name AS "finishedGoodName", good.code AS "finishedGoodCode", unit.abbreviation AS "unitAbbreviation",
+             branch.name AS "branchName",
+             array_agg(DISTINCT lot."lotNumber" ORDER BY lot."lotNumber") AS "lotNumbers",
+             SUM(m.quantity) AS quantity, SUM(m.quantity * c.cost) AS value,
+             MIN(m."createdAt") AS "movedAt"
+      FROM "FinishedGoodMovement" AS m
+      JOIN "FinishedGoodLot" AS lot    ON lot.id = m."lotId"
+      JOIN "FinishedGood"    AS good   ON good.id = lot."finishedGoodId"
+      JOIN "Unit"            AS unit   ON unit.id = good."unitId"
+      JOIN "Branch"          AS branch ON branch.id = m."branchId"
+      ${LOT_COST}
+      WHERE m."createdAt" >= ${start} AND m."createdAt" < ${end}
+        ${branchId === null ? Prisma.empty : Prisma.sql`AND m."branchId" = ${branchId}`}
+      GROUP BY m.type, m."referenceType", m."referenceId", good.id, good.name, good.code, unit.abbreviation, branch.id, branch.name
+      ORDER BY "movedAt", good.name
+    `
+  },
+
+  /**
+   * What the stock levels hold now, per finished good and branch — compared
+   * with today's closing figure from the ledger on the End of Day page.
+   */
+  async levelTotals(branchId: string | null): Promise<{ finishedGoodId: string; branchId: string; quantity: Prisma.Decimal }[]> {
+    return prisma.$queryRaw`
+      SELECT lot."finishedGoodId", level."branchId", SUM(level.quantity) AS quantity
+      FROM "FinishedGoodLevel" AS level
+      JOIN "FinishedGoodLot"   AS lot ON lot.id = level."lotId"
+      ${branchId === null ? Prisma.empty : Prisma.sql`WHERE level."branchId" = ${branchId}`}
+      GROUP BY lot."finishedGoodId", level."branchId"
+    `
   },
 
   /**

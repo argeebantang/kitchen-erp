@@ -359,7 +359,17 @@ table; it's a UI/UX decision, not an architecture change.
       per person per day, nothing when nothing is flagged; `npm run job -- expiry-check` runs it now. Fixed
       thresholds of 24 / 48 h for every product, so Lechon (48 h shelf life) is "within 48 h" from roasting.
       No schema change.
-- [ ] End-of-day reconciliation
+- [x] End-of-day reconciliation — **done 2026-11-13** (`docs/2026-11-13-week7-end-of-day.md`). **Inventory → End of
+      Day** (every role): one Manila business day of finished goods per good and branch, from the ledger alone —
+      opening, produced, converted in, converted out, written off, distributed (transfers, from Week 8), closing —
+      in kg and at each lot's recorded cost, with a value-at-cost totals row. A movement counts on the day
+      accounting approved it. A Check column proves opening + the day's flows = closing (a ledger movement that
+      fits no flow shows "Unrecognised") and, for today, that closing = what the stock levels hold ("Stock
+      differs"). ‹ › and a date picker move between days; a branch filter. Below it, the documents behind the
+      figures — PRD / CNV / WO with quantity, lots and value, linked for admin, production and accounting. A new
+      daily job, `end-of-day-summary` (21:00 Manila), sends each production manager, accountant and admin the
+      day's figures and closing value — once per person per day, nothing on a day with no movement; the bell
+      opens that day. Books only: no physical count (with the stock-adjustment follow-up). No schema change.
 
 ### Week 8 — Branch Distribution & Costing Dashboard
 - [ ] Branch management

@@ -3,6 +3,7 @@ import {
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
+  END_OF_DAY_SUMMARY,
   EXPIRY_CHECK,
   getNotificationQueue,
   LOW_STOCK_CHECK,
@@ -98,6 +99,15 @@ async function handleExpiryCheck() {
   console.log(lots === 0 ? '  → no lots expired or expiring within 48 h' : `  → ${lots} lot(s) flagged; wrote ${written} notification(s)`)
 }
 
+async function handleEndOfDaySummary() {
+  // Today, in Manila: the job runs at 21:00, the same day it reports on.
+  const date = todayIsoDate()
+  const { movements, written } = await NotificationService.notifyEndOfDay(date)
+  console.log(movements === 0
+    ? `  → ${date}: no finished-goods movement — nothing sent`
+    : `  → ${date}: ${movements} movement(s); wrote ${written} notification(s)`)
+}
+
 async function handleStockReconciliation() {
   const date = todayIsoDate()
   const { mismatches, written } = await NotificationService.notifyStockMismatches(date)
@@ -138,6 +148,8 @@ const worker = new Worker(
         return handleStockReconciliation()
       case EXPIRY_CHECK:
         return handleExpiryCheck()
+      case END_OF_DAY_SUMMARY:
+        return handleEndOfDaySummary()
       default:
         // Throwing marks the job FAILED rather than quietly completing it, so an
         // unrecognised job name is visible instead of vanishing.

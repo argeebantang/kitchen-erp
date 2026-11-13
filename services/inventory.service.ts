@@ -117,7 +117,7 @@ export function reorderAlerts(branches: BranchStockDto[]): ReorderAlertDto[] {
  * Who may open each kind of source document — the roles middleware.ts lets
  * onto its pages. Everyone else sees the number without a link.
  */
-const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => string }> = {
+export const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => string }> = {
   ReceivingReport: {
     roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'],
     href:  id => `/procurement/receiving/${id}`,
@@ -131,6 +131,11 @@ const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) => stri
   ConversionOrder: {
     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
     href:  id => `/production/conversions/${id}`,
+  },
+  // Finished goods written off (Week 7 Task 2) — on the End of Day page.
+  WriteOff: {
+    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
+    href:  id => `/inventory/write-offs/${id}`,
   },
 }
 
