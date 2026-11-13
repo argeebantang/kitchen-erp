@@ -146,7 +146,7 @@ const plan = {
         },
         {
           week: "Week 7",
-          status: "next",
+          status: "done",
           title: "Conversion, Write-off & Expiry",
           tag: "costing",
           tasks: [
@@ -157,12 +157,13 @@ const plan = {
             { t: "COSTING: write-off cost = quantity × unit cost of finished good", done: true },
             { t: "Write-off approval by accounting", done: true },
             { t: "Expiry tracking: flag items 24/48 hours before expiry", done: true },
-            "End-of-day reconciliation: produced, distributed, converted, written-off",
+            { t: "End-of-day reconciliation: produced, distributed, converted, written-off", done: true },
           ],
           deliverable: "Convert unsold lechon to paksiw in 3 clicks. System tracks the cost of the conversion. Write-offs logged with peso value impact.",
         },
         {
           week: "Week 8",
+          status: "next",
           title: "Branch Distribution & Costing Dashboard",
           tag: "costing",
           tasks: [

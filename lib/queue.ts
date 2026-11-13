@@ -65,6 +65,13 @@ export const STOCK_RECONCILIATION = 'stock-reconciliation'
 export const EXPIRY_CHECK = 'expiry-check'
 
 /**
+ * The evening close (Week 7 Task 4, E4): the day's finished goods — produced,
+ * converted, written off, distributed — and the closing value at cost, from
+ * the End of Day page's figures. No payload: the day is the run's own.
+ */
+export const END_OF_DAY_SUMMARY = 'end-of-day-summary'
+
+/**
  * Jobs that run on a clock rather than on an event: cron patterns, read in
  * BUSINESS_TIME_ZONE (lib/dates.ts). The worker registers them at startup.
  */
@@ -72,6 +79,7 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
   { name: LOW_STOCK_CHECK,      pattern: '0 6 * * *' }, // 06:00, before the kitchen and procurement start
   { name: STOCK_RECONCILIATION, pattern: '0 6 * * *' },
   { name: EXPIRY_CHECK,         pattern: '0 6 * * *' }, // before service: what to sell, convert or write off first
+  { name: END_OF_DAY_SUMMARY,   pattern: '0 21 * * *' }, // 21:00, after the kitchen closes (Week 7 Task 4)
 ]
 
 /**

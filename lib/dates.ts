@@ -116,3 +116,21 @@ export function expiryFlag(expiresAt: Date | string | null, now: number): Expiry
 export function formatTimeLeft(minutesLeft: number): string {
   return minutesLeft < 60 ? `${Math.max(minutesLeft, 0)} min` : `${Math.floor(minutesLeft / 60)} h`
 }
+
+/**
+ * The span of one business day (YYYY-MM-DD) as instants: Manila midnight to
+ * the next Manila midnight, end exclusive. Manila is UTC+8 all year — the
+ * Philippines has no daylight saving — so a fixed offset is exact. For
+ * reading the ledger by day (End of Day, Week 7 Task 4).
+ */
+export function businessDayRange(date: string): { start: Date; end: Date } {
+  const start = new Date(`${date}T00:00:00+08:00`)
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) }
+}
+
+/** The business date `days` after (or before, if negative) a YYYY-MM-DD date. */
+export function addDays(date: string, days: number): string {
+  const moment = new Date(`${date}T00:00:00Z`)
+  moment.setUTCDate(moment.getUTCDate() + days)
+  return moment.toISOString().slice(0, 10)
+}

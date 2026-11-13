@@ -14,7 +14,8 @@ import {
   ScrollText,
   CookingPot,
   Recycle,
-  Trash2
+  Trash2,
+  Moon
 } from 'lucide-react'
 
 export type NavItem = {
@@ -62,6 +63,7 @@ export const navigation: NavGroup[] = [
       { label: 'Finished Goods', href: '/inventory/finished-goods', icon: CookingPot, roles: [] },
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },
       { label: 'Write-offs',   href: '/inventory/write-offs', icon: Trash2,    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+      { label: 'End of Day',   href: '/inventory/end-of-day', icon: Moon,      roles: [] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'BRANCH_MANAGER'] },
     ],
   },
