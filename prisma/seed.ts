@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from '@prisma/client'
+import { PrismaClient, Role, BranchType } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -215,12 +215,13 @@ async function main() {
   console.log(`  ✓ 1 supplier`)
 
   // ── Branches ───────────────────────────────────────────────────────────────
-  // The default receiving location for supplier deliveries. Branch.name is not
-  // unique, so this is find-then-create rather than upsert, like the supplier.
-  const commissary = await prisma.branch.findFirst({ where: { name: 'Main Commissary' } })
-  if (!commissary) {
-    await prisma.branch.create({ data: { name: 'Main Commissary' } })
-  }
+  // The default receiving location for supplier deliveries. Upserted on its
+  // fixed code; an existing row is left as an admin last saved it.
+  await prisma.branch.upsert({
+    where:  { code: 'MAIN' },
+    update: {},
+    create: { name: 'Main Commissary', code: 'MAIN', type: BranchType.COMMISSARY },
+  })
   console.log(`  ✓ 1 branch`)
 
   // ── Materials ──────────────────────────────────────────────────────────────

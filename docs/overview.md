@@ -12,6 +12,7 @@ Built (Weeks 1–7):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
+* Branches (Week 8): branch profiles in Master Data — code, name, type (Commissary supplies the outlets; every branch cooks), address, phone and one manager per branch; deactivated (never deleted) only once it holds no stock and no open documents
 * Versioned Bills of Materials, stated per batch and scalable to a target quantity — production recipes, and conversion recipes that make one finished good from another (Week 7)
 * Purchase Requests: draft → submit → approve/reject by accounting; approval auto-creates a draft Purchase Order
 * Purchase Orders: sourcing (supplier, delivery date, re-pricing), submit → approve/reject → mark sent, PDF export

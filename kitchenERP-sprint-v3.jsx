@@ -167,7 +167,7 @@ const plan = {
           title: "Branch Distribution & Costing Dashboard",
           tag: "costing",
           tasks: [
-            "Branch management: create and manage branch profiles",
+            { t: "Branch management: create and manage branch profiles", done: true },
             "Transfer Order: kitchen selects finished goods + quantities to send",
             "Transfer approval by accounting, branch confirms receipt",
             "Transfer variance logging",

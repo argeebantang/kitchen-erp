@@ -50,6 +50,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/finished-goods',    roles: ['ADMIN'], methods: WRITE_METHODS },
   { path: '/api/categories',        roles: ['ADMIN'], methods: WRITE_METHODS },
   { path: '/api/units',             roles: ['ADMIN'], methods: WRITE_METHODS },
+  // Branches (Week 8 Task 1): read by later forms, managed in Master Data.
+  { path: '/api/branches',          roles: ['ADMIN'], methods: WRITE_METHODS },
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
   // Accounting reads production orders to approve them (the decision itself

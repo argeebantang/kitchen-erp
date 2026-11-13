@@ -372,7 +372,16 @@ table; it's a UI/UX decision, not an architecture change.
       opens that day. Books only: no physical count (with the stock-adjustment follow-up). No schema change.
 
 ### Week 8 — Branch Distribution & Costing Dashboard
-- [ ] Branch management
+- [x] Branch management — **done 2026-11-13** (`docs/2026-11-13-week8-branch-management.md`). Master Data → **Branches**
+      (ADMIN): every branch with code, name, type, address, phone, manager and status. A branch gains a unique
+      **code** (2–10 letters/digits, fixed once created; Main Commissary is `MAIN`), a **type** — Commissary (supplies
+      the others) or Outlet; every branch cooks, so no form is restricted by type — a phone, and one **manager**
+      (`Branch.managerId`, unique: one manager per branch, one branch per manager; choosing a manager of another
+      branch moves them); names are unique ignoring case. New / Edit popup; `GET/POST /api/branches`,
+      `PATCH /api/branches/[id]`. **Deactivate** (never delete) is refused while the branch holds stock or has open
+      production orders, receiving reports, conversions or write-offs — inventory pages list active branches only,
+      so its stock would vanish — and for the last active commissary (rows locked; race-tested); the message names
+      what to clear. Reactivate any time. Migration `20261113100000_branch_profiles`.
 - [ ] Transfer Order + approval + variance logging
 - [ ] Per-branch inventory view
 - [ ] Costing dashboard

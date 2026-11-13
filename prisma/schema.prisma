@@ -18,6 +18,12 @@ enum Role {
   VIEWER
 }
 
+/// COMMISSARY supplies other branches; OUTLET receives from one. Both cook.
+enum BranchType {
+  COMMISSARY
+  OUTLET
+}
+
 enum PRStatus {
   DRAFT
   PENDING_APPROVAL
@@ -123,6 +129,7 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  managedBranch           Branch?           @relation("BranchManager")
   approvals               Approval[]
   submittedPurchaseOrders PurchaseOrder[]   @relation("PurchaseOrderSubmitter")
   purchaseRequests        PurchaseRequest[]
@@ -138,12 +145,26 @@ model User {
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
 
+/// A kitchen location. Every branch cooks; the type says which one supplies
+/// the others — transfers (Week 8) go from a commissary to its outlets.
 model Branch {
-  id        String   @id @default(cuid())
-  name      String
+  id        String     @id @default(cuid())
+  name      String     @unique
+  /// Short label (MAIN, CUB) for tables and transfer documents. Fixed once
+  /// created, like a material code, so printed references stay valid.
+  code      String     @unique
+  type      BranchType
   address   String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  phone     String?
+  /// One manager per branch, and a manager runs one branch: @unique makes the
+  /// database hold both (Week 8 Task 1, B4). Read from here — not from the
+  /// login token, whose branchId can be hours stale — when deciding who may
+  /// act for a branch.
+  managerId String?    @unique
+  manager   User?      @relation("BranchManager", fields: [managerId], references: [id], onDelete: SetNull)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   users             User[]
   inventoryLevels   InventoryLevel[]
