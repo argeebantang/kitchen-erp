@@ -30,6 +30,15 @@ export function TransferStock({ transfer }: { transfer: StockTransferDetailDto }
             rows={arrived}
             total={inValue}
           />
+        ) : transfer.status === 'RECEIVED' ? (
+          // Every lot counted 0 (Task 4, V8): received, but nothing joined the stock.
+          <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-4 text-sm text-amber-800">
+            <p className="font-medium">Nothing arrived at {transfer.toBranch.name}</p>
+            <p className="mt-1 text-amber-700">
+              {transfer.receivedByName ?? 'The receiving branch'} counted every lot as 0
+              {transfer.receivedAt ? ` on ${formatDateTime(transfer.receivedAt)}` : ''} — all of it was recorded as lost in transit.
+            </p>
+          </div>
         ) : (
           <div className="rounded-xl border border-dashed border-sky-200 bg-sky-50/50 p-4 text-sm text-sky-800">
             <p className="font-medium">In transit to {transfer.toBranch.name}</p>

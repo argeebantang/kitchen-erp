@@ -10,7 +10,8 @@ import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { TransferStock } from '@/components/inventory/TransferStock'
 import { DecisionHistory } from '@/components/procurement/DecisionHistory'
 import { ApprovalActions } from '@/components/procurement/ApprovalActions'
-import { ConfirmReceiptButton } from '@/components/inventory/ConfirmReceiptButton'
+import { TransferReceiptForm } from '@/components/inventory/TransferReceiptForm'
+import { TransferVariance } from '@/components/inventory/TransferVariance'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -21,7 +22,8 @@ type PageProps = {
  * line is shown against the sender's stock now: the lots approving now would
  * take, soonest expiry first, and their value (T7). Once approved it is in
  * transit — what left the sender is under Stock moved — until the receiving
- * branch confirms it arrived.
+ * branch counts what arrived (Task 4); anything short is shown as lost in
+ * transit.
  */
 export default async function TransferDetailPage({ params }: PageProps) {
   const session = await getSession()
@@ -85,24 +87,26 @@ export default async function TransferDetailPage({ params }: PageProps) {
             In transit: it left {transfer.fromBranch.name} when accounting approved it, and joins {transfer.toBranch.name}&apos;s stock
             when the branch confirms it arrived.
           </p>
-          {/* R3: the receiving branch's manager, or an admin. Everything dispatched, for now (R4). */}
-          {transfer.canReceive && (
-            <div className="mt-3">
-              <ConfirmReceiptButton
-                transferId={transfer.id}
-                transferNumber={transfer.transferNumber}
-                branchName={transfer.toBranch.name}
-              />
-            </div>
-          )}
         </div>
+      )}
+      {/* R3: the receiving branch's manager, or an admin, counts what arrived (Task 4, V1). */}
+      {transfer.status === 'APPROVED' && transfer.canReceive && (
+        <TransferReceiptForm
+          transferId={transfer.id}
+          transferNumber={transfer.transferNumber}
+          branchName={transfer.toBranch.name}
+          lots={transfer.stockMoved.out}
+        />
       )}
       {transfer.status === 'RECEIVED' && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           Received at {transfer.toBranch.name}{transfer.receivedAt && <> on {formatDateTime(transfer.receivedAt)}</>}
-          {transfer.receivedByName && <>, confirmed by {transfer.receivedByName}</>}.
+          {transfer.receivedByName && <>, confirmed by {transfer.receivedByName}</>}
+          {/* A receipt counted since Task 4 always has a value (0 when complete); one before it has none. */}
+          {transfer.lostInTransit.length > 0 ? ' — it arrived short, see below.' : transfer.varianceValue !== null ? ' — everything sent arrived.' : '.'}
         </div>
       )}
+      <TransferVariance transfer={transfer} />
 
       {plan && (
         <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${plan.allEnough ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-700'}`}>

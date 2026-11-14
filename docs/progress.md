@@ -382,9 +382,8 @@ table; it's a UI/UX decision, not an architecture change.
       production orders, receiving reports, conversions or write-offs — inventory pages list active branches only,
       so its stock would vanish — and for the last active commissary (rows locked; race-tested); the message names
       what to clear. Reactivate any time. Migration `20261113100000_branch_profiles`.
-- [~] Transfer Order + approval + variance logging — **Transfer Order done 2026-11-14**
-      (`docs/2026-11-14-week8-transfer-orders.md`); approval / dispatch / receipt (Task 3) and variance (Task 4) to
-      do. **Inventory → Transfers** (ADMIN, PRODUCTION_MANAGER, ACCOUNTING; a BRANCH_MANAGER sees only transfers to
+- [x] Transfer Order + approval + variance logging — **done 2026-11-14**: Transfer Order
+      (`docs/2026-11-14-week8-transfer-orders.md`), approval / dispatch / receipt (Task 3) and variance (Task 4). **Inventory → Transfers** (ADMIN, PRODUCTION_MANAGER, ACCOUNTING; a BRANCH_MANAGER sees only transfers to
       or from the branch they manage, read from `Branch.managerId`): the kitchen records what it sends from an
       active **commissary** to another active branch — one line per finished good, quantity — and saving submits it
       to accounting as `TRF-000001` (`trf_number_seq`, no draft). The form shows, live, what the sender can send
@@ -401,11 +400,19 @@ table; it's a UI/UX decision, not an architecture change.
       (expired skipped) — any line short refuses it (409) — and leave as `TRANSFER −` movements at the lot's cost. The
       transfer is then **in transit**; the receiving branch's **manager** (`Branch.managerId`) **or an admin** confirms
       receipt (`POST /api/transfers/[id]/receive`) and the same lots — number, expiry, cost — arrive as `TRANSFER +`
-      (all of it; partial receipt and variance are Task 4). `StockTransfer.receivedById` / `receivedAt` (migration
+      (counted per lot since Task 4, below). `StockTransfer.receivedById` / `receivedAt` (migration
       `20261114150000_transfer_receipt`). Inbox section, Approve / Reject and Confirm received on the detail page, a
       Stock moved card (out / in transit / in), notifications (submitted → approvers; approved → recorder and the
       receiving manager; rejected / received → recorder), TRF numbers and links on End of Day and in the bell.
-      Variance (Task 4) to do.
+      **Variance done 2026-11-14** (`docs/2026-11-14-week8-transfer-variance.md`): the receiving branch **counts each
+      dispatched lot** — Received starts at what was sent — and only what arrived joins its stock (a lot counted 0
+      gets no movement; more than was sent is refused as a dispatch miscount). Anything short needs a reason
+      (Damaged / spilled, Spoiled, Missing, Other — a note for Other) and is **lost in transit**: no movement, on
+      neither branch's books, valued at each lot's cost and stored on the transfer (`varianceValue`,
+      `varianceReason`, `varianceNotes`; migration `20261114200000_transfer_variance`) in the receipt's transaction.
+      Logged, not approved. A **Lost in transit** card on the transfer (per lot sent / received / short / value),
+      a **Short ₱X** badge, an **Arrived short** filter and a lost-in-transit total on the list; the recorder's
+      received notification names the shortfall and accounting + admins get `TRANSFER_VARIANCE`.
 - [ ] Per-branch inventory view
 - [ ] Costing dashboard
 

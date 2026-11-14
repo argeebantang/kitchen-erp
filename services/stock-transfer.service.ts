@@ -1,4 +1,4 @@
-import { BranchType, Prisma, TransferStatus } from '@prisma/client'
+import { BranchType, Prisma, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { expiryFlag, type ExpiryFlag } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
@@ -40,6 +40,10 @@ export type StockTransferSummaryDto = {
   /** Who confirmed it arrived, and when (R3); null until RECEIVED. */
   receivedByName: string | null
   receivedAt: string | null
+  /** Pesos lost in transit at lot cost, recorded at receipt (V5); null until received. */
+  varianceValue: string | null
+  varianceReason: string | null
+  varianceNotes: string | null
   notes: string | null
   createdAt: string
   lines: StockTransferLineDto[]
@@ -112,6 +116,7 @@ export const MAX_TRANSFER_LINES = 30
 
 /** One lot moved by a transfer, at one end: out of the sender or into the receiver. */
 export type TransferMovementDto = {
+  lotId: string
   lotNumber: string
   finishedGoodName: string
   unitAbbreviation: string
@@ -127,10 +132,32 @@ export type TransferMovementDto = {
   at: string
 }
 
+/** Transfers that arrived short and what they lost at cost; `unvalued` of them include a lot with no cost. */
+export type TransferLostTotalDto = { count: number; value: string; unvalued: number }
+
+/** One lot that arrived short — the difference was lost on the road (V3), valued at the lot's cost. */
+export type TransferShortLotDto = {
+  lotId: string
+  lotNumber: string
+  finishedGoodName: string
+  unitAbbreviation: string
+  sent: string
+  received: string
+  short: string
+  unitCost: string | null
+  value: string | null
+}
+
 export type StockTransferDetailDto = StockTransferSummaryDto & {
   /** In transit and the viewer may confirm it arrived: the receiving branch's manager, or an ADMIN (R3). */
   canReceive: boolean
   decisions: { id: string; decision: string; remarks: string | null; approverName: string; decidedAt: string }[]
+  /**
+   * Each lot that arrived short (Task 4, V5): sent from the TRANSFER (−) row,
+   * received from the TRANSFER (+) row (0 when none). Empty until received,
+   * and when everything arrived.
+   */
+  lostInTransit: TransferShortLotDto[]
   /** What left the sender on approval and arrived on receipt (R1, R3); empty sides until then. */
   stockMoved: {
     out: TransferMovementDto[]
@@ -156,6 +183,13 @@ export type PendingTransferDto = StockTransferSummaryDto & {
 /** Who is looking — a branch manager sees only their own branch's transfers (T4). */
 export type TransferViewer = { userId: string; role: string }
 
+/** What the receiving branch counted (Task 4): one row per dispatched lot; reason and notes when anything is short. */
+export type TransferReceiptInput = {
+  lots: { lotId: string; received: string }[]
+  reason: TransferVarianceReason | null
+  notes: string | null
+}
+
 export const TRANSFER_STATUSES = Object.values(TransferStatus)
 
 export function isTransferStatus(value: string): value is TransferStatus {
@@ -173,6 +207,9 @@ function toSummary(transfer: StockTransferWithDetail): StockTransferSummaryDto {
     submittedByName: transfer.submittedBy.name,
     receivedByName:  transfer.receivedBy?.name ?? null,
     receivedAt:      transfer.receivedAt?.toISOString() ?? null,
+    varianceValue:   transfer.varianceValue === null ? null : toDecimalString(transfer.varianceValue),
+    varianceReason:  transfer.varianceReason,
+    varianceNotes:   transfer.varianceNotes,
     notes:           transfer.notes,
     createdAt:       transfer.createdAt.toISOString(),
     lines: transfer.items.map(item => ({
@@ -458,14 +495,27 @@ export const StockTransferService = {
    */
   async list(
     viewer: TransferViewer,
-    filters: { status?: TransferStatus; branchId?: string; skip?: number; take?: number } = {},
-  ) {
+    filters: { status?: TransferStatus; branchId?: string; shortOnly?: boolean; skip?: number; take?: number } = {},
+  ): Promise<{
+    transfers: StockTransferSummaryDto[]
+    total: number
+    /** Across every transfer the filters match, not just this page (V7). */
+    lost: TransferLostTotalDto
+    scopedTo: { id: string; name: string } | null
+    managesNoBranch: boolean
+  }> {
     const scope = await viewerBranchScope(viewer)
     if (scope === null) {
-      return { transfers: [], total: 0, scopedTo: null, managesNoBranch: true }
+      return { transfers: [], total: 0, lost: { count: 0, value: '0', unvalued: 0 }, scopedTo: null, managesNoBranch: true }
     }
-    const { rows, total } = await StockTransferRepository.findMany({ ...filters, branchId: scope?.id ?? filters.branchId })
-    return { transfers: rows.map(toSummary), total, scopedTo: scope ?? null, managesNoBranch: false }
+    const { rows, total, lost } = await StockTransferRepository.findMany({ ...filters, branchId: scope?.id ?? filters.branchId })
+    return {
+      transfers: rows.map(toSummary),
+      total,
+      lost: { count: lost.count, value: toDecimalString(lost.value), unvalued: lost.unvalued },
+      scopedTo: scope ?? null,
+      managesNoBranch: false,
+    }
   },
 
   /**
@@ -489,6 +539,7 @@ export const StockTransferService = {
     const toMovement = (m: (typeof movements)[number]): TransferMovementDto => {
       const quantity = m.quantity.abs()
       return {
+        lotId:            m.lotId,
         lotNumber:        m.lot.lotNumber,
         finishedGoodName: m.lot.finishedGood.name,
         unitAbbreviation: m.lot.finishedGood.unit.abbreviation,
@@ -513,6 +564,29 @@ export const StockTransferService = {
     const out = movements.filter(m => m.quantity.lessThan(0)).map(toMovement)
     const arrived = movements.filter(m => m.quantity.greaterThan(0)).map(toMovement)
 
+    // One TRANSFER row per lot at each end (see StockTransferRepository.receive).
+    const lostInTransit: TransferShortLotDto[] = []
+    if (transfer.status === TransferStatus.RECEIVED) {
+      const arrivedByLot = new Map(arrived.map(m => [m.lotId, toDecimal(m.quantity)]))
+      for (const lot of out) {
+        const sent     = toDecimal(lot.quantity)
+        const received = arrivedByLot.get(lot.lotId) ?? zero
+        const short    = sent.sub(received)
+        if (!short.greaterThan(0)) continue
+        lostInTransit.push({
+          lotId:            lot.lotId,
+          lotNumber:        lot.lotNumber,
+          finishedGoodName: lot.finishedGoodName,
+          unitAbbreviation: lot.unitAbbreviation,
+          sent:             toDecimalString(sent),
+          received:         toDecimalString(received),
+          short:            toDecimalString(short),
+          unitCost:         lot.unitCost,
+          value:            lot.unitCost === null ? null : toDecimalString(short.mul(toDecimal(lot.unitCost))),
+        })
+      }
+    }
+
     const base = {
       ...toSummary(transfer),
       canReceive: transfer.status === TransferStatus.APPROVED && await mayReceive(viewer, transfer.toBranchId),
@@ -523,6 +597,7 @@ export const StockTransferService = {
         approverName: d.approver.name,
         decidedAt:    d.decidedAt.toISOString(),
       })),
+      lostInTransit,
       stockMoved: { out, in: arrived, outValue: sideValue(out), inValue: sideValue(arrived) },
     }
     if (transfer.status !== TransferStatus.PENDING_APPROVAL) {
@@ -543,12 +618,20 @@ export const StockTransferService = {
   },
 
   /**
-   * The receiving branch confirms everything dispatched arrived (R3, R4):
-   * APPROVED → RECEIVED, and the dispatched lots join its stock. Its manager
-   * or an ADMIN only; a branch manager it does not concern gets 404, as on
-   * the page.
+   * The receiving branch confirms what arrived (R3; Task 4, V1–V8):
+   * APPROVED → RECEIVED, the counted lots join its stock and any shortfall is
+   * recorded as lost in transit. Its manager or an ADMIN only; a branch
+   * manager it does not concern gets 404, as on the page. Every dispatched
+   * lot is counted exactly once, 0 ≤ received ≤ sent (more than sent is a
+   * dispatch miscount, not a receipt — V2); anything short needs a reason, and
+   * a note when the reason is Other (V4). Logged, not approved (V6).
    */
-  async receive(id: string, viewer: TransferViewer): Promise<StockTransferResult<{ id: string; transferNumber: string; status: TransferStatus }>> {
+  async receive(id: string, viewer: TransferViewer, count: TransferReceiptInput): Promise<StockTransferResult<{
+    id: string
+    transferNumber: string
+    status: TransferStatus
+    varianceValue: string | null
+  }>> {
     const visible = await StockTransferService.getById(id, viewer)
     if (!visible.success) return visible
     const transfer = visible.data
@@ -569,17 +652,69 @@ export const StockTransferService = {
       return { success: false, error: `${transfer.transferNumber} ${why}`, status: 409 }
     }
 
+    // Counts against the lots that left the sender. Those rows are fixed once
+    // dispatched; the repository reads them again in its transaction.
+    const dispatched = new Map(transfer.stockMoved.out.map(lot => [lot.lotId, lot]))
+    const received   = new Map<string, Prisma.Decimal>()
+    for (const row of count.lots) {
+      const lot = dispatched.get(row.lotId)
+      if (!lot) {
+        return { success: false, error: `A counted lot was not sent on ${transfer.transferNumber} — reload and count again`, status: 400 }
+      }
+      if (received.has(row.lotId)) {
+        return { success: false, error: `${lot.finishedGoodName} ${lot.lotNumber} is counted twice`, status: 400 }
+      }
+      const quantity = toDecimal(row.received)
+      if (quantity.greaterThan(toDecimal(lot.quantity))) {
+        return {
+          success: false,
+          error:   `${lot.finishedGoodName} ${lot.lotNumber}: ${trimDecimal(row.received)} ${lot.unitAbbreviation} counted but only ${trimDecimal(lot.quantity)} ${lot.unitAbbreviation} was sent — a dispatch miscount; tell the kitchen`,
+          status:  400,
+        }
+      }
+      received.set(row.lotId, quantity)
+    }
+    const uncounted = transfer.stockMoved.out.filter(lot => !received.has(lot.lotId))
+    if (uncounted.length > 0) {
+      return {
+        success: false,
+        error:   `Count every lot that was sent — missing: ${uncounted.map(lot => `${lot.finishedGoodName} ${lot.lotNumber}`).join(', ')}`,
+        status:  400,
+      }
+    }
+
+    const anyShort = transfer.stockMoved.out.some(lot => toDecimal(lot.quantity).greaterThan(received.get(lot.lotId) ?? zero))
+    const notes    = count.notes?.trim() || null
+    if (anyShort && count.reason === null) {
+      return { success: false, error: 'Something arrived short — choose why', status: 400 }
+    }
+    if (anyShort && count.reason === TransferVarianceReason.OTHER && notes === null) {
+      return { success: false, error: 'Say what happened when the reason is Other', status: 400 }
+    }
+
     const result = await StockTransferRepository.receive({
       id,
       receiverId:     viewer.userId,
       toBranchId:     transfer.toBranch.id,
       transferNumber: transfer.transferNumber,
+      received,
+      // Nothing short, nothing to explain: a stray reason is not kept.
+      varianceReason: anyShort ? count.reason : null,
+      varianceNotes:  anyShort ? notes : null,
     })
     if (!result.ok) {
       return { success: false, error: 'This transfer was just received by someone else — reload', status: 409 }
     }
     await enqueue(TRANSFER_RECEIVED, id)
-    return { success: true, data: { id, transferNumber: transfer.transferNumber, status: TransferStatus.RECEIVED } }
+    return {
+      success: true,
+      data: {
+        id,
+        transferNumber: transfer.transferNumber,
+        status:         TransferStatus.RECEIVED,
+        varianceValue:  result.varianceValue === null ? null : toDecimalString(result.varianceValue),
+      },
+    }
   },
 
   /**
