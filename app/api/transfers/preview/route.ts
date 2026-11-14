@@ -19,11 +19,16 @@ const PreviewQuerySchema = z.object({
 
 /**
  * The transfer form's live preview: the sender's stock and, per line, the
- * lots it would take and their value. Read-only; same guard as the rest of
- * /api/transfers.
+ * lots it would take and their value. Read-only; ADMIN and
+ * PRODUCTION_MANAGER, like recording.
  */
 export async function GET(req: NextRequest) {
   try {
+    // The form is the kitchen's; the /api/transfers guard also admits branch managers, for receipt (R5).
+    const role = req.headers.get('x-user-role')
+    if (role !== 'ADMIN' && role !== 'PRODUCTION_MANAGER') {
+      return NextResponse.json({ error: 'Only the kitchen records transfers' }, { status: 403 })
+    }
     const parsed = PreviewQuerySchema.safeParse({
       from:  req.nextUrl.searchParams.get('from'),
       lines: req.nextUrl.searchParams.getAll('line'),

@@ -5,6 +5,7 @@ import { FinishedGoodStockRepository, type DayFlow } from '@/repositories/finish
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
+import { StockTransferRepository } from '@/repositories/stock-transfer.repository'
 import { SOURCE_PAGES, type SourceDocumentDto } from '@/services/inventory.service'
 
 /**
@@ -160,15 +161,17 @@ export const EndOfDayService = {
 
     // Document numbers: one query per document type for the whole day.
     const idsOf = (type: string) => [...new Set(documentRows.filter(row => row.referenceType === type).map(row => row.referenceId))]
-    const [productionNumbers, conversionNumbers, writeOffNumbers] = await Promise.all([
+    const [productionNumbers, conversionNumbers, writeOffNumbers, transferNumbers] = await Promise.all([
       ProductionOrderRepository.numbersByIds(idsOf('ProductionOrder')),
       ConversionOrderRepository.numbersByIds(idsOf('ConversionOrder')),
       WriteOffRepository.numbersByIds(idsOf('WriteOff')),
+      StockTransferRepository.numbersByIds(idsOf('StockTransfer')),
     ])
     const numbers = new Map<string, Map<string, string>>([
       ['ProductionOrder', productionNumbers],
       ['ConversionOrder', conversionNumbers],
       ['WriteOff',        writeOffNumbers],
+      ['StockTransfer',   transferNumbers],
     ])
     const documents = documentRows.map<EndOfDayDocumentDto>(row => {
       const page = SOURCE_PAGES[row.referenceType]

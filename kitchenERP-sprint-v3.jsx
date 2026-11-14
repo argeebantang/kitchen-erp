@@ -169,7 +169,7 @@ const plan = {
           tasks: [
             { t: "Branch management: create and manage branch profiles", done: true },
             { t: "Transfer Order: kitchen selects finished goods + quantities to send", done: true },
-            "Transfer approval by accounting, branch confirms receipt",
+            { t: "Transfer approval by accounting, branch confirms receipt", done: true },
             "Transfer variance logging",
             "Each branch has own real-time inventory view",
             "COSTING DASHBOARD: cost per finished good over time, most expensive batches, write-off cost impact per week, weekly cost trend chart",

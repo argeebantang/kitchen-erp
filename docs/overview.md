@@ -28,12 +28,12 @@ Built (Weeks 1–7):
 * Conversions (Week 7): production records a conversion already done — unsold Lechon made into Lechon Paksiw — with what it used and made; the form shows the Lechon lots it takes from (soonest to expire first, expired ones skipped), the added ingredients, the cost and the new lot before submitting (`CNV-000001`). Accounting approves (stock moves: Lechon out of its lots, ingredients out, a Paksiw lot in, the cost recorded — source at its lots' cost plus ingredients at reference prices) or rejects with a reason; both sides are notified
 * Write-offs (Week 7): from a lot on Finished Goods, production writes off what cannot be used or converted — how much, why (expired, spoiled, damaged, failed quality, other); accounting approves (it leaves stock at the lot's cost, the peso value lost recorded) or rejects. Inventory → Write-offs shows the value written off; lots show what is pending
 * End of Day (Week 7): one day of finished goods per branch from the ledger — opening, produced, converted in and out, written off, distributed, closing — in kg and at cost, with a check that it all reconciles and the documents behind each figure; a 21:00 summary to production managers, accounting and admins
-* Transfers (Week 8): the kitchen records the finished goods it sends from a commissary to a branch (`TRF-000001`) — the form shows what can be sent (on hand less what other documents have claimed), the lots each line will take, soonest to expire first, and their value at cost; accounting approves it before anything moves (approval and receipt come next). Branch managers see their own branch's transfers
+* Transfers (Week 8): the kitchen records the finished goods it sends from a commissary to a branch (`TRF-000001`) — the form shows what can be sent (on hand less what other documents have claimed), the lots each line will take, soonest to expire first, and their value at cost; accounting approves it, which dispatches it (the lots leave the commissary), and the receiving branch's manager confirms it arrived, when the same lots — expiry and cost included — join that branch's stock; the approvals inbox, notifications at each step and End of Day's Distributed column follow it. Branch managers see their own branch's transfers
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): transfer approval, dispatch and receipt; raw-material write-offs and stock adjustments; AI features.
+Planned (see the roadmap): transfer variance (what arrived vs what was sent); raw-material write-offs and stock adjustments; AI features.
 
 ## Tech Stack
 

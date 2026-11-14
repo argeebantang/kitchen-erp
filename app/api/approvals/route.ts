@@ -6,14 +6,16 @@ import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { ConversionOrderService } from '@/services/conversion-order.service'
 import { WriteOffService } from '@/services/write-off.service'
+import { StockTransferService } from '@/services/stock-transfer.service'
 
 
 const DecisionSchema = z.object({
   // ProductionCompletion = the kitchen's completion report on a production
   // order (referenceId is the order), decided separately from its plan.
   // ConversionOrder = a recorded conversion (Week 7 Task 1); WriteOff = a
-  // recorded write-off of a finished-goods lot (Week 7 Task 2).
-  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder', 'ProductionCompletion', 'ConversionOrder', 'WriteOff']),
+  // recorded write-off of a finished-goods lot (Week 7 Task 2);
+  // StockTransfer = a Transfer Order, approving it dispatches (Week 8 Task 3).
+  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder', 'ProductionCompletion', 'ConversionOrder', 'WriteOff', 'StockTransfer']),
   referenceId:   z.string().cuid(),
   decision:      z.enum(['APPROVED', 'REJECTED']),
   remarks:       z.string().trim().max(1000).nullish(),
@@ -40,6 +42,16 @@ export async function POST(req: NextRequest) {
     const { referenceType, referenceId, decision } = parsed.data
     const remarks = parsed.data.remarks ?? null
     const viewer  = { userId, role }
+
+    if (referenceType === 'StockTransfer') {
+      const result = await StockTransferService.applyDecision(referenceId, viewer, decision, remarks)
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: result.status })
+      }
+
+      return NextResponse.json({ transfer: result.data })
+    }
 
     if (referenceType === 'WriteOff') {
       const result = await WriteOffService.applyDecision(referenceId, viewer, decision, remarks)
