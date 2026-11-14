@@ -168,7 +168,7 @@ const plan = {
           tag: "costing",
           tasks: [
             { t: "Branch management: create and manage branch profiles", done: true },
-            "Transfer Order: kitchen selects finished goods + quantities to send",
+            { t: "Transfer Order: kitchen selects finished goods + quantities to send", done: true },
             "Transfer approval by accounting, branch confirms receipt",
             "Transfer variance logging",
             "Each branch has own real-time inventory view",

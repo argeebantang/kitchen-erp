@@ -102,6 +102,15 @@ enum WriteOffReason {
 /// Recording a write-off submits it (no draft), so it is created
 /// PENDING_APPROVAL; accounting's approval is what moves the stock.
 /// REJECTED is terminal (Week 7 Task 2, W4).
+/// PENDING_APPROVAL → APPROVED (dispatched, in transit) → RECEIVED, or
+/// REJECTED (final). Week 8 Task 2 uses PENDING_APPROVAL; Task 3 the rest.
+enum TransferStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RECEIVED
+  REJECTED
+}
+
 enum WriteOffStatus {
   PENDING_APPROVAL
   APPROVED
@@ -138,6 +147,7 @@ model User {
   completedProductionOrders ProductionOrder[] @relation("ProductionOrderCompleter")
   submittedConversionOrders ConversionOrder[] @relation("ConversionOrderSubmitter")
   submittedWriteOffs        WriteOff[]        @relation("WriteOffSubmitter")
+  submittedStockTransfers   StockTransfer[]   @relation("StockTransferSubmitter")
   productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
@@ -227,7 +237,6 @@ model Material {
   purchaseOrderItems   PurchaseOrderItem[]
   receivingItems       ReceivingReportItem[]
   bomItems             BOMItem[]
-  stockTransferItems   StockTransferItem[]
   itemPrices           ItemPrice[]
 
   @@index([categoryId])
@@ -291,6 +300,7 @@ model FinishedGood {
   conversionOrders  ConversionOrder[] @relation("ConversionOrderOutput")
   conversionSources ConversionOrder[] @relation("ConversionOrderSource")
   lots              FinishedGoodLot[]
+  transferItems     StockTransferItem[]
 }
 
 // ─── BOM ─────────────────────────────────────────────────────────────────────
@@ -550,26 +560,50 @@ model StockMovement {
   @@index([referenceType, referenceId])
 }
 
+/// A Transfer Order (Week 8 Task 2): finished goods the kitchen sends from a
+/// commissary to another branch, TRF-000001. Reshaped from the Week 1
+/// material transfer, which was never used (T3). Recording it submits it to
+/// accounting; stock moves only from Task 3 — out of the sender as TRANSFER
+/// rows when approved (dispatched), into the receiver when received — so the
+/// End of Day "Distributed" column balances at both ends.
 model StockTransfer {
-  id           String   @id @default(cuid())
-  fromBranchId String
-  fromBranch   Branch   @relation("TransferFrom", fields: [fromBranchId], references: [id])
-  toBranchId   String
-  toBranch     Branch   @relation("TransferTo", fields: [toBranchId], references: [id])
-  transferredAt DateTime @default(now())
-  notes        String?
-  createdAt    DateTime @default(now())
+  id             String         @id @default(cuid())
+  /// TRF-000001, from trf_number_seq.
+  transferNumber String         @unique
+  /// An active commissary when recorded (T5).
+  fromBranchId   String
+  fromBranch     Branch         @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  toBranchId     String
+  toBranch       Branch         @relation("TransferTo", fields: [toBranchId], references: [id])
+  status         TransferStatus @default(PENDING_APPROVAL)
+  /// Who recorded it. Never its approver, ADMIN included.
+  submittedById  String
+  submittedBy    User           @relation("StockTransferSubmitter", fields: [submittedById], references: [id])
+  notes          String?
+  /// When it was recorded and submitted.
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   items StockTransferItem[]
+
+  @@index([status])
+  @@index([fromBranchId])
+  @@index([toBranchId])
 }
 
+/// One finished good on a transfer. Lots are not chosen here: dispatch takes
+/// them soonest-expiry-first (T7) and records them on the movements.
 model StockTransferItem {
   id              String        @id @default(cuid())
   stockTransferId String
-  stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id])
-  materialId      String
-  material        Material      @relation(fields: [materialId], references: [id])
+  stockTransfer   StockTransfer @relation(fields: [stockTransferId], references: [id], onDelete: Cascade)
+  finishedGoodId  String
+  finishedGood    FinishedGood  @relation(fields: [finishedGoodId], references: [id])
+  /// In the finished good's unit; > 0.
   quantity        Decimal
+
+  /// One line per finished good (T6).
+  @@unique([stockTransferId, finishedGoodId])
 }
 
 // ─── FINISHED GOODS STOCK ────────────────────────────────────────────────────

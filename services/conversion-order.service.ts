@@ -14,6 +14,7 @@ import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finis
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
+import { StockTransferRepository } from '@/repositories/stock-transfer.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import {
   ConversionDecideResult,
@@ -112,8 +113,9 @@ export type ConversionEffectDto = {
     unexpiredOnHand: string
     expiredOnHand: string
     /**
-     * Claimed by other conversions, and write-offs of unexpired lots, awaiting
-     * approval there — not taken yet, but spoken for (Week 7 Task 2, W5).
+     * Claimed by other conversions, write-offs of unexpired lots and transfers
+     * out of the branch, awaiting approval there — not taken yet, but spoken
+     * for (Week 7 Task 2, W5; Week 8 Task 2, T8).
      */
     pending: string
     /** unexpiredOnHand − pending. */
@@ -357,12 +359,14 @@ async function sourceAt(
   cost: Prisma.Decimal | null
 }> {
   const zero = new Prisma.Decimal(0)
-  const [levels, pendingConversions, pendingWriteOffs] = await Promise.all([
+  const [levels, pendingConversions, pendingWriteOffs, pendingTransfers] = await Promise.all([
     FinishedGoodStockRepository.lotsOnHand(sourceFinishedGoodId, branchId),
     ConversionOrderRepository.pendingSourceAtBranch(sourceFinishedGoodId, branchId, excludeOrderId),
     WriteOffRepository.pendingOnUnexpiredLots(sourceFinishedGoodId, branchId, now),
+    // Lechon promised to a branch cannot also be converted (T8).
+    StockTransferRepository.pendingFromBranch(sourceFinishedGoodId, branchId, null),
   ])
-  const pending = pendingConversions.add(pendingWriteOffs)
+  const pending = pendingConversions.add(pendingWriteOffs).add(pendingTransfers)
   const plan  = planFefoTakes(levels, required ?? zero, now)
   const taken = new Map(plan.takes.map(take => [take.lot.id, take.quantity]))
 
@@ -786,7 +790,7 @@ export const ConversionOrderService = {
       return {
         success: false,
         error:   `Only ${trimDecimal(source.dto.available)} ${sourceUnit} of unexpired ${bom.sourceFinishedGood.name} is available at ${branch.name}`
-          + (toDecimal(source.dto.pending).greaterThan(0) ? ` (${trimDecimal(source.dto.unexpiredOnHand)} on hand, ${trimDecimal(source.dto.pending)} claimed by conversions or write-offs awaiting approval)` : '')
+          + (toDecimal(source.dto.pending).greaterThan(0) ? ` (${trimDecimal(source.dto.unexpiredOnHand)} on hand, ${trimDecimal(source.dto.pending)} claimed by conversions, write-offs or transfers awaiting approval)` : '')
           + ` — you entered ${trimDecimal(toDecimalString(sourceQty))} ${sourceUnit}`,
         status:  400,
       }

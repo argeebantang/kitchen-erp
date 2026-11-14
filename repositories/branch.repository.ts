@@ -1,4 +1,4 @@
-import { BranchType, ConversionStatus, Prisma, ProductionStatus, RRStatus, WriteOffStatus } from '@prisma/client'
+import { BranchType, ConversionStatus, Prisma, ProductionStatus, RRStatus, TransferStatus, WriteOffStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 const withManager = {
@@ -137,17 +137,25 @@ export const BranchRepository = {
     receivingReports: { total: number; numbers: string[] }
     conversionOrders: { total: number; numbers: string[] }
     writeOffs:        { total: number; numbers: string[] }
+    transfers:        { total: number; numbers: string[] }
   }> {
     const openProduction = { branchId: id, status: { notIn: [ProductionStatus.COMPLETED, ProductionStatus.REJECTED, ProductionStatus.CANCELLED] } }
     const openReceiving  = { branchId: id, status: { in: [RRStatus.DRAFT, RRStatus.PENDING_APPROVAL] } }
     const openConversion = { branchId: id, status: ConversionStatus.PENDING_APPROVAL }
     const openWriteOff   = { branchId: id, status: WriteOffStatus.PENDING_APPROVAL }
+    // Either end, pending or in transit (approved, not yet received): the
+    // goods are still on their way out of, or into, this branch (T9).
+    const openTransfer   = {
+      OR:     [{ fromBranchId: id }, { toBranchId: id }],
+      status: { in: [TransferStatus.PENDING_APPROVAL, TransferStatus.APPROVED] },
+    }
     const oldestFirst    = { createdAt: 'asc' } as const
 
     const [
       materialLevels, finishedGoodLots,
       productionTotal, production, receivingTotal, receiving,
       conversionTotal, conversions, writeOffTotal, writeOffs,
+      transferTotal, transfers,
     ] = await prisma.$transaction([
       prisma.inventoryLevel.count({ where: { branchId: id, quantity: { not: 0 } } }),
       prisma.finishedGoodLevel.count({ where: { branchId: id, quantity: { not: 0 } } }),
@@ -159,6 +167,8 @@ export const BranchRepository = {
       prisma.conversionOrder.findMany({ where: openConversion, select: { orderNumber: true }, orderBy: oldestFirst, take: limit }),
       prisma.writeOff.count({ where: openWriteOff }),
       prisma.writeOff.findMany({ where: openWriteOff, select: { writeOffNumber: true }, orderBy: oldestFirst, take: limit }),
+      prisma.stockTransfer.count({ where: openTransfer }),
+      prisma.stockTransfer.findMany({ where: openTransfer, select: { transferNumber: true }, orderBy: oldestFirst, take: limit }),
     ])
 
     return {
@@ -168,6 +178,7 @@ export const BranchRepository = {
       receivingReports: { total: receivingTotal,  numbers: receiving.map(r => r.rrNumber) },
       conversionOrders: { total: conversionTotal, numbers: conversions.map(c => c.orderNumber) },
       writeOffs:        { total: writeOffTotal,   numbers: writeOffs.map(w => w.writeOffNumber) },
+      transfers:        { total: transferTotal,   numbers: transfers.map(t => t.transferNumber) },
     }
   },
 
@@ -191,6 +202,11 @@ export const BranchRepository = {
       if (count === 0) return 'UNCHANGED'
       return tx.branch.findUniqueOrThrow({ where: { id }, include: withManager })
     })
+  },
+
+  /** The branch a user manages (Branch.managerId is unique, so at most one). */
+  async findManagedBy(userId: string): Promise<{ id: string; name: string } | null> {
+    return prisma.branch.findUnique({ where: { managerId: userId }, select: { id: true, name: true } })
   },
 
   async findProfile(id: string): Promise<BranchWithManager | null> {

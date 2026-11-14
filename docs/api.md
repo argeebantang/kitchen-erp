@@ -27,6 +27,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/production-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/conversion-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/write-offs` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
+| `/api/transfers` (incl. `/preview`) | all | ADMIN, PRODUCTION_MANAGER |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | `/api/branches` (incl. `/deactivate`, `/reactivate`) | POST, PUT, PATCH, DELETE | ADMIN |
@@ -146,7 +147,7 @@ Rules (create and edit): the finished good is active and has an active BOM; the 
 | POST | `/api/conversion-orders` | `bomId` (an active `CONVERSION` BOM), `branchId`, `sourceQty`, `outputQty` (decimal strings), `notes?` | 201 `{ conversionOrder: { id, orderNumber } }` created `PENDING_APPROVAL` — recorded and submitted in one step, numbered `CNV-000001`; queues the approver notification | 400 incl. quantities ≤ 0, output > 2 × what the recipe expects, not enough unexpired source, unknown recipe / branch; 401; 403; 409 the recipe version was superseded |
 | GET | `/api/conversion-orders/preview` | query `bomId`, `branchId`, `sourceQty?`, `outputQty?` | 200 `{ preview: { bomId, bomVersion, effect } }` — `effect`: the source (`unexpiredOnHand`, `expiredOnHand`, `pending`, `available`, `enough`, `lots[]` with `take` and `unitCost`), the added `ingredients[]` (`deduct`, `onHand`, `after`, `goesNegative`, `unitPrice`), `cost` (`sourceCost`, `conversionCost`, `missing[]`, `total`, `perUnit`, `pricedOn`) and `output` (`expected`, `percentOfExpected`, `expiresAt`) | 400, 409 superseded recipe |
 
-Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and ≤ the source's unexpired stock at the branch less what other pending conversions there have claimed; `outputQty` > 0 and ≤ 2 × `batchSize × sourceQty ÷ sourceQuantity`. The submitter is the caller. The pages (`/production/conversions`, `/new`, `/[id]`) read through `ConversionOrderService`; accounting reads them but `/production/conversions/new` is ADMIN + PRODUCTION_MANAGER.
+Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and ≤ the source's unexpired stock at the branch less what other pending conversions, pending write-offs of unexpired lots and pending transfers from the branch have claimed; `outputQty` > 0 and ≤ 2 × `batchSize × sourceQty ÷ sourceQuantity`. The submitter is the caller. The pages (`/production/conversions`, `/new`, `/[id]`) read through `ConversionOrderService`; accounting reads them but `/production/conversions/new` is ADMIN + PRODUCTION_MANAGER.
 
 ## Write-offs
 
@@ -155,6 +156,17 @@ Rules: the recipe's output is active; the branch is active; `sourceQty` > 0 and 
 | POST | `/api/write-offs` | `lotId`, `branchId`, `quantity` (decimal string), `reason` (`EXPIRED` · `SPOILED` · `DAMAGED` · `FAILED_QUALITY` · `OTHER`), `notes?` | 201 `{ writeOff: { id, writeOffNumber } }` created `PENDING_APPROVAL` — recorded and submitted in one step, numbered `WO-000001`; queues the approver notification | 400 quantity ≤ 0 or more than the lot has left (on hand − other pending write-offs of it), `OTHER` without notes, a lot with nothing at the branch, unknown branch; 401; 403 |
 
 Finished-goods lots only. The submitter is the caller. The pages (`/inventory/write-offs`, `/new?lot=&branch=`, `/[id]`) read through `WriteOffService`; accounting reads them, `/inventory/write-offs/new` is ADMIN + PRODUCTION_MANAGER.
+
+## Transfers
+
+Week 8 Task 2. A Transfer Order sends finished goods from an active commissary to another active branch. No stock moves until approval (Task 3).
+
+| Method | Path | Body / query | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/transfers` | `fromBranchId`, `toBranchId`, `notes?` (≤ 1000), `lines[]` (1–30) of `finishedGoodId`, `quantity` (decimal string) | 201 `{ transfer: { id, transferNumber } }` created `PENDING_APPROVAL` — recorded and submitted in one step, numbered `TRF-000001` | 400 sender not an active commissary, receiver inactive / unknown / the same branch, a good twice, quantity ≤ 0, unknown or inactive good; 409 a line over what the sender can send (every short line named, with on hand and claimed); 401 |
+| GET | `/api/transfers/preview` | query `from` (branch id), `line` repeated: `<finishedGoodId>` or `<finishedGoodId>:<quantity>` | 200 `{ preview: { fromBranch, stock[], lines[], totalValue } }` — `stock`: every good with stock at the sender (+ any good on a line) with `unexpiredOnHand`, `expiredOnHand`, `claimed`, `available`; `lines` (those with a quantity): the same plus `required`, `enough`, `short`, `lots[]` (`lotNumber`, `expiresAt`, `expiry`, `take`, `unitCost`) soonest expiry first, `value` (null while short) | 400 sender not a commissary, malformed line |
+
+What a line may take: the sender's unexpired stock of that good less what pending conversions, pending write-offs of its unexpired lots and other pending transfers from the branch have claimed. The submitter is the caller. Pages: `/inventory/transfers` (status and branch filters; a BRANCH_MANAGER sees only the branch they manage), `/inventory/transfers/new` (ADMIN, PRODUCTION_MANAGER), `/inventory/transfers/[id]` (404 for a branch manager it does not concern) — read through `StockTransferService`.
 
 ## Notifications
 

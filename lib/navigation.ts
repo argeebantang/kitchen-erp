@@ -64,7 +64,7 @@ export const navigation: NavGroup[] = [
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },
       { label: 'Write-offs',   href: '/inventory/write-offs', icon: Trash2,    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'End of Day',   href: '/inventory/end-of-day', icon: Moon,      roles: [] },
-      { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'BRANCH_MANAGER'] },
+      { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'] },
     ],
   },
   {

@@ -190,6 +190,7 @@ export const BranchService = {
       documents(blockers.receivingReports, 'receiving report'),
       documents(blockers.conversionOrders, 'conversion'),
       documents(blockers.writeOffs,        'write-off'),
+      documents(blockers.transfers,        'transfer'),
     ].filter(part => part !== null)
 
     if (stock.length > 0 || open.length > 0) {

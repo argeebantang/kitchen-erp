@@ -67,7 +67,12 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // production records one.
   { path: '/production/conversions/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/conversion-orders',      roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
-  { path: '/inventory/transfers',   roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  // Transfers (Week 8 Task 2, T4): the kitchen records them; accounting reads
+  // and (Task 3) decides; a branch manager reads their own branch's — that
+  // narrowing is in StockTransferService, not here.
+  { path: '/inventory/transfers',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'] },
+  { path: '/inventory/transfers/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  { path: '/api/transfers',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   // Write-offs (Week 7 Task 2, W7): production records them, accounting reads
   // them and decides through /api/approvals.
   { path: '/inventory/write-offs',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
