@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
-import { formatQuantity } from '@/lib/format'
+import { formatPeso, formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { isTransferStatus, StockTransferService, TRANSFER_STATUSES } from '@/services/stock-transfer.service'
@@ -11,22 +11,24 @@ import { StatusBadge } from '@/components/procurement/StatusBadge'
 const PAGE_SIZE = 50
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; branch?: string; page?: string }>
+  searchParams: Promise<{ status?: string; branch?: string; short?: string; page?: string }>
 }
 
 /**
  * Transfer Orders (Week 8 Task 2): finished goods sent from a commissary to
  * another branch, newest first. ADMIN, PRODUCTION_MANAGER and ACCOUNTING see
  * every transfer; a BRANCH_MANAGER only those to or from the branch they
- * manage (T4, filtered in the service).
+ * manage (T4, filtered in the service). Transfers that arrived short carry a
+ * "Short ₱X" badge, can be listed on their own, and are totalled (Task 4, V7).
  */
 export default async function TransferListPage({ searchParams }: PageProps) {
   const session = await getSession()
   if (!session) redirect('/login')
 
   // Unknown filter values are ignored rather than an error, so a stale link still opens.
-  const { status: statusParam = '', branch: branchParam = '', page: pageParam } = await searchParams
-  const status = isTransferStatus(statusParam) ? statusParam : undefined
+  const { status: statusParam = '', branch: branchParam = '', short: shortParam, page: pageParam } = await searchParams
+  const status    = isTransferStatus(statusParam) ? statusParam : undefined
+  const shortOnly = shortParam === '1'
   const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
   const canRecord = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
@@ -34,23 +36,32 @@ export default async function TransferListPage({ searchParams }: PageProps) {
   const branches = await BranchRepository.findAll(true)
   const branchId = branches.some(b => b.id === branchParam) ? branchParam : undefined
 
-  const { transfers, total, scopedTo, managesNoBranch } = await StockTransferService.list(
+  const { transfers, total, lost, scopedTo, managesNoBranch } = await StockTransferService.list(
     { userId: session.userId, role: session.role },
-    { status, branchId, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE },
+    { status, branchId, shortOnly, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE },
   )
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   // A branch manager sees one branch already, so the branch filter is not offered.
   const showBranchFilter = scopedTo === null && !managesNoBranch
-  const filtered = status !== undefined || (showBranchFilter && branchId !== undefined)
+  const filtered = status !== undefined || shortOnly || (showBranchFilter && branchId !== undefined)
 
   const pageHref = (target: number) => {
     const query = new URLSearchParams()
     if (status) query.set('status', status)
     if (branchId && showBranchFilter) query.set('branch', branchId)
+    if (shortOnly) query.set('short', '1')
     if (target > 1) query.set('page', String(target))
     const text = query.toString()
     return text ? `/inventory/transfers?${text}` : '/inventory/transfers'
   }
+
+  // The same filters, arrived short only.
+  const shortHref = (() => {
+    const query = new URLSearchParams({ short: '1' })
+    if (status) query.set('status', status)
+    if (branchId && showBranchFilter) query.set('branch', branchId)
+    return `/inventory/transfers?${query.toString()}`
+  })()
 
   return (
     <div>
@@ -86,9 +97,27 @@ export default async function TransferListPage({ searchParams }: PageProps) {
               </select>
             </label>
           )}
+          <label className="block min-w-48">
+            <span className="mb-1 block text-xs font-medium text-gray-500">Arrival</span>
+            <select name="short" defaultValue={shortOnly ? '1' : ''} className={inputClass}>
+              <option value="">Any</option>
+              <option value="1">Arrived short</option>
+            </select>
+          </label>
           <button type="submit" className={primaryButtonClass}>Apply</button>
           {filtered && <Link href="/inventory/transfers" className={secondaryButtonClass}>Clear</Link>}
         </form>
+      )}
+
+      {lost.count > 0 && (
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <span>
+            Lost in transit{filtered ? ' (these filters)' : ''}: <span className="font-semibold tabular-nums">{formatPeso(lost.value)}</span> at cost,
+            across {lost.count} transfer{lost.count === 1 ? '' : 's'} that arrived short
+            {lost.unvalued > 0 && <> — {lost.unvalued} with a lot that has no cost, not counted in the total</>}.
+          </span>
+          {!shortOnly && <Link href={shortHref} className="text-xs font-medium text-amber-900 hover:underline">Show them</Link>}
+        </div>
       )}
 
       {managesNoBranch ? (
@@ -140,7 +169,14 @@ export default async function TransferListPage({ searchParams }: PageProps) {
                     {formatDateTime(row.createdAt)}
                     <span className="block text-xs text-gray-400">{row.submittedByName}</span>
                   </td>
-                  <td className="px-4 py-3"><StatusBadge status={row.status} /></td>
+                  <td className="px-4 py-3">
+                    <StatusBadge status={row.status} />
+                    {row.varianceReason && (
+                      <span className="mt-1 block w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                        Short{row.varianceValue !== null && <> {formatPeso(row.varianceValue)}</>}
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

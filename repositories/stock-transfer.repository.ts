@@ -1,4 +1,4 @@
-import { MovementType, Prisma, TransferStatus } from '@prisma/client'
+import { MovementType, Prisma, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
 
@@ -43,6 +43,8 @@ export type StockTransferListFilters = {
   status?: TransferStatus
   /** Transfers from or to this branch. */
   branchId?: string
+  /** Only those received short — a reason is recorded exactly then (Task 4, V4). */
+  shortOnly?: boolean
   skip?: number
   take?: number
 }
@@ -167,44 +169,77 @@ export const StockTransferRepository = {
   },
 
   /**
-   * The receiving branch confirms the goods arrived (Week 8 Task 3, R3), in
-   * one transaction: APPROVED → RECEIVED with who and when, the status in the
-   * WHERE (0 rows → not in transit: already received, or never dispatched).
-   * Then every lot that left the sender — read back from this transfer's own
-   * TRANSFER (−) rows, so what arrives is exactly what was dispatched —
-   * arrives into the same lot at the receiver as TRANSFER (+), keeping its
-   * number, expiry and cost (R6: an expired lot arrives too, flagged there).
-   * Lots in id order, so two receipts at one branch cannot deadlock.
-   * All of it, for now (R4); partial receipt and variance are Task 4.
+   * The receiving branch confirms what arrived (Week 8 Task 3, R3; Task 4),
+   * in one transaction. The lots that left the sender are read back from this
+   * transfer's own TRANSFER (−) rows — one per lot, since a lot belongs to one
+   * good and a good to one line — and `received` says how much of each
+   * arrived (the service has checked every lot is counted, 0 ≤ count ≤ sent).
+   * Then APPROVED → RECEIVED with who, when and the variance, the status in
+   * the WHERE (0 rows → not in transit: already received, or never
+   * dispatched). What arrived joins the same lot at the receiver as
+   * TRANSFER (+), keeping its number, expiry and cost (R6: an expired lot
+   * arrives too, flagged there); a lot counted 0 gets no row. The shortfall
+   * gets no movement — it was lost on the road, not at either branch (V3) —
+   * and is valued at each lot's cost: 0 when everything arrived, null when a
+   * short lot has no cost. Lots in id order, so two receipts at one branch
+   * cannot deadlock.
    */
   async receive(input: {
     id: string
     receiverId: string
     toBranchId: string
     transferNumber: string
-  }): Promise<{ ok: true } | { ok: false; reason: 'not-in-transit' }> {
+    /** Lot id → quantity that arrived. */
+    received: Map<string, Prisma.Decimal>
+    varianceReason: TransferVarianceReason | null
+    varianceNotes: string | null
+  }): Promise<{ ok: true; varianceValue: Prisma.Decimal | null } | { ok: false; reason: 'not-in-transit' }> {
     return prisma.$transaction(async tx => {
-      const { count } = await tx.stockTransfer.updateMany({
-        where: { id: input.id, status: TransferStatus.APPROVED },
-        data:  { status: TransferStatus.RECEIVED, receivedById: input.receiverId, receivedAt: new Date() },
-      })
-      if (count === 0) return { ok: false as const, reason: 'not-in-transit' as const }
-
       const dispatched = (await FinishedGoodStockRepository.findMovementsByReference('StockTransfer', input.id, tx))
         .filter(movement => movement.quantity.lessThan(0))
         .sort((a, b) => a.lotId.localeCompare(b.lotId))
+
+      const arrivals: { lotId: string; quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null }[] = []
+      let varianceValue: Prisma.Decimal | null = new Prisma.Decimal(0)
       for (const movement of dispatched) {
+        const sent    = movement.quantity.abs()
+        const arrived = input.received.get(movement.lotId)
+        // The service validated against these same rows; a gap here is a bug, so roll back.
+        if (arrived === undefined || arrived.lessThan(0) || arrived.greaterThan(sent)) {
+          throw new Error(`Receipt count for lot ${movement.lotId} on ${input.transferNumber} is missing or out of range`)
+        }
+        const short = sent.sub(arrived)
+        if (short.greaterThan(0)) {
+          varianceValue = varianceValue === null || movement.unitCost === null ? null : varianceValue.add(short.mul(movement.unitCost))
+        }
+        if (arrived.greaterThan(0)) arrivals.push({ lotId: movement.lotId, quantity: arrived, unitCost: movement.unitCost })
+      }
+
+      const { count } = await tx.stockTransfer.updateMany({
+        where: { id: input.id, status: TransferStatus.APPROVED },
+        data:  {
+          status:         TransferStatus.RECEIVED,
+          receivedById:   input.receiverId,
+          receivedAt:     new Date(),
+          varianceValue,
+          varianceReason: input.varianceReason,
+          varianceNotes:  input.varianceNotes,
+        },
+      })
+      if (count === 0) return { ok: false as const, reason: 'not-in-transit' as const }
+
+      for (const arrival of arrivals) {
         await FinishedGoodStockRepository.transferIntoLot(tx, {
-          lotId:         movement.lotId,
+          lotId:         arrival.lotId,
           branchId:      input.toBranchId,
-          quantity:      movement.quantity.abs(),
-          unitCost:      movement.unitCost,
+          quantity:      arrival.quantity,
+          unitCost:      arrival.unitCost,
           referenceType: 'StockTransfer',
           referenceId:   input.id,
           notes:         input.transferNumber,
         })
       }
-      return { ok: true as const }
+      return { ok: true as const, varianceValue }
     })
   },
 
@@ -253,8 +288,10 @@ export const StockTransferRepository = {
     const where: Prisma.StockTransferWhereInput = {}
     if (filters.status) where.status = filters.status
     if (filters.branchId) where.OR = [{ fromBranchId: filters.branchId }, { toBranchId: filters.branchId }]
+    if (filters.shortOnly) where.varianceReason = { not: null }
+    const short: Prisma.StockTransferWhereInput = { AND: [where, { varianceReason: { not: null } }] }
 
-    const [rows, total] = await prisma.$transaction([
+    const [rows, total, lost] = await prisma.$transaction([
       prisma.stockTransfer.findMany({
         where,
         include: stockTransferInclude,
@@ -263,7 +300,17 @@ export const StockTransferRepository = {
         take:    filters.take ?? 50,
       }),
       prisma.stockTransfer.count({ where }),
+      // _count.varianceValue counts non-null values: the rest had a lot with no cost.
+      prisma.stockTransfer.aggregate({ where: short, _sum: { varianceValue: true }, _count: { _all: true, varianceValue: true } }),
     ])
-    return { rows, total }
+    return {
+      rows,
+      total,
+      lost: {
+        count:    lost._count._all,
+        value:    lost._sum.varianceValue ?? new Prisma.Decimal(0),
+        unvalued: lost._count._all - lost._count.varianceValue,
+      },
+    }
   },
 }

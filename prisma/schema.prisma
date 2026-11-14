@@ -111,6 +111,15 @@ enum TransferStatus {
   REJECTED
 }
 
+/// Why a transfer arrived short (Week 8 Task 4, V4) — categories for the
+/// Week 10 waste analysis, like WriteOffReason.
+enum TransferVarianceReason {
+  DAMAGED
+  SPOILED
+  MISSING
+  OTHER
+}
+
 enum WriteOffStatus {
   PENDING_APPROVAL
   APPROVED
@@ -587,6 +596,15 @@ model StockTransfer {
   receivedById   String?
   receivedBy     User?          @relation("StockTransferReceiver", fields: [receivedById], references: [id])
   receivedAt     DateTime?
+  /// Transfer variance (Week 8 Task 4): what was sent but did not arrive,
+  /// at the lots' recorded cost — Σ (sent − received) × lot cost — recorded
+  /// once at receipt and never recomputed (V5). Null until received; 0 when
+  /// everything arrived. Per-lot sent / received is on the movements.
+  varianceValue  Decimal?
+  /// Why it arrived short; required then, null otherwise (V4).
+  varianceReason TransferVarianceReason?
+  /// Required when the reason is OTHER.
+  varianceNotes  String?
   /// When it was recorded and submitted.
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt

@@ -13,6 +13,7 @@ import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { StockTransferRepository, type StockTransferWithDetail } from '@/repositories/stock-transfer.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { reasonLabel } from '@/services/write-off.service'
+import { transferVarianceReasonLabel } from '@/lib/transfer-variance'
 import { EndOfDayService } from '@/services/end-of-day.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
@@ -692,19 +693,52 @@ export const NotificationService = {
     return createAndPush(messages)
   },
 
-  /** The receiving branch confirmed a transfer arrived: tell whoever recorded it. */
+  /**
+   * The receiving branch confirmed what arrived: tell whoever recorded it,
+   * naming any shortfall. A short receipt (Task 4, V6) is logged, not
+   * approved, so accounting and admins are told as well — not whoever
+   * confirmed it, and not the recorder twice.
+   */
   async notifyTransferReceived(stockTransferId: string): Promise<number> {
     const row = await StockTransferRepository.findById(stockTransferId)
-    if (!row || row.status !== 'RECEIVED' || row.receivedById === row.submittedById) return 0
+    if (!row || row.status !== 'RECEIVED') return 0
 
-    return createAndPush([{
-      userId:        row.submittedById,
-      type:          'TRANSFER_RECEIVED',
-      title:         `${row.transferNumber} arrived at ${row.toBranch.name}`,
-      body:          `${row.receivedBy?.name ?? 'The branch'} confirmed ${transferGoods(row)} arrived.`,
-      referenceType: 'StockTransfer',
-      referenceId:   row.id,
-    }])
+    const receiver = row.receivedBy?.name ?? 'The branch'
+    // A reason is recorded exactly when something arrived short (V4).
+    const lost = row.varianceReason === null ? null : [
+      row.varianceValue === null ? 'Value unknown' : formatPeso(row.varianceValue.toString()),
+      ` lost in transit — ${transferVarianceReasonLabel(row.varianceReason)}`,
+      row.varianceNotes ? `: ${row.varianceNotes}` : '',
+    ].join('')
+
+    const messages: CreateNotificationInput[] = []
+    if (row.receivedById !== row.submittedById) {
+      messages.push({
+        userId:        row.submittedById,
+        type:          'TRANSFER_RECEIVED',
+        title:         lost ? `${row.transferNumber} arrived short at ${row.toBranch.name}` : `${row.transferNumber} arrived at ${row.toBranch.name}`,
+        body:          lost
+          ? `${receiver} counted what arrived of ${transferGoods(row)}. ${lost}.`
+          : `${receiver} confirmed ${transferGoods(row)} arrived.`,
+        referenceType: 'StockTransfer',
+        referenceId:   row.id,
+      })
+    }
+    if (lost) {
+      const watchers = (await UserRepository.findByRoles(APPROVER_ROLES))
+        .filter(user => user.id !== row.receivedById && user.id !== row.submittedById)
+      for (const user of watchers) {
+        messages.push({
+          userId:        user.id,
+          type:          'TRANSFER_VARIANCE',
+          title:         `${row.transferNumber} arrived short at ${row.toBranch.name}`,
+          body:          `${receiver} counted what arrived of ${transferGoods(row)} from ${row.fromBranch.name}. ${lost}.`,
+          referenceType: 'StockTransfer',
+          referenceId:   row.id,
+        })
+      }
+    }
+    return createAndPush(messages)
   },
 }
 
