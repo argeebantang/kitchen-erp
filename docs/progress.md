@@ -382,7 +382,19 @@ table; it's a UI/UX decision, not an architecture change.
       production orders, receiving reports, conversions or write-offs — inventory pages list active branches only,
       so its stock would vanish — and for the last active commissary (rows locked; race-tested); the message names
       what to clear. Reactivate any time. Migration `20261113100000_branch_profiles`.
-- [ ] Transfer Order + approval + variance logging
+- [~] Transfer Order + approval + variance logging — **Transfer Order done 2026-11-14**
+      (`docs/2026-11-14-week8-transfer-orders.md`); approval / dispatch / receipt (Task 3) and variance (Task 4) to
+      do. **Inventory → Transfers** (ADMIN, PRODUCTION_MANAGER, ACCOUNTING; a BRANCH_MANAGER sees only transfers to
+      or from the branch they manage, read from `Branch.managerId`): the kitchen records what it sends from an
+      active **commissary** to another active branch — one line per finished good, quantity — and saving submits it
+      to accounting as `TRF-000001` (`trf_number_seq`, no draft). The form shows, live, what the sender can send
+      (unexpired on hand − pending conversions, write-offs of unexpired lots and other transfers), the lots each line
+      would take **soonest expiry first, never expired**, and their value at lot cost; over-asking is refused. Detail
+      page with the same plan while pending; list filters by status and branch. **No stock moves yet** — Task 3
+      takes it out of the sender on approval and into the receiver on receipt, as `TRANSFER` movements End of Day
+      counts as Distributed. Conversions now count pending transfers as claimed; open transfers block branch
+      deactivation. The unused Week 1 material `StockTransfer` / `StockTransferItem` were reshaped for finished goods
+      (migration `20261114090000_transfer_orders`).
 - [ ] Per-branch inventory view
 - [ ] Costing dashboard
 
