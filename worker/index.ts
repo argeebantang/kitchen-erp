@@ -15,11 +15,15 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
   STOCK_RECONCILIATION,
+  TRANSFER_DECIDED,
+  TRANSFER_RECEIVED,
+  TRANSFER_SUBMITTED,
   WRITE_OFF_DECIDED,
   WRITE_OFF_SUBMITTED,
   type ConversionOrderJob,
   type PrSubmittedJob,
   type ProductionOrderJob,
+  type StockTransferJob,
   type WriteOffJob,
 } from '@/lib/queue'
 import { BUSINESS_TIME_ZONE, todayIsoDate } from '@/lib/dates'
@@ -86,6 +90,21 @@ async function handleWriteOffDecided(job: Job<WriteOffJob>) {
   console.log(`  → wrote ${count} notification(s)`)
 }
 
+async function handleTransferSubmitted(job: Job<StockTransferJob>) {
+  const count = await NotificationService.notifyTransferSubmitted(job.data.stockTransferId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleTransferDecided(job: Job<StockTransferJob>) {
+  const count = await NotificationService.notifyTransferDecided(job.data.stockTransferId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleTransferReceived(job: Job<StockTransferJob>) {
+  const count = await NotificationService.notifyTransferReceived(job.data.stockTransferId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
 async function handleLowStockCheck() {
   // The run's own date, in Manila — it is also what stops a second run today.
   const date = todayIsoDate()
@@ -142,6 +161,12 @@ const worker = new Worker(
         return handleWriteOffSubmitted(job)
       case WRITE_OFF_DECIDED:
         return handleWriteOffDecided(job)
+      case TRANSFER_SUBMITTED:
+        return handleTransferSubmitted(job)
+      case TRANSFER_DECIDED:
+        return handleTransferDecided(job)
+      case TRANSFER_RECEIVED:
+        return handleTransferReceived(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:

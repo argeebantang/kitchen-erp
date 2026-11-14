@@ -148,6 +148,7 @@ model User {
   submittedConversionOrders ConversionOrder[] @relation("ConversionOrderSubmitter")
   submittedWriteOffs        WriteOff[]        @relation("WriteOffSubmitter")
   submittedStockTransfers   StockTransfer[]   @relation("StockTransferSubmitter")
+  receivedStockTransfers    StockTransfer[]   @relation("StockTransferReceiver")
   productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
@@ -580,6 +581,12 @@ model StockTransfer {
   submittedById  String
   submittedBy    User           @relation("StockTransferSubmitter", fields: [submittedById], references: [id])
   notes          String?
+  /// Who confirmed it arrived: the receiving branch's manager or an ADMIN
+  /// (Week 8 Task 3, R3). Set with receivedAt by the same UPDATE as RECEIVED;
+  /// null until then. Dispatch is the approval, on Approval.
+  receivedById   String?
+  receivedBy     User?          @relation("StockTransferReceiver", fields: [receivedById], references: [id])
+  receivedAt     DateTime?
   /// When it was recorded and submitted.
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt

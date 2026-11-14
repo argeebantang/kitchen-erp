@@ -2,6 +2,7 @@ import { BranchType, Prisma, TransferStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { expiryFlag, type ExpiryFlag } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
+import { ApprovalRepository } from '@/repositories/approval.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
@@ -9,8 +10,16 @@ import { FinishedGoodStockRepository, planFefoTakes, type LotOnHand } from '@/re
 import {
   StockTransferRepository,
   StockTransferWithDetail,
+  type StockTransferDecideResult,
 } from '@/repositories/stock-transfer.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
+import {
+  getNotificationQueue,
+  TRANSFER_DECIDED,
+  TRANSFER_RECEIVED,
+  TRANSFER_SUBMITTED,
+  type StockTransferJob,
+} from '@/lib/queue'
 
 export type StockTransferLineDto = {
   finishedGoodId: string
@@ -28,6 +37,9 @@ export type StockTransferSummaryDto = {
   fromBranch: { id: string; name: string; code: string }
   toBranch: { id: string; name: string; code: string }
   submittedByName: string
+  /** Who confirmed it arrived, and when (R3); null until RECEIVED. */
+  receivedByName: string | null
+  receivedAt: string | null
   notes: string | null
   createdAt: string
   lines: StockTransferLineDto[]
@@ -98,7 +110,34 @@ export type StockTransferResult<T> =
 /** Lines on one transfer — a delivery run, not a stock count. */
 export const MAX_TRANSFER_LINES = 30
 
+/** One lot moved by a transfer, at one end: out of the sender or into the receiver. */
+export type TransferMovementDto = {
+  lotNumber: string
+  finishedGoodName: string
+  unitAbbreviation: string
+  branchName: string
+  /** Positive, whichever way it went. */
+  quantity: string
+  /** The lot's cost per unit, carried on the movement. */
+  unitCost: string | null
+  value: string | null
+  expiresAt: string | null
+  /** As of the page's render — a lot may expire in transit (R6). */
+  expiry: ExpiryFlag | null
+  at: string
+}
+
 export type StockTransferDetailDto = StockTransferSummaryDto & {
+  /** In transit and the viewer may confirm it arrived: the receiving branch's manager, or an ADMIN (R3). */
+  canReceive: boolean
+  decisions: { id: string; decision: string; remarks: string | null; approverName: string; decidedAt: string }[]
+  /** What left the sender on approval and arrived on receipt (R1, R3); empty sides until then. */
+  stockMoved: {
+    out: TransferMovementDto[]
+    in: TransferMovementDto[]
+    outValue: string | null
+    inValue: string | null
+  }
   /**
    * While pending: each line against the sender's stock now — the lots
    * approving now would take and their value (T7). This transfer's own claim
@@ -106,6 +145,12 @@ export type StockTransferDetailDto = StockTransferSummaryDto & {
    * has moved (Task 3 shows what did).
    */
   plan: { lines: TransferLinePlanDto[]; totalValue: string | null; allEnough: boolean } | null
+}
+
+/** A transfer in the approvals inbox: what it sends, what it is worth now, and whether the sender still has it. */
+export type PendingTransferDto = StockTransferSummaryDto & {
+  totalValue: string | null
+  allEnough: boolean
 }
 
 /** Who is looking — a branch manager sees only their own branch's transfers (T4). */
@@ -126,6 +171,8 @@ function toSummary(transfer: StockTransferWithDetail): StockTransferSummaryDto {
     fromBranch:      transfer.fromBranch,
     toBranch:        transfer.toBranch,
     submittedByName: transfer.submittedBy.name,
+    receivedByName:  transfer.receivedBy?.name ?? null,
+    receivedAt:      transfer.receivedAt?.toISOString() ?? null,
     notes:           transfer.notes,
     createdAt:       transfer.createdAt.toISOString(),
     lines: transfer.items.map(item => ({
@@ -228,6 +275,19 @@ async function planLine(
   }
 }
 
+/**
+ * Notifications go through the queue, after the transaction has committed
+ * (R7). A queue outage is logged, never surfaced: the transfer is already
+ * recorded, decided or received, and that is what matters.
+ */
+async function enqueue(jobName: string, stockTransferId: string): Promise<void> {
+  try {
+    await getNotificationQueue().add(jobName, { stockTransferId } satisfies StockTransferJob)
+  } catch (err) {
+    console.error(`[StockTransferService] could not enqueue ${jobName}`, err)
+  }
+}
+
 /** The sender must be an active commissary (T5). */
 async function senderBranch(fromBranchId: string): Promise<StockTransferResult<{ id: string; name: string }>> {
   const branch = await BranchRepository.findProfile(fromBranchId)
@@ -236,6 +296,32 @@ async function senderBranch(fromBranchId: string): Promise<StockTransferResult<{
     return { success: false, error: `${branch.name} is not a commissary — transfers are sent from a commissary`, status: 400 }
   }
   return { success: true, data: { id: branch.id, name: branch.name } }
+}
+
+/**
+ * Who may confirm a transfer arrived (R3): the manager of the receiving
+ * branch, read from Branch.managerId — not the login token — or an ADMIN.
+ */
+async function mayReceive(viewer: TransferViewer, toBranchId: string): Promise<boolean> {
+  if (viewer.role === 'ADMIN') return true
+  if (viewer.role !== 'BRANCH_MANAGER') return false
+  const managed = await BranchRepository.findManagedBy(viewer.userId)
+  return managed?.id === toBranchId
+}
+
+/** Each line of a pending transfer against the sender's stock now, its own claim left out (T7, T8). */
+async function pendingPlan(transfer: StockTransferWithDetail, now: Date): Promise<NonNullable<StockTransferDetailDto['plan']>> {
+  const lines: TransferLinePlanDto[] = []
+  for (const item of transfer.items) {
+    lines.push(await planLine(item.finishedGood, transfer.fromBranchId, item.quantity, now, transfer.id))
+  }
+  let total: Prisma.Decimal | null = zero
+  for (const line of lines) total = total === null || line.value === null ? null : total.add(toDecimal(line.value))
+  return {
+    lines,
+    totalValue: total === null ? null : toDecimalString(total),
+    allEnough:  lines.every(line => line.enough),
+  }
 }
 
 export const StockTransferService = {
@@ -362,6 +448,7 @@ export const StockTransferService = {
       notes:         input.notes?.trim() || null,
       items,
     })
+    await enqueue(TRANSFER_SUBMITTED, created.id)
     return { success: true, data: created }
   },
 
@@ -394,29 +481,163 @@ export const StockTransferService = {
       return { success: false, error: 'Transfer not found', status: 404 }
     }
 
-    const summary = toSummary(transfer)
+    const now = new Date()
+    const [decisions, movements] = await Promise.all([
+      ApprovalRepository.findByReference('StockTransfer', transfer.id),
+      FinishedGoodStockRepository.findMovementsByReference('StockTransfer', transfer.id),
+    ])
+    const toMovement = (m: (typeof movements)[number]): TransferMovementDto => {
+      const quantity = m.quantity.abs()
+      return {
+        lotNumber:        m.lot.lotNumber,
+        finishedGoodName: m.lot.finishedGood.name,
+        unitAbbreviation: m.lot.finishedGood.unit.abbreviation,
+        branchName:       m.branch.name,
+        quantity:         toDecimalString(quantity),
+        unitCost:         m.unitCost === null ? null : toDecimalString(m.unitCost),
+        value:            m.unitCost === null ? null : toDecimalString(quantity.mul(m.unitCost)),
+        expiresAt:        m.lot.expiresAt?.toISOString() ?? null,
+        expiry:           expiryFlag(m.lot.expiresAt, now.getTime()),
+        at:               m.createdAt.toISOString(),
+      }
+    }
+    const sideValue = (side: TransferMovementDto[]): string | null => {
+      if (side.length === 0) return null
+      let total = zero
+      for (const m of side) {
+        if (m.value === null) return null
+        total = total.add(toDecimal(m.value))
+      }
+      return toDecimalString(total)
+    }
+    const out = movements.filter(m => m.quantity.lessThan(0)).map(toMovement)
+    const arrived = movements.filter(m => m.quantity.greaterThan(0)).map(toMovement)
+
+    const base = {
+      ...toSummary(transfer),
+      canReceive: transfer.status === TransferStatus.APPROVED && await mayReceive(viewer, transfer.toBranchId),
+      decisions: decisions.map(d => ({
+        id:           d.id,
+        decision:     d.decision,
+        remarks:      d.remarks,
+        approverName: d.approver.name,
+        decidedAt:    d.decidedAt.toISOString(),
+      })),
+      stockMoved: { out, in: arrived, outValue: sideValue(out), inValue: sideValue(arrived) },
+    }
     if (transfer.status !== TransferStatus.PENDING_APPROVAL) {
-      return { success: true, data: { ...summary, plan: null } }
+      return { success: true, data: { ...base, plan: null } }
     }
 
-    const now   = new Date()
-    const lines: TransferLinePlanDto[] = []
-    for (const item of transfer.items) {
-      lines.push(await planLine(item.finishedGood, transfer.fromBranchId, item.quantity, now, transfer.id))
-    }
-    let total: Prisma.Decimal | null = zero
-    for (const line of lines) total = total === null || line.value === null ? null : total.add(toDecimal(line.value))
+    return { success: true, data: { ...base, plan: await pendingPlan(transfer, now) } }
+  },
 
+  /** Pending transfers, oldest first, each planned against the sender now — the approvals inbox (R8). */
+  async listPending(take = 100): Promise<PendingTransferDto[]> {
+    const rows = await StockTransferRepository.findPending(take)
+    const now  = new Date()
+    return Promise.all(rows.map(async row => {
+      const plan = await pendingPlan(row, now)
+      return { ...toSummary(row), totalValue: plan.totalValue, allEnough: plan.allEnough }
+    }))
+  },
+
+  /**
+   * The receiving branch confirms everything dispatched arrived (R3, R4):
+   * APPROVED → RECEIVED, and the dispatched lots join its stock. Its manager
+   * or an ADMIN only; a branch manager it does not concern gets 404, as on
+   * the page.
+   */
+  async receive(id: string, viewer: TransferViewer): Promise<StockTransferResult<{ id: string; transferNumber: string; status: TransferStatus }>> {
+    const visible = await StockTransferService.getById(id, viewer)
+    if (!visible.success) return visible
+    const transfer = visible.data
+
+    if (!(await mayReceive(viewer, transfer.toBranch.id))) {
+      return {
+        success: false,
+        error:   `Only the manager of ${transfer.toBranch.name}, or an admin, can confirm this transfer arrived`,
+        status:  403,
+      }
+    }
+    if (transfer.status !== TransferStatus.APPROVED) {
+      const why = transfer.status === TransferStatus.PENDING_APPROVAL
+        ? 'is still waiting for accounting — nothing has been sent yet'
+        : transfer.status === TransferStatus.RECEIVED
+          ? 'has already been received'
+          : 'was rejected — nothing was sent'
+      return { success: false, error: `${transfer.transferNumber} ${why}`, status: 409 }
+    }
+
+    const result = await StockTransferRepository.receive({
+      id,
+      receiverId:     viewer.userId,
+      toBranchId:     transfer.toBranch.id,
+      transferNumber: transfer.transferNumber,
+    })
+    if (!result.ok) {
+      return { success: false, error: 'This transfer was just received by someone else — reload', status: 409 }
+    }
+    await enqueue(TRANSFER_RECEIVED, id)
+    return { success: true, data: { id, transferNumber: transfer.transferNumber, status: TransferStatus.RECEIVED } }
+  },
+
+  /**
+   * Accounting's decision (R1) — never by whoever recorded it, ADMIN
+   * included; a reason to reject; rejection is final. Approving dispatches:
+   * the lots are locked and re-planned, and refused if short (409).
+   */
+  async applyDecision(
+    id: string,
+    viewer: TransferViewer,
+    decision: 'APPROVED' | 'REJECTED',
+    remarks: string | null,
+  ): Promise<StockTransferResult<{ id: string; transferNumber: string; status: TransferStatus }>> {
+    const transfer = await StockTransferRepository.findById(id)
+    if (!transfer) {
+      return { success: false, error: 'Transfer not found', status: 404 }
+    }
+    if (transfer.submittedById === viewer.userId) {
+      return { success: false, error: 'You recorded this transfer, so someone else has to decide it', status: 403 }
+    }
+    if (transfer.status !== TransferStatus.PENDING_APPROVAL) {
+      return {
+        success: false,
+        error:   `This transfer is ${transfer.status.replace(/_/g, ' ').toLowerCase()} and is no longer awaiting a decision`,
+        status:  409,
+      }
+    }
+    if (decision === 'REJECTED' && (remarks === null || remarks.trim() === '')) {
+      return { success: false, error: 'Give a reason when rejecting, so production knows what to correct', status: 400 }
+    }
+
+    const result: StockTransferDecideResult = await StockTransferRepository.decide({
+      id,
+      approverId: viewer.userId,
+      remarks,
+      decision: decision === 'REJECTED' ? { kind: 'REJECTED' } : {
+        kind:           'APPROVED',
+        transferNumber: transfer.transferNumber,
+        fromBranchId:   transfer.fromBranchId,
+        fromBranchName: transfer.fromBranch.name,
+        lines: transfer.items.map(item => ({
+          finishedGoodId:   item.finishedGood.id,
+          name:             item.finishedGood.name,
+          unitAbbreviation: item.finishedGood.unit.abbreviation,
+          quantity:         item.quantity,
+        })),
+      },
+    })
+
+    if (!result.ok) {
+      return result.reason === 'not-pending'
+        ? { success: false, error: 'This transfer was decided by someone else just now — reload', status: 409 }
+        : { success: false, error: result.message, status: 409 }
+    }
+    await enqueue(TRANSFER_DECIDED, id)
     return {
       success: true,
-      data: {
-        ...summary,
-        plan: {
-          lines,
-          totalValue: total === null ? null : toDecimalString(total),
-          allEnough:  lines.every(line => line.enough),
-        },
-      },
+      data: { id, transferNumber: transfer.transferNumber, status: decision === 'APPROVED' ? TransferStatus.APPROVED : TransferStatus.REJECTED },
     }
   },
 }

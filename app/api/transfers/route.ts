@@ -17,9 +17,13 @@ const CreateStockTransferSchema = z.object({
   })).min(1, 'Add at least one finished good').max(MAX_TRANSFER_LINES),
 })
 
+/** Who records transfers — the kitchen (T4). The /api/transfers guard also admits branch managers, for receipt. */
+const RECORDING_ROLES = ['ADMIN', 'PRODUCTION_MANAGER']
+
 /**
  * Records a transfer and submits it for approval in one step — there is no
- * draft (Week 8 Task 2, T6). ADMIN + PRODUCTION_MANAGER (middleware).
+ * draft (Week 8 Task 2, T6). ADMIN + PRODUCTION_MANAGER, checked here: the
+ * middleware guard on /api/transfers is wider (Task 3, R5).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -28,6 +32,9 @@ export async function POST(req: NextRequest) {
     const role   = req.headers.get('x-user-role')
     if (!userId || !role) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    if (!RECORDING_ROLES.includes(role)) {
+      return NextResponse.json({ error: 'Only the kitchen records transfers' }, { status: 403 })
     }
 
     const parsed = CreateStockTransferSchema.safeParse(await req.json())

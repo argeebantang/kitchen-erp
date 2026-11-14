@@ -45,6 +45,18 @@ export const WRITE_OFF_SUBMITTED = 'write-off-submitted'
 /** A write-off was approved or rejected: tell whoever recorded it. */
 export const WRITE_OFF_DECIDED = 'write-off-decided'
 
+/** The kitchen recorded a transfer: tell the approvers (Week 8 Task 3, R7). */
+export const TRANSFER_SUBMITTED = 'transfer-submitted'
+
+/**
+ * A transfer was approved (dispatched) or rejected: tell whoever recorded it,
+ * and on approval the receiving branch's manager — it is on its way.
+ */
+export const TRANSFER_DECIDED = 'transfer-decided'
+
+/** The receiving branch confirmed a transfer arrived: tell whoever recorded it. */
+export const TRANSFER_RECEIVED = 'transfer-received'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.
@@ -105,6 +117,11 @@ export type ConversionOrderJob = {
 /** Same rule: an id, re-read when the job runs. */
 export type WriteOffJob = {
   writeOffId: string
+}
+
+/** Same rule: an id, re-read when the job runs. */
+export type StockTransferJob = {
+  stockTransferId: string
 }
 
 /**

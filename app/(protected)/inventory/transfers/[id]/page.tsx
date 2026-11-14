@@ -7,16 +7,21 @@ import { formatPeso, formatQuantity } from '@/lib/format'
 import { StockTransferService } from '@/services/stock-transfer.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
+import { TransferStock } from '@/components/inventory/TransferStock'
+import { DecisionHistory } from '@/components/procurement/DecisionHistory'
+import { ApprovalActions } from '@/components/procurement/ApprovalActions'
+import { ConfirmReceiptButton } from '@/components/inventory/ConfirmReceiptButton'
 
 type PageProps = {
   params: Promise<{ id: string }>
 }
 
 /**
- * One Transfer Order (Week 8 Task 2). While it waits for accounting, each
+ * One Transfer Order (Week 8 Tasks 2–3). While it waits for accounting, each
  * line is shown against the sender's stock now: the lots approving now would
- * take, soonest expiry first, and their value (T7). Approval, dispatch and
- * receipt come with Task 3.
+ * take, soonest expiry first, and their value (T7). Once approved it is in
+ * transit — what left the sender is under Stock moved — until the receiving
+ * branch confirms it arrived.
  */
 export default async function TransferDetailPage({ params }: PageProps) {
   const session = await getSession()
@@ -28,6 +33,9 @@ export default async function TransferDetailPage({ params }: PageProps) {
 
   const transfer = result.data
   const plan     = transfer.plan
+  const isApprover = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
+  // Nobody decides a transfer they recorded, ADMIN included (R1).
+  const isOwn      = transfer.submittedById === session.userId
 
   return (
     <div>
@@ -56,6 +64,12 @@ export default async function TransferDetailPage({ params }: PageProps) {
           {formatDateTime(transfer.createdAt)}
           <span className="block text-xs text-gray-400">by {transfer.submittedByName}</span>
         </Detail>
+        {transfer.receivedAt && (
+          <Detail label="Received">
+            {formatDateTime(transfer.receivedAt)}
+            {transfer.receivedByName && <span className="block text-xs text-gray-400">confirmed by {transfer.receivedByName}</span>}
+          </Detail>
+        )}
         {transfer.notes && (
           <div className="sm:col-span-3">
             <Detail label="Notes"><span className="whitespace-pre-line">{transfer.notes}</span></Detail>
@@ -63,12 +77,48 @@ export default async function TransferDetailPage({ params }: PageProps) {
         )}
       </div>
 
+      <DecisionHistory decisions={transfer.decisions} />
+
+      {transfer.status === 'APPROVED' && (
+        <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-800">
+          <p>
+            In transit: it left {transfer.fromBranch.name} when accounting approved it, and joins {transfer.toBranch.name}&apos;s stock
+            when the branch confirms it arrived.
+          </p>
+          {/* R3: the receiving branch's manager, or an admin. Everything dispatched, for now (R4). */}
+          {transfer.canReceive && (
+            <div className="mt-3">
+              <ConfirmReceiptButton
+                transferId={transfer.id}
+                transferNumber={transfer.transferNumber}
+                branchName={transfer.toBranch.name}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {transfer.status === 'RECEIVED' && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Received at {transfer.toBranch.name}{transfer.receivedAt && <> on {formatDateTime(transfer.receivedAt)}</>}
+          {transfer.receivedByName && <>, confirmed by {transfer.receivedByName}</>}.
+        </div>
+      )}
+
       {plan && (
         <div className={`mb-4 rounded-lg border px-3 py-2 text-sm ${plan.allEnough ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-red-200 bg-red-50 text-red-700'}`}>
           {plan.allEnough
-            ? <>Waiting for accounting. Nothing has moved yet — the lots below are what approving now would take from {transfer.fromBranch.name}.</>
-            : <>Waiting for accounting, but {transfer.fromBranch.name} no longer has enough for every line (marked below) — approving would be refused until it does.</>}
+            ? <>Waiting for accounting. Nothing has moved yet — approving sends the lots below from {transfer.fromBranch.name}, soonest to expire first.</>
+            : <>
+                Waiting for accounting, but {transfer.fromBranch.name} does not have enough for every line once what other documents
+                awaiting approval have claimed is counted (marked below). Approving takes the stock if the lots still hold it — leaving
+                those documents short — and is refused if they do not.
+              </>}
         </div>
+      )}
+      {plan && isApprover && isOwn && (
+        <p className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+          You recorded this transfer, so someone else in accounting has to decide it.
+        </p>
       )}
 
       <section>
@@ -151,6 +201,19 @@ export default async function TransferDetailPage({ params }: PageProps) {
           </table>
         </div>
       </section>
+
+      {/* R1: the decision, under the goods it sends — never by whoever recorded it. */}
+      {plan && isApprover && !isOwn && (
+        <section className="mt-6">
+          <p className="mb-2 text-sm text-gray-600">
+            Approving dispatches it: the lots leave {transfer.fromBranch.name} now and travel to {transfer.toBranch.name}.
+            Rejecting is final — production records a new transfer.
+          </p>
+          <ApprovalActions referenceType="StockTransfer" referenceId={transfer.id} />
+        </section>
+      )}
+
+      <TransferStock transfer={transfer} />
     </div>
   )
 }

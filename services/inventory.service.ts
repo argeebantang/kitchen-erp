@@ -137,6 +137,13 @@ export const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) 
     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'],
     href:  id => `/inventory/write-offs/${id}`,
   },
+  // Finished goods distributed between branches (Week 8 Task 3) — on the End
+  // of Day page. A branch manager can open those of their own branch; another
+  // branch's says "not found".
+  StockTransfer: {
+    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'],
+    href:  id => `/inventory/transfers/${id}`,
+  },
 }
 
 /** The Finished Goods page's expiry filter (Week 7 Task 3, X2): a query-string value and the status it shows. */

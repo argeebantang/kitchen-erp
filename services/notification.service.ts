@@ -10,6 +10,8 @@ import { PurchaseRequestRepository } from '@/repositories/purchase-request.repos
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
+import { StockTransferRepository, type StockTransferWithDetail } from '@/repositories/stock-transfer.repository'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { reasonLabel } from '@/services/write-off.service'
 import { EndOfDayService } from '@/services/end-of-day.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
@@ -52,6 +54,7 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   ProductionOrderShortfall: id => `/procurement/requests/new?productionOrder=${id}`,
   ConversionOrder:     id => `/production/conversions/${id}`,
   WriteOff:            id => `/inventory/write-offs/${id}`,
+  StockTransfer:       id => `/inventory/transfers/${id}`,
 }
 
 export type NotificationDto = {
@@ -619,4 +622,93 @@ export const NotificationService = {
       referenceId:   row.id,
     }])
   },
+
+  /**
+   * The kitchen recorded a transfer: tell everyone who can decide it except
+   * whoever recorded it (Week 8 Task 3, R7). Re-reads it — gone, or already
+   * decided, means nothing to say.
+   */
+  async notifyTransferSubmitted(stockTransferId: string): Promise<number> {
+    const row = await StockTransferRepository.findById(stockTransferId)
+    if (!row || row.status !== 'PENDING_APPROVAL') return 0
+
+    const approvers  = await UserRepository.findByRoles(APPROVER_ROLES)
+    const recipients = approvers.filter(user => user.id !== row.submittedById)
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'TRANSFER_SUBMITTED',
+      title:         `${row.transferNumber} is waiting for approval`,
+      body:          `${row.submittedBy.name} is sending ${transferGoods(row)} from ${row.fromBranch.name} to ${row.toBranch.name}. Approving dispatches it.`,
+      referenceType: 'StockTransfer',
+      referenceId:   row.id,
+    })))
+  },
+
+  /**
+   * A transfer was decided. Approved — it is dispatched: tell whoever
+   * recorded it, and the receiving branch's manager that it is on its way and
+   * to confirm when it arrives (read from Branch.managerId). Rejected: tell
+   * whoever recorded it, with the reason.
+   */
+  async notifyTransferDecided(stockTransferId: string): Promise<number> {
+    const [row, [latest]] = await Promise.all([
+      StockTransferRepository.findById(stockTransferId),
+      ApprovalRepository.findByReference('StockTransfer', stockTransferId),
+    ])
+    if (!row || !latest || row.status === 'PENDING_APPROVAL') return 0
+    if (row.submittedById === latest.approver.id) return 0
+
+    if (latest.decision !== 'APPROVED') {
+      return createAndPush([{
+        userId:        row.submittedById,
+        type:          'TRANSFER_REJECTED',
+        title:         `${row.transferNumber} was rejected`,
+        body:          `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Nothing was sent to ${row.toBranch.name}; record a new transfer if it should go.`,
+        referenceType: 'StockTransfer',
+        referenceId:   row.id,
+      }])
+    }
+
+    const goods   = transferGoods(row)
+    const manager = (await BranchRepository.findProfile(row.toBranchId))?.manager ?? null
+    const messages: CreateNotificationInput[] = [{
+      userId:        row.submittedById,
+      type:          'TRANSFER_APPROVED',
+      title:         `${row.transferNumber} was approved — on its way`,
+      body:          `${latest.approver.name} approved it: ${goods} left ${row.fromBranch.name} for ${row.toBranch.name}.`,
+      referenceType: 'StockTransfer',
+      referenceId:   row.id,
+    }]
+    if (manager && manager.id !== row.submittedById && manager.id !== latest.approver.id) {
+      messages.push({
+        userId:        manager.id,
+        type:          'TRANSFER_DISPATCHED',
+        title:         `${row.transferNumber} is on its way to ${row.toBranch.name}`,
+        body:          `${goods} from ${row.fromBranch.name}. Confirm it arrived when it does — it joins your stock then.`,
+        referenceType: 'StockTransfer',
+        referenceId:   row.id,
+      })
+    }
+    return createAndPush(messages)
+  },
+
+  /** The receiving branch confirmed a transfer arrived: tell whoever recorded it. */
+  async notifyTransferReceived(stockTransferId: string): Promise<number> {
+    const row = await StockTransferRepository.findById(stockTransferId)
+    if (!row || row.status !== 'RECEIVED' || row.receivedById === row.submittedById) return 0
+
+    return createAndPush([{
+      userId:        row.submittedById,
+      type:          'TRANSFER_RECEIVED',
+      title:         `${row.transferNumber} arrived at ${row.toBranch.name}`,
+      body:          `${row.receivedBy?.name ?? 'The branch'} confirmed ${transferGoods(row)} arrived.`,
+      referenceType: 'StockTransfer',
+      referenceId:   row.id,
+    }])
+  },
+}
+
+/** "Bopis 6 kg, Dinuguan 2 kg" — what a transfer carries, for a notification. */
+function transferGoods(row: StockTransferWithDetail): string {
+  return row.items.map(item => `${item.finishedGood.name} ${formatQuantity(item.quantity.toString())} ${item.finishedGood.unit.abbreviation}`).join(', ')
 }

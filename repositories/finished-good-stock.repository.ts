@@ -411,6 +411,44 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
+   * Stock arriving into an EXISTING lot at a branch — a transfer's receipt
+   * (Week 8 Task 3, R3): the lot keeps its number, expiry and cost, so this
+   * never creates a lot. One TRANSFER row (positive) and the level, created
+   * or increased in one upsert on (lotId, branchId) — Prisma's single
+   * INSERT … ON CONFLICT, so concurrent arrivals cannot lose an increment.
+   * On the caller's transaction, like receiveLot and takeFromLot.
+   */
+  async transferIntoLot(tx: Prisma.TransactionClient, input: {
+    lotId: string
+    branchId: string
+    /** Positive: the amount arriving. */
+    quantity: Prisma.Decimal
+    unitCost: Prisma.Decimal | null
+    referenceType: string
+    referenceId: string
+    notes: string | null
+  }): Promise<void> {
+    await tx.finishedGoodLevel.upsert({
+      where:  { lotId_branchId: { lotId: input.lotId, branchId: input.branchId } },
+      create: { lotId: input.lotId, branchId: input.branchId, quantity: input.quantity },
+      update: { quantity: { increment: input.quantity } },
+    })
+
+    await tx.finishedGoodMovement.create({
+      data: {
+        lotId:         input.lotId,
+        branchId:      input.branchId,
+        type:          MovementType.TRANSFER,
+        quantity:      input.quantity,
+        unitCost:      input.unitCost,
+        referenceType: input.referenceType,
+        referenceId:   input.referenceId,
+        notes:         input.notes,
+      },
+    })
+  },
+
+  /**
    * InventoryRepository.mismatchedLevels for finished goods: every lot and
    * branch whose level differs from its ledger total, either side missing
    * counting as 0. One statement, one snapshot; for the daily job.
@@ -451,8 +489,8 @@ export const FinishedGoodStockRepository = {
    * The finished-goods movements one source document wrote, oldest first,
    * with their lot and branch. Served by @@index([referenceType, referenceId]).
    */
-  async findMovementsByReference(referenceType: string, referenceId: string) {
-    return prisma.finishedGoodMovement.findMany({
+  async findMovementsByReference(referenceType: string, referenceId: string, db: Prisma.TransactionClient = prisma) {
+    return db.finishedGoodMovement.findMany({
       where:   { referenceType, referenceId },
       include: {
         lot:    { select: { lotNumber: true, producedOn: true, expiresAt: true, finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } } } },

@@ -394,7 +394,18 @@ table; it's a UI/UX decision, not an architecture change.
       takes it out of the sender on approval and into the receiver on receipt, as `TRANSFER` movements End of Day
       counts as Distributed. Conversions now count pending transfers as claimed; open transfers block branch
       deactivation. The unused Week 1 material `StockTransfer` / `StockTransferItem` were reshaped for finished goods
-      (migration `20261114090000_transfer_orders`).
+      (migration `20261114090000_transfer_orders`). **Approval and receipt done 2026-11-14**
+      (`docs/2026-11-14-week8-transfer-approval-receipt.md`): accounting decides through `POST /api/approvals`
+      (`referenceType: 'StockTransfer'`; never whoever recorded it; reason to reject; rejection final). **Approving
+      dispatches**, in one transaction: each line's lots at the sender are locked and re-planned soonest expiry first
+      (expired skipped) — any line short refuses it (409) — and leave as `TRANSFER −` movements at the lot's cost. The
+      transfer is then **in transit**; the receiving branch's **manager** (`Branch.managerId`) **or an admin** confirms
+      receipt (`POST /api/transfers/[id]/receive`) and the same lots — number, expiry, cost — arrive as `TRANSFER +`
+      (all of it; partial receipt and variance are Task 4). `StockTransfer.receivedById` / `receivedAt` (migration
+      `20261114150000_transfer_receipt`). Inbox section, Approve / Reject and Confirm received on the detail page, a
+      Stock moved card (out / in transit / in), notifications (submitted → approvers; approved → recorder and the
+      receiving manager; rejected / received → recorder), TRF numbers and links on End of Day and in the bell.
+      Variance (Task 4) to do.
 - [ ] Per-branch inventory view
 - [ ] Costing dashboard
 
