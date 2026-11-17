@@ -20,6 +20,7 @@ import {
   TRANSFER_SUBMITTED,
   type StockTransferJob,
 } from '@/lib/queue'
+import { signalInventoryChanged } from '@/lib/realtime'
 
 export type StockTransferLineDto = {
   finishedGoodId: string
@@ -179,6 +180,24 @@ export type PendingTransferDto = StockTransferSummaryDto & {
   totalValue: string | null
   allEnough: boolean
 }
+
+/** In transit to a branch (Week 8 Task 5): when it left, and what left at the lots' cost. */
+export type InTransitTransferDto = StockTransferSummaryDto & {
+  dispatchedAt: string | null
+  /** Null when a dispatched lot has no cost. */
+  value: string | null
+}
+
+/** A branch's open transfers, oldest first; at most OPEN_TRANSFER_LIMIT of each kind. */
+export type BranchTransfersDto = {
+  arriving: InTransitTransferDto[]
+  pending: StockTransferSummaryDto[]
+  /** The viewer may confirm what arrived: the branch's manager or an ADMIN (R3). */
+  canReceive: boolean
+  truncated: boolean
+}
+
+export const OPEN_TRANSFER_LIMIT = 50
 
 /** Who is looking — a branch manager sees only their own branch's transfers (T4). */
 export type TransferViewer = { userId: string; role: string }
@@ -485,6 +504,8 @@ export const StockTransferService = {
       notes:         input.notes?.trim() || null,
       items,
     })
+    // Awaiting approval at both ends' Branch Inventory (Week 8 Task 5).
+    signalInventoryChanged([sender.data.id, receiver.id])
     await enqueue(TRANSFER_SUBMITTED, created.id)
     return { success: true, data: created }
   },
@@ -618,6 +639,37 @@ export const StockTransferService = {
   },
 
   /**
+   * One branch's open transfers for Branch Inventory (Week 8 Task 5): in
+   * transit to it, with what left the sender at the lots' cost, and awaiting
+   * approval from or to it. The caller has already checked the viewer may see
+   * the branch.
+   */
+  async openForBranch(branchId: string, viewer: TransferViewer): Promise<BranchTransfersDto> {
+    // One more than shown, to know whether there are more.
+    const [open, canReceive] = await Promise.all([
+      StockTransferRepository.findOpenForBranch(branchId, OPEN_TRANSFER_LIMIT + 1),
+      mayReceive(viewer, branchId),
+    ])
+    const arriving = open.arriving.slice(0, OPEN_TRANSFER_LIMIT)
+    const pending  = open.pending.slice(0, OPEN_TRANSFER_LIMIT)
+    const dispatched = await FinishedGoodStockRepository.dispatchedByTransfers(arriving.map(row => row.id))
+
+    return {
+      arriving: arriving.map(row => {
+        const rows = dispatched.filter(m => m.referenceId === row.id)
+        let value: Prisma.Decimal | null = zero
+        for (const m of rows) value = value === null || m.unitCost === null ? null : value.add(m.quantity.abs().mul(m.unitCost))
+        // Every lot leaves in the approval's transaction, so they share one time.
+        const dispatchedAt = rows[0]?.createdAt.toISOString() ?? null
+        return { ...toSummary(row), dispatchedAt, value: value === null ? null : toDecimalString(value) }
+      }),
+      pending:   pending.map(toSummary),
+      canReceive,
+      truncated: open.arriving.length > OPEN_TRANSFER_LIMIT || open.pending.length > OPEN_TRANSFER_LIMIT,
+    }
+  },
+
+  /**
    * The receiving branch confirms what arrived (R3; Task 4, V1–V8):
    * APPROVED → RECEIVED, the counted lots join its stock and any shortfall is
    * recorded as lost in transit. Its manager or an ADMIN only; a branch
@@ -705,6 +757,8 @@ export const StockTransferService = {
     if (!result.ok) {
       return { success: false, error: 'This transfer was just received by someone else — reload', status: 409 }
     }
+    // The lots joined its stock; no longer arriving (Week 8 Task 5).
+    signalInventoryChanged([transfer.toBranch.id])
     await enqueue(TRANSFER_RECEIVED, id)
     return {
       success: true,
@@ -769,6 +823,9 @@ export const StockTransferService = {
         ? { success: false, error: 'This transfer was decided by someone else just now — reload', status: 409 }
         : { success: false, error: result.message, status: 409 }
     }
+    // Approved: dispatched — out of the sender, arriving at the receiver.
+    // Rejected: no longer pending at either (Week 8 Task 5).
+    signalInventoryChanged([transfer.fromBranchId, transfer.toBranchId])
     await enqueue(TRANSFER_DECIDED, id)
     return {
       success: true,

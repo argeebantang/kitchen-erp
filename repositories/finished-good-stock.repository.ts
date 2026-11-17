@@ -486,6 +486,18 @@ export const FinishedGoodStockRepository = {
   },
 
   /**
+   * What left the sender for each of these transfers (the negative TRANSFER
+   * rows written at dispatch) — the value of goods in transit (Week 8 Task 5).
+   */
+  async dispatchedByTransfers(transferIds: string[]) {
+    if (transferIds.length === 0) return []
+    return prisma.finishedGoodMovement.findMany({
+      where:  { referenceType: 'StockTransfer', referenceId: { in: transferIds }, quantity: { lt: 0 } },
+      select: { referenceId: true, quantity: true, unitCost: true, createdAt: true },
+    })
+  },
+
+  /**
    * The finished-goods movements one source document wrote, oldest first,
    * with their lot and branch. Served by @@index([referenceType, referenceId]).
    */

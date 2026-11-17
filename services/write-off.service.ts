@@ -3,6 +3,7 @@ import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { trimDecimal } from '@/lib/format'
 import { expiryFlag, type ExpiryFlag } from '@/lib/dates'
 import { getNotificationQueue, WRITE_OFF_DECIDED, WRITE_OFF_SUBMITTED, type WriteOffJob } from '@/lib/queue'
+import { signalInventoryChanged } from '@/lib/realtime'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
@@ -385,6 +386,8 @@ export const WriteOffService = {
       reason:        input.reason,
       notes,
     })
+    // Shows as pending on the lot at Branch Inventory (Week 8 Task 5).
+    signalInventoryChanged([lot.dto.branchId])
     await enqueue(WRITE_OFF_SUBMITTED, created.id)
     return { success: true, data: created }
   },
@@ -442,6 +445,8 @@ export const WriteOffService = {
         ? { success: false, error: 'This write-off was decided by someone else just now — reload', status: 409 }
         : { success: false, error: result.message, status: 409 }
     }
+    // Approved: the stock left. Rejected: no longer pending (Week 8 Task 5).
+    signalInventoryChanged([row.branch.id])
     await enqueue(WRITE_OFF_DECIDED, id)
     return { success: true, data: { id: row.id, writeOffNumber: row.writeOffNumber } }
   },

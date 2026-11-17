@@ -8,6 +8,7 @@ import {
   getNotificationQueue,
   type ConversionOrderJob,
 } from '@/lib/queue'
+import { signalInventoryChanged } from '@/lib/realtime'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
@@ -911,6 +912,8 @@ export const ConversionOrderService = {
         : { success: false, error: result.message, status: 409 }
     }
 
+    // The source lot and added ingredients left, the new lot arrived (Week 8 Task 5).
+    if (decision === 'APPROVED') signalInventoryChanged([order.branch.id])
     await enqueue(CONVERSION_ORDER_DECIDED, id)
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },

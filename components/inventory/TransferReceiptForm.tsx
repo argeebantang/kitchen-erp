@@ -96,7 +96,7 @@ export function TransferReceiptForm({ transferId, transferNumber, branchName, lo
   }
 
   return (
-    <section className="mb-6 rounded-xl border border-sky-200 bg-white p-4">
+    <section id="receive" className="mb-6 scroll-mt-6 rounded-xl border border-sky-200 bg-white p-4">
       <h2 className="text-base font-semibold text-gray-800">Confirm what arrived</h2>
       <p className="mb-3 text-sm text-gray-500">
         Count each lot. Received starts at what was sent — change only what differs. What arrives joins {branchName}&apos;s stock;
