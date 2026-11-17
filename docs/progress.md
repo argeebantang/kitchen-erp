@@ -425,7 +425,21 @@ table; it's a UI/UX decision, not an architecture change.
       conversion, write-off, transfer recorded / decided / received); `GET /api/inventory/stream` (SSE, same access
       rule) tells open pages, which re-render about 1 s later; plus a 2-minute refresh for expiry badges and on
       returning to the tab. No schema change.
-- [ ] Costing dashboard
+- [x] Costing dashboard — **done 2026-11-17** (`docs/2026-11-17-week8-costing-dashboard.md`). **Costing → Costing
+      Dashboard** (`/costing`; ADMIN, ACCOUNTING, PRODUCTION_MANAGER, VIEWER), over the last 4 / 12 / 26 / 52 weeks
+      (Monday–Sunday, Manila): tiles for this week against last — production cost (batches + ingredients added in
+      conversions), batches completed, lost (write-offs + transfer shortfall) and lost as % of production cost; a
+      weekly **production cost** chart and a **lost** chart on the same weeks, with a weekly table (write-offs by
+      reason, transfer shortfall, % of cost, range total); **cost per finished good** — one small chart per good of
+      the weekly weighted cost per unit (conversion output at source + added cost); the 10 **most expensive
+      batches** with cost per unit and variance vs plan. Figures are the costs recorded at sign-off, dated by when
+      it happened (lot production date; write-off recorded; transfer received) and counted once approved; a note
+      says what in the range still awaits approval. Charts are server-rendered SVG — no chart library. No schema
+      change.
+
+**Deliverable status:** met — goods go to branches (transfer, approval, receipt, variance), each branch has its own
+live inventory page, and management opens the costing dashboard to see this week's production cost, the most
+expensive batches and what was lost to write-offs and transfers.
 
 ---
 

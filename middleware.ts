@@ -81,6 +81,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/inventory/write-offs',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   { path: '/inventory/write-offs/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/write-offs',           roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // Week 8 Task 6 (C2): management's view of cost and loss.
+  { path: '/costing',                  roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'VIEWER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
 ]
 

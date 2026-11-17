@@ -248,4 +248,22 @@ export const WriteOffRepository = {
     })
     return _sum.quantity ?? new Prisma.Decimal(0)
   },
+
+  /**
+   * Approved write-offs recorded in [start, end) — the costing dashboard's
+   * losses, by the day the loss was found, not approved (Week 8 Task 6, C4).
+   */
+  async findApprovedRecordedBetween(start: Date, end: Date) {
+    return prisma.writeOff.findMany({
+      where:  { status: WriteOffStatus.APPROVED, createdAt: { gte: start, lt: end } },
+      select: { reason: true, totalCost: true, createdAt: true },
+    })
+  },
+
+  /** Write-offs recorded in [start, end) still awaiting approval (Week 8 Task 6, C4). */
+  async countPendingRecordedBetween(start: Date, end: Date): Promise<number> {
+    return prisma.writeOff.count({
+      where: { status: WriteOffStatus.PENDING_APPROVAL, createdAt: { gte: start, lt: end } },
+    })
+  },
 }

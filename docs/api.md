@@ -181,6 +181,12 @@ Week 8 Task 5. The pages (`/inventory/branches`, `/inventory/branches/[code]`) r
 
 Every signed-in role, no path guard; the access rule is the page's: every branch for every role except a BRANCH_MANAGER, who may watch only the branch in `Branch.managerId`. The event carries nothing — the page re-renders (`router.refresh()`) on it. Published after the commit by receiving-report approval, production-completion approval, conversion approval, write-off recorded / decided and transfer recorded / decided / received.
 
+## Costing
+
+Week 8 Task 6. No endpoint: `/costing` is a Server Component that reads `CostingService.dashboard(range, viewer)`
+directly, and nothing on it writes. Guarded in `middleware.ts` to ADMIN, ACCOUNTING, PRODUCTION_MANAGER and VIEWER
+(others → `/unauthorized`). Query `weeks` = 4, 12 (default), 26 or 52; anything else falls back to 12.
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |

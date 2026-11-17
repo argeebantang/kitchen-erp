@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–7 and most of Week 8):
+Built (Weeks 1–8):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -30,11 +30,12 @@ Built (Weeks 1–7 and most of Week 8):
 * End of Day (Week 7): one day of finished goods per branch from the ledger — opening, produced, converted in and out, written off, distributed, closing — in kg and at cost, with a check that it all reconciles and the documents behind each figure; a 21:00 summary to production managers, accounting and admins
 * Transfers (Week 8): the kitchen records the finished goods it sends from a commissary to a branch (`TRF-000001`) — the form shows what can be sent (on hand less what other documents have claimed), the lots each line will take, soonest to expire first, and their value at cost; accounting approves it, which dispatches it (the lots leave the commissary), and the receiving branch's manager counts what arrived, lot by lot: that joins the branch's stock — expiry and cost included — and anything short is recorded as lost in transit with a reason and its value at cost (a card on the transfer, a Short ₱X badge, filter and total on the list, accounting notified); the approvals inbox, notifications at each step and End of Day's Distributed column follow it. Branch managers see their own branch's transfers
 * Branch Inventory (Week 8): each branch's own page — finished goods by good and lot (use first what expires first), raw materials, transfers on their way and awaiting approval, with a "Confirm what arrived" button for its manager — that updates itself within a second when its stock moves. Branch managers see only their own branch
+* Costing dashboard (Week 8): week by week — what production cost (batches and the ingredients conversions added) and what was lost (write-offs by reason, transfer shortfalls), this week against last; the cost per kg of each finished good over time; the most expensive batches with their variance against plan. For management: admin, accounting, production and viewer
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): the costing dashboard; raw-material write-offs and stock adjustments; AI features.
+Planned (see the roadmap): raw-material write-offs and stock adjustments; AI features.
 
 ## Tech Stack
 

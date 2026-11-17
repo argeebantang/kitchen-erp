@@ -134,3 +134,19 @@ export function addDays(date: string, days: number): string {
   moment.setUTCDate(moment.getUTCDate() + days)
   return moment.toISOString().slice(0, 10)
 }
+
+/**
+ * The Monday of a date's business week (YYYY-MM-DD). The kitchen's week runs
+ * Monday to Sunday (Week 8 Task 6, C3) — unlike the schedule's calendar grid,
+ * which reads Sunday first like a wall calendar.
+ */
+export function weekStartOf(date: string): string {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  // getUTCDay: Sunday 0 … Saturday 6, so Sunday is 6 days after its Monday.
+  return addDays(date, -((day + 6) % 7))
+}
+
+/** A date label for charts and tables: "Nov 10". */
+export function shortDateLabel(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
