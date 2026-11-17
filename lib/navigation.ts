@@ -15,7 +15,8 @@ import {
   CookingPot,
   Recycle,
   Trash2,
-  Moon
+  Moon,
+  Store
 } from 'lucide-react'
 
 export type NavItem = {
@@ -59,6 +60,8 @@ export const navigation: NavGroup[] = [
   {
     group: 'Inventory',
     items: [
+      // Week 8 Task 5: each branch's own page; a branch manager lands on theirs.
+      { label: 'Branch Inventory', href: '/inventory/branches', icon: Store, roles: [] },
       { label: 'Stock Levels', href: '/inventory/stock',     icon: BarChart3, roles: [] },
       { label: 'Finished Goods', href: '/inventory/finished-goods', icon: CookingPot, roles: [] },
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [] },

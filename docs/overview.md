@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–7):
+Built (Weeks 1–7 and most of Week 8):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -29,11 +29,12 @@ Built (Weeks 1–7):
 * Write-offs (Week 7): from a lot on Finished Goods, production writes off what cannot be used or converted — how much, why (expired, spoiled, damaged, failed quality, other); accounting approves (it leaves stock at the lot's cost, the peso value lost recorded) or rejects. Inventory → Write-offs shows the value written off; lots show what is pending
 * End of Day (Week 7): one day of finished goods per branch from the ledger — opening, produced, converted in and out, written off, distributed, closing — in kg and at cost, with a check that it all reconciles and the documents behind each figure; a 21:00 summary to production managers, accounting and admins
 * Transfers (Week 8): the kitchen records the finished goods it sends from a commissary to a branch (`TRF-000001`) — the form shows what can be sent (on hand less what other documents have claimed), the lots each line will take, soonest to expire first, and their value at cost; accounting approves it, which dispatches it (the lots leave the commissary), and the receiving branch's manager counts what arrived, lot by lot: that joins the branch's stock — expiry and cost included — and anything short is recorded as lost in transit with a reason and its value at cost (a card on the transfer, a Short ₱X badge, filter and total on the list, accounting notified); the approvals inbox, notifications at each step and End of Day's Distributed column follow it. Branch managers see their own branch's transfers
+* Branch Inventory (Week 8): each branch's own page — finished goods by good and lot (use first what expires first), raw materials, transfers on their way and awaiting approval, with a "Confirm what arrived" button for its manager — that updates itself within a second when its stock moves. Branch managers see only their own branch
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): a per-branch inventory view and the costing dashboard; raw-material write-offs and stock adjustments; AI features.
+Planned (see the roadmap): the costing dashboard; raw-material write-offs and stock adjustments; AI features.
 
 ## Tech Stack
 
@@ -51,8 +52,8 @@ Planned (see the roadmap): a per-branch inventory view and the costing dashboard
 * `app/` — Next.js App Router pages and route handlers
   * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
   * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/finished-goods`, `inventory/ledger`, `inventory/write-offs`, `inventory/transfers`, `inventory/end-of-day`, `production/bom`, `production/orders`, `production/schedule`, `production/conversions`, `admin/master`
-  * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `conversion-orders` (incl. `preview`), `write-offs`, `branches` (incl. `deactivate`, `reactivate`), `transfers` (incl. `preview`), `notifications` (incl. `stream`, `read`)
-* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `master/`, `inventory/` (`StockMap`, `StockTile`, `WriteOffForm`, `WriteOffReasonBadge`), `bom/`, `production/` (`ProductionOrderForm`, `MaterialRequirementsTable`, `ShortageBanner`, `StatusTimeline`, `ScheduleCalendar`, `CompleteProductionOrder`, `CompletionReview`, `CompletionStock`, `CostingCard`, `ConversionOrderForm`, `ConversionEffect`, `ConversionStock`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`)
+  * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `conversion-orders` (incl. `preview`), `write-offs`, `branches` (incl. `deactivate`, `reactivate`), `transfers` (incl. `preview`, `[id]/receive`), `inventory/stream`, `notifications` (incl. `stream`, `read`)
+* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `master/`, `inventory/` (`StockMap`, `StockTile`, `WriteOffForm`, `WriteOffReasonBadge`, `BranchHeadline`, `BranchTransfers`, transfer components), `bom/`, `production/` (`ProductionOrderForm`, `MaterialRequirementsTable`, `ShortageBanner`, `StatusTimeline`, `ScheduleCalendar`, `CompleteProductionOrder`, `CompletionReview`, `CompletionStock`, `CostingCard`, `ConversionOrderForm`, `ConversionEffect`, `ConversionStock`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`, `LiveRefresh.tsx`)
 * `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `realtime.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
 * `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
 * `services/` — business rules above the repositories

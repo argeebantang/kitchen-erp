@@ -253,6 +253,41 @@ export const StockTransferRepository = {
     })
   },
 
+  /**
+   * A branch's open transfers, oldest first (Week 8 Task 5): in transit to it,
+   * and awaiting approval from or to it. Bounded by `take` per kind.
+   */
+  async findOpenForBranch(branchId: string, take: number): Promise<{
+    arriving: StockTransferWithDetail[]
+    pending: StockTransferWithDetail[]
+  }> {
+    const [arriving, pending] = await prisma.$transaction([
+      prisma.stockTransfer.findMany({
+        where:   { status: TransferStatus.APPROVED, toBranchId: branchId },
+        include: stockTransferInclude,
+        orderBy: { createdAt: 'asc' },
+        take,
+      }),
+      prisma.stockTransfer.findMany({
+        where:   { status: TransferStatus.PENDING_APPROVAL, OR: [{ fromBranchId: branchId }, { toBranchId: branchId }] },
+        include: stockTransferInclude,
+        orderBy: { createdAt: 'asc' },
+        take,
+      }),
+    ])
+    return { arriving, pending }
+  },
+
+  /** In transit (APPROVED, not yet received), per receiving branch — Branch Inventory's "arriving" (Week 8 Task 5). */
+  async inTransitCountByBranch(): Promise<Map<string, number>> {
+    const rows = await prisma.stockTransfer.groupBy({
+      by:     ['toBranchId'],
+      where:  { status: TransferStatus.APPROVED },
+      _count: { _all: true },
+    })
+    return new Map(rows.map(row => [row.toBranchId, row._count._all]))
+  },
+
   async numbersByIds(ids: string[]): Promise<Map<string, string>> {
     if (ids.length === 0) return new Map()
     const rows = await prisma.stockTransfer.findMany({ where: { id: { in: ids } }, select: { id: true, transferNumber: true } })

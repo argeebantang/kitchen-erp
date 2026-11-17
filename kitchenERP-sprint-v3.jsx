@@ -171,7 +171,7 @@ const plan = {
             { t: "Transfer Order: kitchen selects finished goods + quantities to send", done: true },
             { t: "Transfer approval by accounting, branch confirms receipt", done: true },
             { t: "Transfer variance logging", done: true },
-            "Each branch has own real-time inventory view",
+            { t: "Each branch has own real-time inventory view", done: true },
             "COSTING DASHBOARD: cost per finished good over time, most expensive batches, write-off cost impact per week, weekly cost trend chart",
           ],
           deliverable: "Send goods to branches. Management opens costing dashboard and sees total production cost this week, which batches were most expensive, and how much was lost to write-offs.",

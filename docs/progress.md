@@ -413,7 +413,18 @@ table; it's a UI/UX decision, not an architecture change.
       Logged, not approved. A **Lost in transit** card on the transfer (per lot sent / received / short / value),
       a **Short ₱X** badge, an **Arrived short** filter and a lost-in-transit total on the list; the recorder's
       received notification names the shortfall and accounting + admins get `TRANSFER_VARIANCE`.
-- [ ] Per-branch inventory view
+- [x] Each branch has own real-time inventory view — **done 2026-11-17** (`docs/2026-11-17-week8-branch-inventory.md`).
+      **Inventory → Branch Inventory**: a card per active branch, and one page per branch at
+      `/inventory/branches/[code]` — headline tiles (finished goods value, lots expired / expiring within 48 h, raw
+      materials out / low, transfers arriving), finished goods by good with lots soonest expiry first, transfers in
+      transit to it (value at lot cost; **Confirm what arrived** for its manager or an admin) and awaiting approval
+      from or to it, its raw-material stock map, and links to Finished Goods, End of Day, Stock Levels, Stock Ledger
+      and Transfers filtered to it. Every role sees every branch except a BRANCH_MANAGER — only the branch in
+      `Branch.managerId`; anything else is "not found" and lands them on their own. **Live**: the services publish
+      the branch ids on Redis `inventory:changed` after every stock-moving commit (receiving, production completion,
+      conversion, write-off, transfer recorded / decided / received); `GET /api/inventory/stream` (SSE, same access
+      rule) tells open pages, which re-render about 1 s later; plus a 2-minute refresh for expiry badges and on
+      returning to the tab. No schema change.
 - [ ] Costing dashboard
 
 ---

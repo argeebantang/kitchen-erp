@@ -1,4 +1,5 @@
 import { POStatus, Prisma, Role, RRStatus } from '@prisma/client'
+import { signalInventoryChanged } from '@/lib/realtime'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
 import { PurchaseOrderRepository, PurchaseOrderWithDetail } from '@/repositories/purchase-order.repository'
@@ -716,6 +717,8 @@ export const ReceivingReportService = {
       }
     }
 
+    // The accepted quantities joined the branch's stock (Week 8 Task 5).
+    if (decision === 'APPROVED') signalInventoryChanged([rr.branchId])
     return { success: true, data: decided.report }
   },
 }

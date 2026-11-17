@@ -171,6 +171,16 @@ Week 8 Tasks 2–4. A Transfer Order sends finished goods from an active commiss
 
 What a line may take: the sender's unexpired stock of that good less what pending conversions, pending write-offs of its unexpired lots and other pending transfers from the branch have claimed. The submitter is the caller. Pages: `/inventory/transfers` (status, branch and arrival — `short=1`, arrived short — filters, a Short ₱X badge and the lost-in-transit total for the filters; a BRANCH_MANAGER sees only the branch they manage), `/inventory/transfers/new` (ADMIN, PRODUCTION_MANAGER), `/inventory/transfers/[id]` (404 for a branch manager it does not concern) — read through `StockTransferService`.
 
+## Branch Inventory
+
+Week 8 Task 5. The pages (`/inventory/branches`, `/inventory/branches/[code]`) read through `BranchInventoryService`; this is their live-update stream.
+
+| Method | Path | Query | Success | Errors |
+|---|---|---|---|---|
+| GET | `/api/inventory/stream` | `branch?` (branch id) | 200 `text/event-stream`, held open: `retry: 5000`, an `event: inventory` (`data: {}`) whenever stock at that branch — or, with no `branch`, at any branch — moves, `: ping` every 25 s | 404 malformed or unknown id, an inactive branch, a BRANCH_MANAGER asking for another branch or for all; 401; 503 Redis unavailable |
+
+Every signed-in role, no path guard; the access rule is the page's: every branch for every role except a BRANCH_MANAGER, who may watch only the branch in `Branch.managerId`. The event carries nothing — the page re-renders (`router.refresh()`) on it. Published after the commit by receiving-report approval, production-completion approval, conversion approval, write-off recorded / decided and transfer recorded / decided / received.
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |

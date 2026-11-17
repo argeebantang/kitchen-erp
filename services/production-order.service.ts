@@ -9,6 +9,7 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   type ProductionOrderJob,
 } from '@/lib/queue'
+import { signalInventoryChanged } from '@/lib/realtime'
 import { trimDecimal } from '@/lib/format'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { scaleBomQuantities } from '@/services/bom.service'
@@ -1528,6 +1529,8 @@ export const ProductionOrderService = {
       return { success: false, error: 'This completion was decided or changed by someone else just now — reload and try again', status: 409 }
     }
 
+    // Ingredients left and the lot joined the branch's stock (Week 8 Task 5).
+    if (decision === 'APPROVED') signalInventoryChanged([order.branch.id])
     await enqueue(PRODUCTION_COMPLETION_DECIDED, id)
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },
