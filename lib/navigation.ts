@@ -16,7 +16,8 @@ import {
   Recycle,
   Trash2,
   Moon,
-  Store
+  Store,
+  Coins
 } from 'lucide-react'
 
 export type NavItem = {
@@ -68,6 +69,13 @@ export const navigation: NavGroup[] = [
       { label: 'Write-offs',   href: '/inventory/write-offs', icon: Trash2,    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'End of Day',   href: '/inventory/end-of-day', icon: Moon,      roles: [] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'] },
+    ],
+  },
+  {
+    group: 'Costing',
+    items: [
+      // Week 8 Task 6: cost per week, per good, per batch, and what was lost.
+      { label: 'Costing Dashboard', href: '/costing', icon: Coins, roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'VIEWER'] },
     ],
   },
   {

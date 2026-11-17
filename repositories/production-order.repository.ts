@@ -426,4 +426,37 @@ export const ProductionOrderRepository = {
       orderBy: { createdAt: 'asc' },
     })
   },
+
+  /**
+   * Signed-off runs whose lot was produced in [from, to) — the costing
+   * dashboard's batches (Week 8 Task 6, C4). producedOn is date-only (UTC
+   * midnight), so the bounds are date labels at UTC midnight too. Only
+   * COMPLETED runs have a lot and recorded costs.
+   */
+  async findCompletedProducedBetween(from: Date, to: Date) {
+    return prisma.productionOrder.findMany({
+      where:  { status: ProductionStatus.COMPLETED, lot: { producedOn: { gte: from, lt: to } } },
+      select: {
+        id:           true,
+        orderNumber:  true,
+        actualQty:    true,
+        actualCost:   true,
+        costPerUnit:  true,
+        costVariance: true,
+        branch:       { select: { name: true } },
+        finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
+        lot:          { select: { lotNumber: true, producedOn: true } },
+      },
+    })
+  },
+
+  /**
+   * Runs reported done in [start, end) that accounting has not signed off yet
+   * — not on the costing dashboard until they are (Week 8 Task 6, C4).
+   */
+  async countAwaitingCompletionBetween(start: Date, end: Date): Promise<number> {
+    return prisma.productionOrder.count({
+      where: { status: ProductionStatus.PENDING_COMPLETION, completedAt: { gte: start, lt: end } },
+    })
+  },
 }

@@ -348,4 +348,16 @@ export const StockTransferRepository = {
       },
     }
   },
+
+  /**
+   * Transfers received short in [start, end) — the costing dashboard's
+   * transfer shortfall, on the day it was received (Week 8 Task 6, C4, C11).
+   * A null varianceValue is a shortfall from a lot with no cost.
+   */
+  async findReceivedShortBetween(start: Date, end: Date) {
+    return prisma.stockTransfer.findMany({
+      where:  { status: TransferStatus.RECEIVED, varianceReason: { not: null }, receivedAt: { gte: start, lt: end } },
+      select: { varianceValue: true, receivedAt: true },
+    })
+  },
 }

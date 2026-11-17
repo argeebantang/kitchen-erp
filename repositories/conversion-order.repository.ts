@@ -248,4 +248,30 @@ export const ConversionOrderRepository = {
     })
     return _sum.sourceQty ?? new Prisma.Decimal(0)
   },
+
+  /**
+   * Approved conversions whose output lot was produced in [from, to) (date
+   * labels at UTC midnight) — the costing dashboard's conversion ingredients
+   * and conversion output cost (Week 8 Task 6, C4, C8).
+   */
+  async findApprovedProducedBetween(from: Date, to: Date) {
+    return prisma.conversionOrder.findMany({
+      where:  { status: ConversionStatus.APPROVED, lot: { producedOn: { gte: from, lt: to } } },
+      select: {
+        id:             true,
+        outputQty:      true,
+        sourceCost:     true,
+        conversionCost: true,
+        finishedGood:   { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
+        lot:            { select: { producedOn: true } },
+      },
+    })
+  },
+
+  /** Conversions recorded in [start, end) still awaiting approval (Week 8 Task 6, C4). */
+  async countPendingRecordedBetween(start: Date, end: Date): Promise<number> {
+    return prisma.conversionOrder.count({
+      where: { status: ConversionStatus.PENDING_APPROVAL, createdAt: { gte: start, lt: end } },
+    })
+  },
 }
