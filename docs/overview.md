@@ -8,7 +8,7 @@ Build status lives in [progress.md](progress.md); the 12-week plan is `kitchenER
 
 ## Main Features
 
-Built (Weeks 1–8):
+Built (Weeks 1–9):
 
 * Role-based authentication — Admin, Procurement Manager, Production Manager, Branch Manager, Accounting, Viewer — with route guards in `middleware.ts`
 * Item master: materials, finished goods, categories, units, and dated reference prices per material (optionally per supplier)
@@ -33,9 +33,10 @@ Built (Weeks 1–8):
 * Costing dashboard (Week 8): week by week — what production cost (batches and the ingredients conversions added) and what was lost (write-offs by reason, transfer shortfalls), this week against last; the cost per kg of each finished good over time; the most expensive batches with their variance against plan. For management: admin, accounting, production and viewer
 * Production Schedule: production orders on a month calendar by production date, with day totals, branch / closed-order filters and "+" to plan a run on a day
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
+* KitchenAI foundation (Week 9): the Claude API (Sonnet 5.5) behind one service that every AI feature uses — a monthly budget, refusal fallback, friendly errors and a log of every call with its estimated cost. Admin → AI Settings shows whether the key is set, each feature's model, this month's spend against the budget and the latest calls, with a Test connection button
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): raw-material write-offs and stock adjustments; AI features.
+Planned (see the roadmap): raw-material write-offs and stock adjustments; the seven AI features (Weeks 9–10) on top of the Week 9 foundation.
 
 ## Tech Stack
 
@@ -45,6 +46,7 @@ Planned (see the roadmap): raw-material write-offs and stock adjustments; AI fea
 * Queue: BullMQ on Redis 7, consumed by a separate worker process (`npm run worker`)
 * PDF: `@react-pdf/renderer`, rendered in the request
 * Validation: `zod`; auth: `jose` (JWT) + `bcryptjs`
+* AI: Claude API via `@anthropic-ai/sdk` (model Claude Sonnet 5.5), optional `ANTHROPIC_API_KEY`
 * Storage: not yet configured
 * Infrastructure: Docker Compose (Postgres + Redis) for local development; GitHub Actions CI
 
@@ -52,16 +54,16 @@ Planned (see the roadmap): raw-material write-offs and stock adjustments; AI fea
 
 * `app/` — Next.js App Router pages and route handlers
   * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
-  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/finished-goods`, `inventory/ledger`, `inventory/write-offs`, `inventory/transfers`, `inventory/end-of-day`, `production/bom`, `production/orders`, `production/schedule`, `production/conversions`, `admin/master`
-  * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `conversion-orders` (incl. `preview`), `write-offs`, `branches` (incl. `deactivate`, `reactivate`), `transfers` (incl. `preview`, `[id]/receive`), `inventory/stream`, `notifications` (incl. `stream`, `read`)
-* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `master/`, `inventory/` (`StockMap`, `StockTile`, `WriteOffForm`, `WriteOffReasonBadge`, `BranchHeadline`, `BranchTransfers`, transfer components), `bom/`, `production/` (`ProductionOrderForm`, `MaterialRequirementsTable`, `ShortageBanner`, `StatusTimeline`, `ScheduleCalendar`, `CompleteProductionOrder`, `CompletionReview`, `CompletionStock`, `CostingCard`, `ConversionOrderForm`, `ConversionEffect`, `ConversionStock`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`, `LiveRefresh.tsx`)
-* `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `realtime.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
+  * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/finished-goods`, `inventory/ledger`, `inventory/write-offs`, `inventory/transfers`, `inventory/end-of-day`, `production/bom`, `production/orders`, `production/schedule`, `production/conversions`, `costing`, `admin/master`, `admin/ai`
+  * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `conversion-orders` (incl. `preview`), `write-offs`, `branches` (incl. `deactivate`, `reactivate`), `transfers` (incl. `preview`, `[id]/receive`), `inventory/stream`, `notifications` (incl. `stream`, `read`), `ai/test`
+* `components/` — `dashboard/` (Sidebar, Topbar, NotificationBell), `ai/` (`RecentAiCalls`, `TestConnection`), `master/`, `inventory/` (`StockMap`, `StockTile`, `WriteOffForm`, `WriteOffReasonBadge`, `BranchHeadline`, `BranchTransfers`, transfer components), `bom/`, `production/` (`ProductionOrderForm`, `MaterialRequirementsTable`, `ShortageBanner`, `StatusTimeline`, `ScheduleCalendar`, `CompleteProductionOrder`, `CompletionReview`, `CompletionStock`, `CostingCard`, `ConversionOrderForm`, `ConversionEffect`, `ConversionStock`), `procurement/` (forms, action buttons, `StatusBadge`, `DecisionHistory`, `ApprovalActions`), `pdf/`, `ui/` (`form.tsx`, `Modal.tsx`, `AutoRefresh.tsx`, `LiveRefresh.tsx`)
+* `lib/` — cross-cutting helpers: `prisma.ts`, `config.ts`, `jwt.ts` (Edge-safe), `auth.ts` (Node-only), `session.ts`, `navigation.ts`, `queue.ts` (Node-only), `realtime.ts` (Node-only), `claude.ts` (Node-only), `decimal.ts`, `format.ts`, `dates.ts`
 * `repositories/` — data-access layer, one per domain entity; the only code that imports Prisma
 * `services/` — business rules above the repositories
 * `worker/` — the BullMQ consumer, a standalone process; never imported from `app/`
 * `scripts/` — command-line helpers (`run-job.ts`: `npm run job -- <name>`)
 * `hooks/` — client-side React hooks (`useUser.ts`, `useNotifications.ts`)
-* `prisma/` — `schema.prisma` (29 models), `migrations/`, `seed.ts`
+* `prisma/` — `schema.prisma` (30 models), `migrations/`, `seed.ts`
 * `middleware.ts` — authentication and role guards for every request
 * `docker-compose.yml` — local Postgres + Redis services
 

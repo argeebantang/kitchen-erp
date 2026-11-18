@@ -27,6 +27,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 | `writeoffs` | **Done (2026-11-12).** `WriteOff` — one finished-goods lot at one branch, quantity, reason (`WriteOffReason`), status, `unitCost` / `totalCost` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-write-offs.md`. | Week 7 |
 | `ai_insights` | **Missing.** Required by Features 1, 3, 4, 6. | Week 9 |
 | `ai_query_log` | **Missing.** Required by Feature 2 and its write-action audit trail. | Week 9 |
+| `AiCall` (not on the plan) | **Done (2026-11-18).** One row per Claude API call — feature, outcome, tokens, estimated USD cost — for the monthly AI budget and AI Settings; see `docs/2026-11-18-week9-claude-api-integration.md`. 30 models. | Week 9 |
 
 Two consequences worth planning around:
 
@@ -446,7 +447,16 @@ expensive batches and what was lost to write-offs and transfers.
 ## Phase 3 — KitchenAI + Reports + Deploy (Weeks 9–12)
 
 ### Week 9 — KitchenAI Core Intelligence
-- [ ] Claude API integration (Anthropic SDK)
+- [x] Claude API integration (Anthropic SDK) — **done 2026-11-18** (`docs/2026-11-18-week9-claude-api-integration.md`).
+      `@anthropic-ai/sdk`; **Claude Sonnet 5.5** for every feature (the owner's choice), effort set per feature.
+      `AiService.complete()` is the one door to Claude: the monthly budget (`AI_MONTHLY_BUDGET_USD`, default $20,
+      under the Console workspace's hard spend limit), the call with the server-side refusal fallback, `stop_reason`
+      before content, SDK errors as messages, and an **`AiCall`** row for every call — tokens, estimated USD cost,
+      outcome, time (migration `20261118090000_ai_calls`, 30 models). A shared base system prompt (Lydia's Lechon
+      context, ₱, Manila time, no invented figures, reply in the user's language). **Admin → AI Settings**: key set
+      or not (never shown), models, spend vs budget, per feature, the latest 20 calls, and **Test connection**
+      (`POST /api/ai/test`). `ANTHROPIC_API_KEY` is optional — without it AI features say "not set up". **Not yet
+      run against a real key** (the owner postponed buying credits); every no-key path is verified.
 - [ ] Cost Variance Explainer
 - [ ] Natural Language Query + 6 read functions
 - [ ] AI write actions — `create_purchase_request`, `create_production_order`, confirm-before-execute

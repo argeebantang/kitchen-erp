@@ -134,6 +134,27 @@ enum MovementType {
   WASTE
 }
 
+/// Which AI feature made a Claude API call (Week 9 Task 1, D4). Each feature
+/// adds its value in its own migration; its settings are AI_FEATURES in
+/// lib/claude.ts, keyed by the same name.
+enum AiFeature {
+  CONNECTION_TEST
+}
+
+/// How a Claude API call ended (D4).
+enum AiCallOutcome {
+  /// Claude answered (or, in a tool loop, asked for a tool).
+  COMPLETED
+  /// Declined by a safety filter, the fallback model included (D8).
+  REFUSED
+  /// Cut off at the feature's maxTokens — the answer is incomplete.
+  MAX_TOKENS
+  /// The API failed (key rejected, rate limited, unreachable…); errorType says which.
+  ERROR
+  /// Never sent: this month's AI budget was used up (D5).
+  OVER_BUDGET
+}
+
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -161,6 +182,7 @@ model User {
   productionStatusChanges ProductionStatusChange[]
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
+  aiCalls                 AiCall[]
 }
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
@@ -938,4 +960,45 @@ model Notification {
   createdAt     DateTime  @default(now())
 
   @@index([userId, readAt])
+}
+
+// ─── AI ──────────────────────────────────────────────────────────────────────
+
+/// One request to the Claude API, whatever the feature (Week 9 Task 1, D4):
+/// what it cost and how it ended. The monthly budget (D5) is the sum of
+/// costUsd this Manila month, and AI Settings reads spend from here. One
+/// question to the assistant can be several rows (a tool loop), so this is
+/// not the per-question ai_query_log. Append-only, like StockMovement.
+model AiCall {
+  id               String        @id @default(cuid())
+  feature          AiFeature
+  outcome          AiCallOutcome
+  /// The model asked for (AI_FEATURES).
+  model            String
+  /// The model that answered: another one when a refusal fell back (D8);
+  /// null when nothing answered (ERROR, OVER_BUDGET).
+  servedModel      String?
+  /// Who asked; null for a background job.
+  userId           String?
+  user             User?         @relation(fields: [userId], references: [id])
+  /// Tokens summed over every attempt, the fallback's included. Output
+  /// includes thinking. Zero when nothing was sent.
+  inputTokens      Int           @default(0)
+  outputTokens     Int           @default(0)
+  cacheReadTokens  Int           @default(0)
+  cacheWriteTokens Int           @default(0)
+  /// Estimated, in USD, from MODEL_PRICES at the time of the call (D6) —
+  /// each attempt at the model that ran it. Unrounded.
+  costUsd          Decimal       @default(0)
+  durationMs       Int           @default(0)
+  /// Anthropic's request id, for a support ticket. Null if none came back.
+  requestId        String?
+  /// Why it did not complete: the kind of error and the API's own message
+  /// ('APIError 400: Your credit balance is too low…'), or the refusal
+  /// category ('refusal: cyber'). At most 300 characters.
+  errorType        String?
+  createdAt        DateTime      @default(now())
+
+  // Month-to-date spend (the budget) and the latest calls both read by time.
+  @@index([createdAt])
 }
