@@ -68,6 +68,17 @@ export function formatPeso(value: string): string {
   return `₱${centavos === 0 ? '' : sign}${digits.slice(0, -2)}.${digits.slice(-2)}`
 }
 
+/**
+ * US dollars, for AI spend (Week 9 Task 1, D6): Anthropic bills in USD, so it
+ * is not converted to pesos. One call costs fractions of a cent, so a call's
+ * cost is shown to 4 places and totals to 2: "$0.0042", "$20.00".
+ */
+export function formatUsd(value: string, places = 2): string {
+  const rounded = formatQuantity(value, places)
+  const [whole, fraction = ''] = rounded.replace(/^-/, '').split('.')
+  return `${rounded.startsWith('-') ? '-' : ''}$${whole}.${fraction.padEnd(places, '0')}`
+}
+
 /** A shelf life for people: "72 h · 3 days", "36 h · 1.5 days", "12 h". */
 export function formatShelfLife(hours: number): string {
   if (hours < 24) return `${hours} h`

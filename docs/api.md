@@ -28,6 +28,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/conversion-orders` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/write-offs` | all | ADMIN, PRODUCTION_MANAGER (accounting decides through `/api/approvals`) |
 | `/api/transfers` (incl. `/preview`, `/[id]/receive`) | all | ADMIN, PRODUCTION_MANAGER, BRANCH_MANAGER — creating and previewing re-check ADMIN / PRODUCTION_MANAGER in the route (403), receiving checks the branch in the service |
+| `/api/ai/test` | all | ADMIN — spends real money; each AI feature's endpoint gets its own guard |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | `/api/branches` (incl. `/deactivate`, `/reactivate`) | POST, PUT, PATCH, DELETE | ADMIN |
@@ -186,6 +187,16 @@ Every signed-in role, no path guard; the access rule is the page's: every branch
 Week 8 Task 6. No endpoint: `/costing` is a Server Component that reads `CostingService.dashboard(range, viewer)`
 directly, and nothing on it writes. Guarded in `middleware.ts` to ADMIN, ACCOUNTING, PRODUCTION_MANAGER and VIEWER
 (others → `/unauthorized`). Query `weeks` = 4, 12 (default), 26 or 52; anything else falls back to 12.
+
+## AI
+
+Week 9 Task 1. Every AI call goes through `AiService.complete()` (see `docs/2026-11-18-week9-claude-api-integration.md`), which records an `AiCall` row for each one. `/admin/ai` (AI Settings) is a Server Component reading `AiService.overview()`; this is its one endpoint.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/ai/test` | `{ message }` — 1–500 characters after trimming | 200 `{ completion: { text, servedModel, inputTokens, outputTokens, costUsd, durationMs } }` — one real call as `CONNECTION_TEST`, `costUsd` an estimate in USD | 400 validation, or Claude declined (refusal) · 429 this month's AI budget is used up, or Anthropic rate-limited · 502 the API key was rejected, the answer was cut off at max tokens, or another API error (the API's own message is on AI Settings) · 503 not set up (no `ANTHROPIC_API_KEY`), unreachable, overloaded or timed out |
+
+ADMIN only (middleware). The caller is the `x-user-id`. Every attempt that reaches the budget check is recorded, including `OVER_BUDGET`; "not set up" is not, since nothing was attempted. AI error statuses follow one table for every AI endpoint: 429 and 503 are worth retrying later, 502 needs an admin.
 
 ## Notifications
 

@@ -17,7 +17,8 @@ import {
   Trash2,
   Moon,
   Store,
-  Coins
+  Coins,
+  Sparkles
 } from 'lucide-react'
 
 export type NavItem = {
@@ -83,6 +84,8 @@ export const navigation: NavGroup[] = [
     items: [
       { label: 'Users',       href: '/admin/users',  icon: Users,    roles: ['ADMIN'] },
       { label: 'Master Data', href: '/admin/master', icon: Settings, roles: ['ADMIN'] },
+      // Week 9 Task 1: the Claude connection, models and AI spend.
+      { label: 'AI Settings', href: '/admin/ai',     icon: Sparkles, roles: ['ADMIN'] },
     ],
   },
 ]

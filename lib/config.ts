@@ -9,11 +9,27 @@ function requireEnv(key: string): string {
   return value
 }
 
+/** A dollar amount from the environment, kept as a string for Decimal; a malformed one fails fast like a missing required one. */
+function usdEnv(key: string, fallback: string): string {
+  const value = process.env[key] || fallback
+  if (!/^\d+(\.\d{1,2})?$/.test(value)) {
+    throw new Error(`[Config] ${key} must be a dollar amount such as 20 or 12.50, got "${value}"`)
+  }
+  return value
+}
+
 export const config = {
   databaseUrl:  requireEnv('DATABASE_URL'),
   redisUrl:     requireEnv('REDIS_URL'),
   jwtSecret:    requireEnv('JWT_SECRET'),
   appUrl:       requireEnv('NEXT_PUBLIC_APP_URL'),
+  // Optional (Week 9 Task 1, D2): without a key the AI features say "not set
+  // up" and the rest of the app runs. Required would break the CI build and
+  // every machine that has no key.
+  anthropicApiKey:    process.env.ANTHROPIC_API_KEY || null,
+  // The app's own monthly AI budget (D5) — a soft cap below the hard spend
+  // limit set on the Anthropic Console workspace.
+  aiMonthlyBudgetUsd: usdEnv('AI_MONTHLY_BUDGET_USD', '20'),
   nodeEnv:      process.env.NODE_ENV ?? 'development',
   isProd:       process.env.NODE_ENV === 'production',
   isDev:        process.env.NODE_ENV !== 'production',
