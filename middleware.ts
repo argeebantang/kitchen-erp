@@ -90,6 +90,10 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Week 9 Task 2 (E6): Explain this batch / Try again — the roles that read
   // production orders (the /production guard above).
   { path: '/api/ai/cost-variance',  roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  // Week 9 Task 3 (F4): the dashboard assistant — ASSISTANT_ROLES in
+  // services/assistant.service.ts. Its database login cannot narrow rows to
+  // one branch, so roles that see only part of the data wait for that.
+  { path: '/api/ai/assistant',      roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER'] },
 ]
 
 export async function middleware(req: NextRequest) {

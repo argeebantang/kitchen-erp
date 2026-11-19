@@ -89,9 +89,8 @@ function priceOf(model: string, requestedModel: string): ModelPrice {
  * and the fallback that answered — each priced at the model that ran it. The
  * top-level usage covers only the attempt that answered. Counting a declined
  * attempt that Anthropic may not bill errs on the side of the budget.
- * Exported for the streaming assistant (Feature 2), which meters the same way.
  */
-export function estimateUsage(message: Anthropic.Beta.BetaMessage, requestedModel: string): AiUsageEstimate {
+function estimateUsage(message: Anthropic.Beta.BetaMessage, requestedModel: string): AiUsageEstimate {
   const attempts = (message.usage.iterations ?? []).map(entry => ({
     model: 'model' in entry && entry.model ? entry.model : message.model,
     input: entry.input_tokens,
@@ -277,13 +276,26 @@ async function overview(now = new Date()): Promise<AiOverviewDto> {
   }
 }
 
+type RoundInput = {
+  feature: AiFeature
+  userId: string | null
+  system: Anthropic.Beta.BetaTextBlockParam[]
+  messages: Anthropic.Beta.BetaMessageParam[]
+  /** Offered to Claude with tool_choice auto — forcing a tool is a 400 on Sonnet 5.5. */
+  tools?: Anthropic.Beta.BetaTool[]
+  /** Automatic caching of the growing conversation, for a tool loop's later rounds. */
+  cacheTail?: boolean
+}
+
+type RoundSuccess = { message: Anthropic.Beta.BetaMessage; usage: AiUsageEstimate; durationMs: number; callId: string }
+
 /**
  * One Claude call for a feature (D1): budget check → call with the refusal
  * fallback → stop_reason → estimated cost → an AiCall row for every outcome
- * except "not set up" (nothing was attempted). Non-streaming: for answers of
- * a few thousand tokens at most; the assistant (Feature 2) streams.
+ * except "not set up" (nothing was attempted). A refusal or a cut-off answer
+ * is a failure. Every round of a tool loop is one of these.
  */
-async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>> {
+async function round(input: RoundInput): Promise<AiResult<RoundSuccess>> {
   const client = getClaude()
   if (!client) {
     return { success: false, status: 503, error: 'AI is not set up yet: an admin needs to add the API key on the server.', retryable: false, callId: null }
@@ -310,11 +322,10 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
       max_tokens:    settings.maxTokens,
       thinking:      { type: 'adaptive' },
       output_config: { effort: settings.effort },
-      system: [
-        { type: 'text', text: BASE_SYSTEM_PROMPT },
-        { type: 'text', text: input.instructions },
-      ],
-      messages:  input.messages,
+      system:        input.system,
+      messages:      input.messages,
+      ...(input.tools && input.tools.length > 0 ? { tools: input.tools } : {}),
+      ...(input.cacheTail ? { cache_control: { type: 'ephemeral' } } : {}),
       betas:     [FALLBACK_BETA],
       fallbacks: 'default',
     }).withResponse()
@@ -356,11 +367,28 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
   if (outcome === AiCallOutcome.MAX_TOKENS) {
     return { success: false, status: 502, error: 'The AI answer was cut off before it finished. Try a narrower request.', retryable: false, callId }
   }
+  return { success: true, data: { message, usage, durationMs, callId } }
+}
 
+function textOf(message: Anthropic.Beta.BetaMessage): string {
+  return message.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join('')
+}
+
+/** One Claude call with no tools, for an answer of a few thousand tokens at most. */
+async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>> {
+  const result = await round({
+    feature:  input.feature,
+    userId:   input.userId,
+    system:   [{ type: 'text', text: BASE_SYSTEM_PROMPT }, { type: 'text', text: input.instructions }],
+    messages: input.messages,
+  })
+  if (!result.success) return result
+
+  const { message, usage, durationMs, callId } = result.data
   return {
     success: true,
     data: {
-      text: message.content.flatMap(block => (block.type === 'text' ? [block.text] : [])).join(''),
+      text:         textOf(message),
       servedModel:  message.model,
       inputTokens:  usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -368,6 +396,100 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
       durationMs,
       callId,
     },
+  }
+}
+
+/** A tool Claude asked to run: the name it chose and its input, unchecked (model output). */
+export type AiToolCall = { name: string; input: unknown }
+/** What goes back to Claude. An error is shown to it as one, so it can correct its input or say what it could not find. */
+export type AiToolResult = { content: string; isError: boolean }
+
+export type AiConverseInput = AiCompleteInput & {
+  /** Changes with every request (today's date…): sent after the cached instructions, so it does not break the cache. */
+  context: string
+  tools: Anthropic.Beta.BetaTool[]
+  runTool(call: AiToolCall): Promise<AiToolResult>
+  /** Claude calls before giving up; each one is recorded and counted toward the budget. */
+  maxRounds: number
+}
+
+export type AiConversation = {
+  text: string
+  rounds: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  /** All rounds together. */
+  costUsd: string
+  durationMs: number
+}
+
+/**
+ * A question that may need lookups (Week 9 Task 3, F1): our own loop rather
+ * than the SDK's beta Tool Runner, so every round goes through round() —
+ * budget check, AiCall row, error mapping. Claude answers, or asks for one or
+ * more tools; those run and their results go back in one user message, and
+ * Claude is called again, up to maxRounds. A failed round fails the question;
+ * the rounds before it stay recorded, since they were spent.
+ */
+async function converse(input: AiConverseInput): Promise<AiResult<AiConversation>> {
+  // Tools, base prompt and instructions are the same for every question:
+  // a breakpoint after them lets every user's first round read them from cache.
+  const system: Anthropic.Beta.BetaTextBlockParam[] = [
+    { type: 'text', text: BASE_SYSTEM_PROMPT },
+    { type: 'text', text: input.instructions, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: input.context },
+  ]
+  const messages = [...input.messages]
+  const total = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: new Prisma.Decimal(0), durationMs: 0 }
+
+  for (let rounds = 1; rounds <= input.maxRounds; rounds++) {
+    const result = await round({
+      feature: input.feature,
+      userId:  input.userId,
+      system,
+      messages,
+      tools:   input.tools,
+      cacheTail: true,
+    })
+    if (!result.success) return result
+
+    const { message, usage, durationMs } = result.data
+    total.inputTokens     += usage.inputTokens
+    total.outputTokens    += usage.outputTokens
+    total.cacheReadTokens += usage.cacheReadTokens
+    total.costUsd          = total.costUsd.add(usage.costUsd)
+    total.durationMs      += durationMs
+
+    // The whole turn goes back, thinking blocks included: the API needs them to continue it.
+    messages.push({ role: 'assistant', content: message.content })
+
+    if (message.stop_reason === 'pause_turn') continue
+    if (message.stop_reason !== 'tool_use') {
+      return {
+        success: true,
+        data: { text: textOf(message), rounds, ...total, costUsd: toDecimalString(total.costUsd) },
+      }
+    }
+
+    // Several tool calls in one turn are answered together, in one user message.
+    const calls = message.content.filter(block => block.type === 'tool_use')
+    const results = await Promise.all(calls.map(async (block): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
+      const outcome = await input.runTool({ name: block.name, input: block.input }).catch((error: unknown) => {
+        console.error(`[AI] tool ${block.name} failed`, error)
+        return { content: 'The lookup failed on the server. Tell the user it could not be looked up right now.', isError: true }
+      })
+      return { type: 'tool_result', tool_use_id: block.id, content: outcome.content, is_error: outcome.isError }
+    }))
+    messages.push({ role: 'user', content: results })
+  }
+
+  return {
+    success: false,
+    status: 422,
+    error: 'This question needed too many lookups. Try asking something narrower.',
+    retryable: false,
+    callId: null,
   }
 }
 
@@ -414,5 +536,6 @@ async function testConnection(message: string, userId: string): Promise<AiResult
 export const AiService = {
   overview,
   complete,
+  converse,
   testConnection,
 }

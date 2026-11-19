@@ -264,7 +264,152 @@ function dateLabel(value: Date): string {
   return value.toISOString().slice(0, 10)
 }
 
+/** How many of the costliest batches a period's figures list. */
+export const COSTLIEST_BATCH_LIMIT = 5
+
+/** One finished good made in a period: runs plus conversions, as the dashboard's cost per unit (C8). */
+export type ProductCostDto = {
+  product: string
+  unit: string
+  batchCount: number
+  conversionCount: number
+  quantityMade: string
+  /** What was made cost — a conversion's source included, so these do not add up to productionCost. */
+  cost: string
+  costPerUnit: string
+}
+
+export type PeriodBatchDto = {
+  orderNumber: string
+  product: string
+  unit: string
+  producedOn: string
+  quantity: string
+  cost: string
+  costPerUnit: string
+  /** costVariance: what this batch cost beyond what its plan expected for what it made. */
+  overPlan: string
+}
+
+/**
+ * Production cost over any range of business days, for the assistant's
+ * get_production_costs (Week 9 Task 3, F2). The same rows and rules as the
+ * dashboard: signed-off runs and conversions by their lot's production
+ * date. Amounts to the centavo, cost per unit to the centavo.
+ */
+export type ProductionCostsDto = {
+  /** Inclusive, YYYY-MM-DD. */
+  from: string
+  to: string
+  batchCount: number
+  /** Σ actualCost of signed-off runs. */
+  batchCost: string
+  /** Σ costVariance: positive = the batches cost more than planned for what they made. */
+  overPlan: string
+  conversionCount: number
+  /** Σ conversionCost: ingredients added in conversions. */
+  conversionCost: string
+  /** batchCost + conversionCost — the dashboard's "production cost". */
+  productionCost: string
+  byProduct: ProductCostDto[]
+  costliestBatches: PeriodBatchDto[]
+  /** Runs reported done in the period that accounting has not signed off — not in the figures yet. */
+  awaitingSignOff: number
+}
+
+function peso(value: Prisma.Decimal): string {
+  return toDecimalString(value.toDecimalPlaces(2))
+}
+
 export const CostingService = {
+  /** `from` and `to` are inclusive business dates (YYYY-MM-DD); the caller checks from ≤ to. */
+  async productionCosts(from: string, to: string): Promise<ProductionCostsDto> {
+    const endExclusive = addDays(to, 1)
+    const [runs, conversions, awaitingSignOff] = await Promise.all([
+      ProductionOrderRepository.findCompletedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`)),
+      ConversionOrderRepository.findApprovedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`)),
+      ProductionOrderRepository.countAwaitingCompletionBetween(businessDayRange(from).start, businessDayRange(endExclusive).start),
+    ])
+
+    type Made = { product: string; unit: string; batchCount: number; conversionCount: number; quantity: Prisma.Decimal; cost: Prisma.Decimal }
+    const made = new Map<string, Made>()
+    const madeOf = (good: { id: string; name: string; unit: { abbreviation: string } }) => {
+      let entry = made.get(good.id)
+      if (!entry) {
+        entry = { product: good.name, unit: good.unit.abbreviation, batchCount: 0, conversionCount: 0, quantity: ZERO, cost: ZERO }
+        made.set(good.id, entry)
+      }
+      return entry
+    }
+
+    let batchCost = ZERO
+    let overPlan = ZERO
+    const batches: { cost: Prisma.Decimal; dto: PeriodBatchDto }[] = []
+    for (const run of runs) {
+      const { lot, actualCost, actualQty, costPerUnit, costVariance } = run
+      batchCost = batchCost.plus(actualCost ?? ZERO)
+      overPlan = overPlan.plus(costVariance ?? ZERO)
+      if (!lot || actualCost === null || actualQty === null || costPerUnit === null || costVariance === null) continue
+      const entry = madeOf(run.finishedGood)
+      entry.batchCount += 1
+      entry.quantity = entry.quantity.plus(actualQty)
+      entry.cost = entry.cost.plus(actualCost)
+      batches.push({
+        cost: actualCost,
+        dto: {
+          orderNumber: run.orderNumber,
+          product:     run.finishedGood.name,
+          unit:        run.finishedGood.unit.abbreviation,
+          producedOn:  dateLabel(lot.producedOn),
+          quantity:    toDecimalString(actualQty),
+          cost:        peso(actualCost),
+          costPerUnit: peso(costPerUnit),
+          overPlan:    peso(costVariance),
+        },
+      })
+    }
+
+    let conversionCost = ZERO
+    for (const conversion of conversions) {
+      conversionCost = conversionCost.plus(conversion.conversionCost ?? ZERO)
+      if (conversion.sourceCost === null || conversion.conversionCost === null) continue
+      const entry = madeOf(conversion.finishedGood)
+      entry.conversionCount += 1
+      entry.quantity = entry.quantity.plus(conversion.outputQty)
+      entry.cost = entry.cost.plus(conversion.sourceCost).plus(conversion.conversionCost)
+    }
+
+    return {
+      from,
+      to,
+      batchCount:      runs.length,
+      batchCost:       peso(batchCost),
+      overPlan:        peso(overPlan),
+      conversionCount: conversions.length,
+      conversionCost:  peso(conversionCost),
+      productionCost:  peso(batchCost.plus(conversionCost)),
+      byProduct: [...made.values()]
+        .filter(entry => entry.quantity.greaterThan(0))
+        .sort((a, b) => b.cost.comparedTo(a.cost))
+        .map(entry => ({
+          product:         entry.product,
+          unit:            entry.unit,
+          batchCount:      entry.batchCount,
+          conversionCount: entry.conversionCount,
+          quantityMade:    toDecimalString(entry.quantity),
+          cost:            peso(entry.cost),
+          costPerUnit:     peso(entry.cost.div(entry.quantity)),
+        })),
+      // Most expensive first; between equals, the more recent — as the dashboard.
+      costliestBatches: batches
+        .sort((a, b) => b.cost.comparedTo(a.cost) || b.dto.producedOn.localeCompare(a.dto.producedOn))
+        .slice(0, COSTLIEST_BATCH_LIMIT)
+        .map(batch => batch.dto),
+      awaitingSignOff,
+    }
+  },
+
+
   async dashboard(range: CostingRange, viewer: CostingViewer): Promise<CostingDashboardDto> {
     const currentStart = weekStartOf(todayIsoDate())
     const firstStart   = addDays(currentStart, -7 * (range - 1))

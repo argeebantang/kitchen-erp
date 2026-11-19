@@ -141,6 +141,8 @@ enum AiFeature {
   CONNECTION_TEST
   /// Feature 1 (Week 9 Task 2): why a batch cost more or less than the last.
   COST_VARIANCE
+  /// Feature 2 (Week 9 Task 3): the dashboard assistant — one row per round of a question.
+  ASSISTANT
 }
 
 /// How a Claude API call ended (D4).

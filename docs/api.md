@@ -208,6 +208,16 @@ Week 9 Task 2 (see `docs/2026-11-19-week9-cost-variance-explainer.md`). The expl
 
 ADMIN, PRODUCTION_MANAGER, ACCOUNTING (middleware) — the roles that can open production orders. The caller (`x-user-id`) is recorded on the `AiCall`. AI failures (not set up, over budget, refused, …) are not returned here: the job stores them on the insight and the card shows them with Try again.
 
+### Dashboard assistant
+
+Week 9 Task 3 (see `docs/2026-11-19-week9-nl-query.md`). One question per request; the page keeps the conversation and sends it back.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/ai/assistant` | `{ messages: [{ role: 'user' \| 'assistant', content }] }` — 1–7 messages, each 1–4,000 characters after trimming; the last is the question (`user`, at most 1,000) | 200 `{ answer, lookups: [{ tool, label, query: { sql, rowCount, truncated } \| null }], costUsd }` — `query` is set for `run_query` lookups ("How I got this"); `costUsd` covers every round | 400 validation, or Claude declined · 422 more than 5 rounds of lookups · 429 budget used up or rate limited · 502 key rejected, cut off or another API error · 503 not set up, unreachable or overloaded |
+
+ADMIN, ACCOUNTING, PRODUCTION_MANAGER (middleware; others → `/unauthorized`). Each round is one `ASSISTANT` `AiCall` against the caller (`x-user-id`). The tools offered depend on the role and on `AI_DATABASE_URL` (`run_query` only when it is set).
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |
