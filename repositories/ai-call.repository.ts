@@ -27,9 +27,10 @@ const aiCallSummarySelect = {
 export type AiCallSummary = Prisma.AiCallGetPayload<{ select: typeof aiCallSummarySelect }>
 
 export const AiCallRepository = {
-  /** Every call is recorded, whatever its outcome (Week 9 Task 1, D4). Append-only. */
-  async record(input: CreateAiCallInput): Promise<void> {
-    await prisma.aiCall.create({ data: input })
+  /** Every call is recorded, whatever its outcome (Week 9 Task 1, D4). Append-only. Returns its id, for an insight to point at. */
+  async record(input: CreateAiCallInput): Promise<string> {
+    const { id } = await prisma.aiCall.create({ data: input, select: { id: true } })
+    return id
   },
 
   /** Estimated spend since a moment — the month so far, for the budget (D5). Served by AiCall(createdAt). */

@@ -61,6 +61,22 @@ const orderInclude = {
 export type ProductionOrderWithDetail = Prisma.ProductionOrderGetPayload<{ include: typeof orderInclude }>
 
 /**
+ * What the cost variance comparison reads of a completed run (Week 9 Task 2,
+ * E2): its recorded costs, the lot's production date and the recipe version.
+ */
+const costComparisonSelect = {
+  id: true, orderNumber: true, status: true, finishedGoodId: true,
+  batchWeight: true, batchCount: true, plannedQty: true, actualQty: true,
+  plannedCost: true, actualCost: true, costPerUnit: true, completedAt: true,
+  finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } },
+  bom:          { select: { version: true } },
+  branch:       { select: { name: true } },
+  lot:          { select: { producedOn: true } },
+} satisfies Prisma.ProductionOrderSelect
+
+export type ProductionOrderForCostComparison = Prisma.ProductionOrderGetPayload<{ select: typeof costComparisonSelect }>
+
+/**
  * Every status change goes through here, on the caller's transaction: the
  * expected status sits in the UPDATE's WHERE (0 rows = someone else moved it
  * first → false, nothing written), and the ProductionStatusChange row is
@@ -152,6 +168,36 @@ export const ProductionOrderRepository = {
 
   async findById(id: string): Promise<ProductionOrderWithDetail | null> {
     return prisma.productionOrder.findUnique({ where: { id }, include: orderInclude })
+  },
+
+  async findForCostComparison(id: string): Promise<ProductionOrderForCostComparison | null> {
+    return prisma.productionOrder.findUnique({ where: { id }, select: costComparisonSelect })
+  },
+
+  /**
+   * The run of the same finished good completed just before this one, at any
+   * branch (Week 9 Task 2, E1): by the lot's production date, then by when it
+   * was reported done. Only runs with a recorded cost count — one approved
+   * before costing existed (Week 6) has nothing to compare.
+   */
+  async findPreviousCompleted(
+    finishedGoodId: string,
+    before: { id: string; producedOn: Date; completedAt: Date },
+  ): Promise<ProductionOrderForCostComparison | null> {
+    return prisma.productionOrder.findFirst({
+      where: {
+        finishedGoodId,
+        status:      ProductionStatus.COMPLETED,
+        costPerUnit: { not: null },
+        id:          { not: before.id },
+        OR: [
+          { lot: { producedOn: { lt: before.producedOn } } },
+          { lot: { producedOn: before.producedOn }, completedAt: { lt: before.completedAt } },
+        ],
+      },
+      select:  costComparisonSelect,
+      orderBy: [{ lot: { producedOn: 'desc' } }, { completedAt: 'desc' }],
+    })
   },
 
   /**

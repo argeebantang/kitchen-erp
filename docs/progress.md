@@ -25,7 +25,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 | Production costing fields | **Done (2026-11-09).** `ProductionOrder.plannedCost`, `actualCost`, `costPerUnit`, `costVariance` as columns (one approval per order, so no separate `production_actuals` table); see `docs/2026-11-09-week6-production-costing.md`. | Week 6 |
 | Conversion costing + approval | **Done (2026-11-12).** `ConversionOrder` replaces the unused `Conversion` stub: status, submitter, `sourceCost` / `conversionCost` / `costPerUnit` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-conversion-orders.md`. | Week 7 |
 | `writeoffs` | **Done (2026-11-12).** `WriteOff` — one finished-goods lot at one branch, quantity, reason (`WriteOffReason`), status, `unitCost` / `totalCost` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-write-offs.md`. | Week 7 |
-| `ai_insights` | **Missing.** Required by Features 1, 3, 4, 6. | Week 9 |
+| `ai_insights` | **Done (2026-11-19)** as `AiInsight` — stored AI output about one record (type + reference, unique), status PENDING / READY / FAILED, the text with the facts and prompt it came from, the `AiCall` behind it; first used by Feature 1; see `docs/2026-11-19-week9-cost-variance-explainer.md`. 31 models. | Week 9 |
 | `ai_query_log` | **Missing.** Required by Feature 2 and its write-action audit trail. | Week 9 |
 | `AiCall` (not on the plan) | **Done (2026-11-18).** One row per Claude API call — feature, outcome, tokens, estimated USD cost — for the monthly AI budget and AI Settings; see `docs/2026-11-18-week9-claude-api-integration.md`. 30 models. | Week 9 |
 
@@ -457,7 +457,16 @@ expensive batches and what was lost to write-offs and transfers.
       or not (never shown), models, spend vs budget, per feature, the latest 20 calls, and **Test connection**
       (`POST /api/ai/test`). `ANTHROPIC_API_KEY` is optional — without it AI features say "not set up". **Not yet
       run against a real key** (the owner postponed buying credits); every no-key path is verified.
-- [ ] Cost Variance Explainer
+      *Update 2026-11-18:* first real-key run confirmed ($5 credits, dev key in `.env`, budget set to $4).
+- [x] Cost Variance Explainer (Feature 1) — **done 2026-11-19** (`docs/2026-11-19-week9-cost-variance-explainer.md`).
+      A "Why this batch cost what it did" card on every completed production order: cost per kg against the
+      previous batch of the same good (or its plan, for the first), split exactly into ingredient prices and
+      usage / yield, each ingredient's part — all Decimal in `CostVarianceService` — and **Claude's explanation**
+      of those figures (Sonnet 5.5, effort low, about $0.006). Approving a completion queues `cost-variance-explain`
+      on a new **`ai` queue** (second BullMQ worker, 3 attempts for recoverable failures); the page re-checks every
+      5 s while it is written. "Explain this batch" / "Try again" (`POST /api/ai/cost-variance`). Stored in the new
+      **`AiInsight`** table (the plan's `ai_insights`, migration `20261118150000_ai_insights`, 31 models) with the
+      facts and prompt behind it.
 - [ ] Natural Language Query + 6 read functions
 - [ ] AI write actions — `create_purchase_request`, `create_production_order`, confirm-before-execute
 - [ ] AI query log table (incl. action type, confirmed/cancelled, created document id)

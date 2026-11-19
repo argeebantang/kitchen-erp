@@ -38,6 +38,8 @@ export type AiFeatureSettings = {
  */
 export const AI_FEATURES: Record<AiFeature, AiFeatureSettings> = {
   CONNECTION_TEST: { label: 'Connection test', model: AI_MODEL, effort: 'low', maxTokens: 4000 },
+  // A short paragraph from figures already worked out (Week 9 Task 2, E7).
+  COST_VARIANCE:   { label: 'Cost variance explainer', model: AI_MODEL, effort: 'low', maxTokens: 2000 },
 }
 
 /** USD per million tokens. Writes are the 5-minute cache rate (1.25 × input). */

@@ -198,6 +198,16 @@ Week 9 Task 1. Every AI call goes through `AiService.complete()` (see `docs/2026
 
 ADMIN only (middleware). The caller is the `x-user-id`. Every attempt that reaches the budget check is recorded, including `OVER_BUDGET`; "not set up" is not, since nothing was attempted. AI error statuses follow one table for every AI endpoint: 429 and 503 are worth retrying later, 502 needs an admin.
 
+### Cost Variance Explainer
+
+Week 9 Task 2 (see `docs/2026-11-19-week9-cost-variance-explainer.md`). The explanation is written by a background job (`cost-variance-explain` on the `ai` queue), queued automatically when accounting approves a completion; the order page reads the comparison and the stored `AiInsight` directly. This endpoint only asks for one.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/ai/cost-variance` | `{ productionOrderId }` (cuid) | 200 `{ queued: true }` — the explanation is now `PENDING` and the job queued · 200 `{ queued: false }` — one is already `PENDING` or `READY`: nothing queued, nothing spent | 400 validation · 404 order not found · 409 not a completed order with a recorded cost |
+
+ADMIN, PRODUCTION_MANAGER, ACCOUNTING (middleware) — the roles that can open production orders. The caller (`x-user-id`) is recorded on the `AiCall`. AI failures (not set up, over budget, refused, …) are not returned here: the job stores them on the insight and the card shows them with Try again.
+
 ## Notifications
 
 | Method | Path | Body | Success | Errors |

@@ -1,4 +1,4 @@
-import { Queue, type ConnectionOptions } from 'bullmq'
+import { Queue, type ConnectionOptions, type JobsOptions } from 'bullmq'
 import { config } from '@/lib/config'
 
 /**
@@ -84,6 +84,26 @@ export const EXPIRY_CHECK = 'expiry-check'
 export const END_OF_DAY_SUMMARY = 'end-of-day-summary'
 
 /**
+ * AI work (Week 9 Task 2, E4) has its own queue: a Claude call takes seconds,
+ * longer when retried, and on the notifications queue every notification
+ * behind it would wait.
+ */
+export const AI_QUEUE = 'ai'
+
+/** Write the cost variance explanation of a completed production order (FEATURE 1). */
+export const COST_VARIANCE_EXPLAIN = 'cost-variance-explain'
+
+/**
+ * Retries for AI jobs: only a failure worth retrying (busy, overloaded,
+ * unreachable) throws and comes back — 30 s, then 60 s. Anything else marks
+ * its insight FAILED on the first attempt and completes.
+ */
+export const AI_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff:  { type: 'exponential', delay: 30_000 },
+}
+
+/**
  * Jobs that run on a clock rather than on an event: cron patterns, read in
  * BUSINESS_TIME_ZONE (lib/dates.ts). The worker registers them at startup.
  */
@@ -124,6 +144,12 @@ export type StockTransferJob = {
   stockTransferId: string
 }
 
+/** An order id, re-read when the job runs; and who asked, for the AiCall row (null when automatic). */
+export type CostVarianceJob = {
+  productionOrderId: string
+  requestedById: string | null
+}
+
 /**
  * maxRetriesPerRequest must be null: BullMQ manages its own retries and refuses
  * to start against a connection configured to give up on its own.
@@ -152,6 +178,7 @@ export const redisConnection: ConnectionOptions = {
 // each time until the process runs out.
 const globalForQueue = globalThis as unknown as {
   notificationQueue: Queue | undefined
+  aiQueue: Queue | undefined
 }
 
 /**
@@ -167,4 +194,12 @@ export function getNotificationQueue(): Queue {
     })
   }
   return globalForQueue.notificationQueue
+}
+
+/** The AI queue, lazy for the same reason as getNotificationQueue. */
+export function getAiQueue(): Queue {
+  if (!globalForQueue.aiQueue) {
+    globalForQueue.aiQueue = new Queue(AI_QUEUE, { connection: redisConnection })
+  }
+  return globalForQueue.aiQueue
 }

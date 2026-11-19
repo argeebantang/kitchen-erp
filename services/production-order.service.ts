@@ -17,6 +17,7 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
+import { CostVarianceService } from '@/services/cost-variance.service'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import {
   ProductionOrderListFilters,
@@ -1532,6 +1533,15 @@ export const ProductionOrderService = {
     // Ingredients left and the lot joined the branch's stock (Week 8 Task 5).
     if (decision === 'APPROVED') signalInventoryChanged([order.branch.id])
     await enqueue(PRODUCTION_COMPLETION_DECIDED, id)
+    // FEATURE 1 (Week 9 Task 2, E4): explain the cost once it is recorded.
+    // After the commit, and never a reason for the approval to fail.
+    if (decision === 'APPROVED') {
+      try {
+        await CostVarianceService.request(id, null)
+      } catch (err) {
+        console.error('[ProductionOrderService] could not ask for the cost explanation', err)
+      }
+    }
     return { success: true, data: { id: order.id, orderNumber: order.orderNumber } }
   },
 

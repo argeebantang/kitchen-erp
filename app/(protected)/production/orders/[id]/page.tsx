@@ -20,6 +20,9 @@ import { CompleteProductionOrder } from '@/components/production/CompleteProduct
 import { CompletionReview } from '@/components/production/CompletionReview'
 import { CompletionStock } from '@/components/production/CompletionStock'
 import { CostingCard } from '@/components/production/CostingCard'
+import { CostVarianceCard } from '@/components/production/CostVarianceCard'
+import { CostVarianceService } from '@/services/cost-variance.service'
+import { AutoRefresh } from '@/components/ui/AutoRefresh'
 import { StatusTimeline } from '@/components/production/StatusTimeline'
 
 type PageProps = {
@@ -36,6 +39,10 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
 
   const order = result.data
   const unit  = order.unitAbbreviation
+  // Week 9 Task 2: a completed run against the last one of the same good.
+  const [costComparison, costInsight] = order.status === 'COMPLETED'
+    ? await Promise.all([CostVarianceService.comparison(order.id), CostVarianceService.insight(order.id)])
+    : [null, null]
   const isDraft = order.status === 'DRAFT'
   // Same roles ProductionOrderService.update and submit accept. Accounting
   // reads this page too (Task 5) but only decides.
@@ -225,6 +232,9 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
 
       {/* Week 6 Task 3: what the run costs, from estimate to recorded. */}
       {order.costing && <CostingCard costing={order.costing} />}
+      {costComparison && <CostVarianceCard comparison={costComparison} insight={costInsight} />}
+      {/* While Claude writes it (Week 9 Task 2, E5): a few seconds, then it appears. */}
+      {costInsight?.status === 'PENDING' && <AutoRefresh seconds={5} />}
 
       {order.notes && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
