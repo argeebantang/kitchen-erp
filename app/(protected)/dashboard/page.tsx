@@ -1,5 +1,7 @@
 import { getSession } from '@/lib/session'
-import { ShoppingCart, Package, BarChart3, AlertTriangle } from 'lucide-react'
+import { ShoppingCart, Package, BarChart3, AlertTriangle, Sparkles } from 'lucide-react'
+import { AssistantCard } from '@/components/ai/AssistantCard'
+import { ASSISTANT_HISTORY, ASSISTANT_QUESTION_MAX, canUseAssistant } from '@/services/assistant.service'
 
 type Stat = {
   label: string
@@ -33,6 +35,15 @@ export default async function DashboardPage() {
           )}
         </p>
       </div>
+
+      {/* Week 9 Task 3 (F4): the assistant, for the roles that see data across all branches. */}
+      {session && (canUseAssistant(session.role) ? (
+        <AssistantCard maxLength={ASSISTANT_QUESTION_MAX} history={ASSISTANT_HISTORY} />
+      ) : (
+        <p className="mb-6 flex items-center gap-1.5 rounded-xl border border-dashed border-gray-200 bg-white px-4 py-3 text-sm text-gray-400">
+          <Sparkles size={14} aria-hidden="true" /> The KitchenAI assistant is not available for your role yet.
+        </p>
+      ))}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

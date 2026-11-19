@@ -30,6 +30,10 @@ export const config = {
   // The app's own monthly AI budget (D5) — a soft cap below the hard spend
   // limit set on the Anthropic Console workspace.
   aiMonthlyBudgetUsd: usdEnv('AI_MONTHLY_BUDGET_USD', '20'),
+  // Optional (Week 9 Task 3, F3): the read-only kitchen_ai_reader login the
+  // assistant's run_query tool uses. Without it the assistant still answers
+  // cost questions; it just is not offered run_query.
+  aiDatabaseUrl:      process.env.AI_DATABASE_URL || null,
   nodeEnv:      process.env.NODE_ENV ?? 'development',
   isProd:       process.env.NODE_ENV === 'production',
   isDev:        process.env.NODE_ENV !== 'production',

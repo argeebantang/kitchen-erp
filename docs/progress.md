@@ -467,7 +467,17 @@ expensive batches and what was lost to write-offs and transfers.
       5 s while it is written. "Explain this batch" / "Try again" (`POST /api/ai/cost-variance`). Stored in the new
       **`AiInsight`** table (the plan's `ai_insights`, migration `20261118150000_ai_insights`, 31 models) with the
       facts and prompt behind it.
-- [ ] Natural Language Query + 6 read functions
+- [~] Natural Language Query + 6 read functions — **query done 2026-11-19** (`docs/2026-11-19-week9-nl-query.md`);
+      1 of the 6 named read functions. An **"Ask KitchenAI" card on the Dashboard** (ADMIN, ACCOUNTING,
+      PRODUCTION_MANAGER): questions in English / Filipino / Taglish answered from real data, follow-ups (the page
+      sends the last 6 messages), "Looked up: …" and the cost under each answer. **Our own tool loop**
+      (`AiService.converse()`, at most 5 rounds, each one budget-checked and recorded as an `ASSISTANT` `AiCall`,
+      prompt caching). Two tools: **`get_production_costs`** (the Costing dashboard's figures in Decimal, any period)
+      and **`run_query`** — Claude writes one read-only SELECT, run through the Postgres role **`kitchen_ai_reader`**
+      (migration `20261119100000_ai_reader_role`: SELECT on 27 tables, on `User` only id / name / role / branchId /
+      createdAt; no AI or notification tables; read-only, 5 s, 200 rows), shown under "How I got this". Optional
+      `AI_DATABASE_URL`. The other five named functions are covered by `run_query` for now; the grants are not per
+      branch, so branch and procurement roles wait for row-level security. `POST /api/ai/assistant`.
 - [ ] AI write actions — `create_purchase_request`, `create_production_order`, confirm-before-execute
 - [ ] AI query log table (incl. action type, confirmed/cancelled, created document id)
 - [ ] Streaming NL query UI
