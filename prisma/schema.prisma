@@ -139,6 +139,8 @@ enum MovementType {
 /// lib/claude.ts, keyed by the same name.
 enum AiFeature {
   CONNECTION_TEST
+  /// Feature 1 (Week 9 Task 2): why a batch cost more or less than the last.
+  COST_VARIANCE
 }
 
 /// How a Claude API call ended (D4).
@@ -153,6 +155,20 @@ enum AiCallOutcome {
   ERROR
   /// Never sent: this month's AI budget was used up (D5).
   OVER_BUDGET
+}
+
+/// What kind of stored AI output an AiInsight is (Week 9 Task 2, E3). Week 10
+/// adds the waste, reorder, demand and supplier insights.
+enum AiInsightType {
+  COST_VARIANCE
+}
+
+/// PENDING → READY | FAILED. A FAILED one can be asked for again (back to
+/// PENDING); a READY one is final until Week 10's Regenerate.
+enum AiInsightStatus {
+  PENDING
+  READY
+  FAILED
 }
 
 // ─── USERS ───────────────────────────────────────────────────────────────────
@@ -999,6 +1015,42 @@ model AiCall {
   errorType        String?
   createdAt        DateTime      @default(now())
 
+  insights         AiInsight[]
+
   // Month-to-date spend (the budget) and the latest calls both read by time.
   @@index([createdAt])
+}
+
+/// Stored AI output about one record (Week 9 Task 2, E3) — the plan's
+/// ai_insights. Feature 1 explains a completed production order's cost; Week
+/// 10's features use the same table. One current insight per type and record,
+/// updated in place. `facts` and `prompt` keep exactly what Claude was given,
+/// so anyone can check an explanation against its figures.
+///
+/// referenceId is not a foreign key, like Approval's: the table it points at
+/// depends on referenceType ('ProductionOrder').
+model AiInsight {
+  id            String          @id @default(cuid())
+  type          AiInsightType
+  referenceType String
+  referenceId   String
+  status        AiInsightStatus @default(PENDING)
+  /// The text, once READY.
+  content       String?
+  /// The figures Claude was given, as computed by the feature's service.
+  facts         Json?
+  /// The message sent with them (the system prompt is in code).
+  prompt        String?
+  /// The model that wrote it — the fallback's after a refusal.
+  model         String?
+  /// The call that produced it (its cost), or that failed.
+  aiCallId      String?
+  aiCall        AiCall?         @relation(fields: [aiCallId], references: [id])
+  /// Why it is FAILED, in words a user can act on.
+  error         String?
+  generatedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([type, referenceType, referenceId])
 }

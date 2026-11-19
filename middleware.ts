@@ -87,6 +87,9 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Week 9 Task 1 (D10): the Test connection button on AI Settings spends
   // real money. Each AI feature's own endpoint gets its own guard.
   { path: '/api/ai/test',           roles: ['ADMIN'] },
+  // Week 9 Task 2 (E6): Explain this batch / Try again — the roles that read
+  // production orders (the /production guard above).
+  { path: '/api/ai/cost-variance',  roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
 ]
 
 export async function middleware(req: NextRequest) {

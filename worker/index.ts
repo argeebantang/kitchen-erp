@@ -1,5 +1,9 @@
 import { Worker, type Job } from 'bullmq'
 import {
+  AI_QUEUE,
+  COST_VARIANCE_EXPLAIN,
+  getAiQueue,
+  type CostVarianceJob,
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
@@ -28,6 +32,7 @@ import {
 } from '@/lib/queue'
 import { BUSINESS_TIME_ZONE, todayIsoDate } from '@/lib/dates'
 import { NotificationService } from '@/services/notification.service'
+import { CostVarianceService } from '@/services/cost-variance.service'
 /**
  * Background job consumer — a SEPARATE PROCESS from the Next.js app.
  *
@@ -190,6 +195,52 @@ worker.on('failed', (job, err) => console.error(`[worker] job ${job?.id} FAILED:
 console.log(`[worker] listening on "${NOTIFICATIONS_QUEUE}" — Ctrl+C to stop`)
 
 /**
+ * FEATURE 1 (Week 9 Task 2, E4). Throwing hands the job back to BullMQ,
+ * which tries again after AI_JOB_OPTIONS' backoff — only for RETRY (busy,
+ * unreachable). On the last attempt explain() records the failure itself.
+ */
+async function handleCostVarianceExplain(job: Job<CostVarianceJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await CostVarianceService.explain(job.data.productionOrderId, {
+    userId:      job.data.requestedById,
+    lastAttempt: job.attemptsMade + 1 >= attempts,
+  })
+  console.log(`  → ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('the AI service is busy or unreachable — will retry')
+}
+
+// A second worker, on its own queue, so a slow Claude call never holds up a
+// notification. Two at once: a burst of approvals does not queue up for
+// long, and Anthropic's rate limits are far above that. Typed by its one job
+// so far; a Week 10 job widens it to a union.
+const aiWorker = new Worker<CostVarianceJob>(
+  AI_QUEUE,
+  async job => {
+    console.log(`[worker:ai] job ${job.id} (${job.name})`)
+    switch (job.name) {
+      case COST_VARIANCE_EXPLAIN:
+        return handleCostVarianceExplain(job)
+      default:
+        throw new Error(`Unknown job name: ${job.name}`)
+    }
+  },
+  { connection: redisConnection, concurrency: 2 },
+)
+
+aiWorker.on('completed', job => console.log(`[worker:ai] job ${job.id} completed`))
+aiWorker.on('failed', (job, err) => {
+  console.error(`[worker:ai] job ${job?.id} FAILED: ${err.message}`)
+  // Out of attempts on something explain() did not expect (the database was
+  // down, a bug): the insight would stay PENDING and the card spin forever.
+  if (job && job.name === COST_VARIANCE_EXPLAIN && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+    CostVarianceService.giveUp(job.data.productionOrderId, 'Could not write the explanation. Try again.')
+      .catch(giveUpError => console.error(`[worker:ai] could not mark the insight failed: ${giveUpError.message}`))
+  }
+})
+
+console.log(`[worker] listening on "${AI_QUEUE}" — 2 at a time`)
+
+/**
  * Registers the clock-driven jobs. upsertJobScheduler keys each schedule by
  * its id (the job name), so every restart replaces the schedule instead of
  * adding another — and a changed pattern takes effect on the next restart.
@@ -217,8 +268,8 @@ scheduleDailyJobs().catch(err => console.error(`[worker] scheduling FAILED: ${er
  */
 async function shutdown(signal: string) {
   console.log(`\n[worker] ${signal} received, finishing current job…`)
-  await worker.close()
-  await getNotificationQueue().close()
+  await Promise.all([worker.close(), aiWorker.close()])
+  await Promise.all([getNotificationQueue().close(), getAiQueue().close()])
   process.exit(0)
 }
 

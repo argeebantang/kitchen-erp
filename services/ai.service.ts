@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { AiFeature, AiCallOutcome, Prisma } from '@prisma/client'
+import { AiFeature, AiCallOutcome, AiInsightStatus, Prisma } from '@prisma/client'
 import { config } from '@/lib/config'
 import { AI_FEATURES, getClaude, isAiConfigured, MODEL_PRICES, type AiEffort, type ModelPrice } from '@/lib/claude'
 import { businessDayRange, isoDateAt } from '@/lib/dates'
 import { toDecimalString } from '@/lib/decimal'
 import { AiCallRepository } from '@/repositories/ai-call.repository'
+import type { AiInsightSummary } from '@/repositories/ai-insight.repository'
 
 /**
  * The one door to Claude for every AI feature (Week 9 Task 1). Callers never
@@ -12,9 +13,21 @@ import { AiCallRepository } from '@/repositories/ai-call.repository'
  * records it and turns failures into a result.
  */
 
-export type AiResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: string; status: number }
+export type AiFailure = {
+  success: false
+  error: string
+  status: number
+  /**
+   * Worth trying again later — rate limited, overloaded, unreachable, timed
+   * out. A background job retries these; not set up, over budget, a refusal
+   * or a rejected key would fail the same way again (Week 9 Task 2, E4).
+   */
+  retryable: boolean
+  /** The AiCall row this attempt wrote; null when nothing was recorded (not set up). */
+  callId: string | null
+}
+
+export type AiResult<T> = { success: true; data: T } | AiFailure
 
 /**
  * Shared by every feature, ahead of its own instructions (D7). Kept stable —
@@ -48,6 +61,8 @@ export type AiCompletion = {
   outputTokens: number
   costUsd: string
   durationMs: number
+  /** The AiCall row that recorded it. */
+  callId: string
 }
 
 export type AiUsageEstimate = {
@@ -111,7 +126,7 @@ export function estimateUsage(message: Anthropic.Beta.BetaMessage, requestedMode
   }, { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: new Prisma.Decimal(0) })
 }
 
-type ApiFailure = { status: number; error: string; errorType: string }
+type ApiFailure = { status: number; error: string; errorType: string; retryable: boolean }
 
 /** The API's own error message, e.g. "Your credit balance is too low…" — what an admin needs on AI Settings. */
 function apiErrorMessage(error: InstanceType<typeof Anthropic.APIError>): string | null {
@@ -131,10 +146,10 @@ function apiErrorMessage(error: InstanceType<typeof Anthropic.APIError>): string
  */
 function describeApiError(error: unknown): ApiFailure | null {
   if (error instanceof Anthropic.APIConnectionTimeoutError) {
-    return { status: 503, error: 'The AI service took too long to answer. Try again.', errorType: 'Timeout' }
+    return { status: 503, error: 'The AI service took too long to answer. Try again.', errorType: 'Timeout', retryable: true }
   }
   if (error instanceof Anthropic.APIConnectionError) {
-    return { status: 503, error: 'Could not reach the AI service. Check the internet connection and try again.', errorType: 'ConnectionError' }
+    return { status: 503, error: 'Could not reach the AI service. Check the internet connection and try again.', errorType: 'ConnectionError', retryable: true }
   }
   if (!(error instanceof Anthropic.APIError)) return null
 
@@ -142,19 +157,19 @@ function describeApiError(error: unknown): ApiFailure | null {
   const withDetail = (label: string) => (detail ? `${label}: ${detail}` : label).slice(0, 300)
 
   if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-    return { status: 502, error: 'The AI service rejected the API key. An admin needs to check ANTHROPIC_API_KEY.', errorType: withDetail('AuthenticationError') }
+    return { status: 502, error: 'The AI service rejected the API key. An admin needs to check ANTHROPIC_API_KEY.', errorType: withDetail('AuthenticationError'), retryable: false }
   }
   if (error instanceof Anthropic.RateLimitError) {
-    return { status: 429, error: 'The AI service is busy. Try again in a minute.', errorType: withDetail('RateLimitError') }
+    return { status: 429, error: 'The AI service is busy. Try again in a minute.', errorType: withDetail('RateLimitError'), retryable: true }
   }
   if (error instanceof Anthropic.OverloadedError) {
-    return { status: 503, error: 'The AI service is overloaded right now. Try again shortly.', errorType: 'OverloadedError' }
+    return { status: 503, error: 'The AI service is overloaded right now. Try again shortly.', errorType: 'OverloadedError', retryable: true }
   }
   if (error instanceof Anthropic.InternalServerError) {
-    return { status: 503, error: 'The AI service had a problem. Try again shortly.', errorType: withDetail(`ServerError ${error.status}`) }
+    return { status: 503, error: 'The AI service had a problem. Try again shortly.', errorType: withDetail(`ServerError ${error.status}`), retryable: true }
   }
   // 400s land here — including "credit balance too low", which only the detail tells apart.
-  return { status: 502, error: 'The AI service refused the request. An admin can see why on AI Settings.', errorType: withDetail(`APIError ${error.status ?? ''}`.trim()) }
+  return { status: 502, error: 'The AI service refused the request. An admin can see why on AI Settings.', errorType: withDetail(`APIError ${error.status ?? ''}`.trim()), retryable: false }
 }
 
 /** How many calls AI Settings lists. */
@@ -271,7 +286,7 @@ async function overview(now = new Date()): Promise<AiOverviewDto> {
 async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>> {
   const client = getClaude()
   if (!client) {
-    return { success: false, status: 503, error: 'AI is not set up yet: an admin needs to add the API key on the server.' }
+    return { success: false, status: 503, error: 'AI is not set up yet: an admin needs to add the API key on the server.', retryable: false, callId: null }
   }
 
   const settings = AI_FEATURES[input.feature]
@@ -281,8 +296,8 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
   // cost; the Console's spend limit, set higher, is the hard stop.
   const spent = await AiCallRepository.spendSince(monthStartAt(new Date()).instant)
   if (spent.greaterThanOrEqualTo(config.aiMonthlyBudgetUsd)) {
-    await AiCallRepository.record({ ...call, outcome: AiCallOutcome.OVER_BUDGET })
-    return { success: false, status: 429, error: "This month's AI budget is used up. AI features are paused until next month." }
+    const callId = await AiCallRepository.record({ ...call, outcome: AiCallOutcome.OVER_BUDGET })
+    return { success: false, status: 429, error: "This month's AI budget is used up. AI features are paused until next month.", retryable: false, callId }
   }
 
   const started = Date.now()
@@ -308,14 +323,14 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
   } catch (error) {
     const failure = describeApiError(error)
     if (!failure) throw error
-    await AiCallRepository.record({
+    const callId = await AiCallRepository.record({
       ...call,
       outcome:    AiCallOutcome.ERROR,
       durationMs: Date.now() - started,
       requestId:  error instanceof Anthropic.APIError ? error.requestID ?? null : null,
       errorType:  failure.errorType,
     })
-    return { success: false, status: failure.status, error: failure.error }
+    return { success: false, status: failure.status, error: failure.error, retryable: failure.retryable, callId }
   }
 
   const durationMs = Date.now() - started
@@ -325,7 +340,7 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
     : message.stop_reason === 'max_tokens' ? AiCallOutcome.MAX_TOKENS
     : AiCallOutcome.COMPLETED
 
-  await AiCallRepository.record({
+  const callId = await AiCallRepository.record({
     ...call,
     outcome,
     servedModel: message.model,
@@ -336,10 +351,10 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
   })
 
   if (outcome === AiCallOutcome.REFUSED) {
-    return { success: false, status: 400, error: 'The AI declined to answer this request.' }
+    return { success: false, status: 400, error: 'The AI declined to answer this request.', retryable: false, callId }
   }
   if (outcome === AiCallOutcome.MAX_TOKENS) {
-    return { success: false, status: 502, error: 'The AI answer was cut off before it finished. Try a narrower request.' }
+    return { success: false, status: 502, error: 'The AI answer was cut off before it finished. Try a narrower request.', retryable: false, callId }
   }
 
   return {
@@ -351,7 +366,31 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
       outputTokens: usage.outputTokens,
       costUsd:      toDecimalString(usage.costUsd),
       durationMs,
+      callId,
     },
+  }
+}
+
+/** A stored AI insight as pages show it (Week 9 Task 2, E3) — shared by every insight feature. */
+export type AiInsightDto = {
+  status: AiInsightStatus
+  content: string | null
+  error: string | null
+  model: string | null
+  /** ISO; set once READY. */
+  generatedAt: string | null
+  /** What the call behind it cost (estimated USD); null before one was made. */
+  costUsd: string | null
+}
+
+export function toInsightDto(insight: AiInsightSummary): AiInsightDto {
+  return {
+    status:      insight.status,
+    content:     insight.content,
+    error:       insight.error,
+    model:       insight.model,
+    generatedAt: insight.generatedAt?.toISOString() ?? null,
+    costUsd:     insight.aiCall ? toDecimalString(insight.aiCall.costUsd) : null,
   }
 }
 

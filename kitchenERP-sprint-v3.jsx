@@ -193,7 +193,7 @@ const plan = {
           tag: "ai",
           tasks: [
             { t: "Set up Claude API integration in the backend (Anthropic SDK)", done: true },
-            "FEATURE 1 — Cost Variance Explainer: after every production order closes, Claude auto-generates a plain-language explanation of why the cost was higher or lower than last batch. Stored in DB, shown on production order detail page.",
+            { t: "FEATURE 1 — Cost Variance Explainer: after every production order closes, Claude auto-generates a plain-language explanation of why the cost was higher or lower than last batch. Stored in DB, shown on production order detail page.", done: true },
             "FEATURE 2 — Natural Language Query & Actions: chat box on dashboard. User types any question. Claude uses function calling to decide which DB query to run, executes it, formats the answer. Example: 'Magkano ang gastos namin ngayong buwan?' → Claude calls get_production_costs({period: 'this_month'}) → answers in Filipino.",
             "Define 6 read functions for the NL query: get_production_costs, get_waste_summary, get_stock_levels, get_branch_performance, get_supplier_history, get_top_items",
             "AI WRITE ACTIONS: 2 action functions — create_purchase_request, create_production_order — so the assistant can act, not just answer. Confirm-before-execute: Claude returns a filled draft, the user reviews and presses Confirm, and the document is created under that user's identity and enters the normal approval flow. Never auto-executed, never bypasses an approval step.",
