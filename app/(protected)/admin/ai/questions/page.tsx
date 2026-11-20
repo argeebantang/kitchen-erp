@@ -1,6 +1,6 @@
 import Link from 'next/link'
-import { formatDateTime } from '@/lib/dates'
-import { formatUsd } from '@/lib/format'
+import { formatDateTime, shortDateLabel } from '@/lib/dates'
+import { formatPeso, formatQuantity, formatUsd } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { AI_QUERY_PAGE_SIZE, AiQueryService, type AiQueryDto } from '@/services/ai-query.service'
 
@@ -14,6 +14,49 @@ const STATUS_STYLE: Record<AiQueryDto['status'], string> = {
   ANSWERED: 'bg-emerald-50 text-emerald-700',
   FAILED:   'bg-red-50 text-red-700',
   PENDING:  'bg-amber-50 text-amber-700',
+}
+
+type Action = NonNullable<AiQueryDto['action']>
+
+const ACTION_TITLE: Record<Action['type'], string> = {
+  PURCHASE_REQUEST: 'Purchase request draft',
+  PRODUCTION_ORDER: 'Production order draft',
+}
+
+const ACTION_STYLE: Record<Action['status'], string> = {
+  PROPOSED:  'text-amber-700',
+  CONFIRMED: 'text-emerald-700',
+  CANCELLED: 'text-gray-500',
+  EXPIRED:   'text-gray-500',
+}
+
+/** What became of a draft, in a few words. */
+function actionOutcome(action: Action): string {
+  switch (action.status) {
+    case 'CONFIRMED': return `confirmed → ${action.document?.number ?? 'created'}`
+    case 'CANCELLED': return 'cancelled'
+    case 'EXPIRED':   return 'expired unconfirmed'
+    case 'PROPOSED':  return action.decidedAt === null ? 'awaiting confirmation' : 'being confirmed'
+  }
+}
+
+/** The draft's contents, one line: what Confirm creates (or created). */
+function actionContents(action: Action): string {
+  if (action.type === 'PURCHASE_REQUEST') {
+    const { lines, estimatedTotal, neededBy } = action.draft
+    return [
+      lines.map(line => `${line.materialName} ${formatQuantity(line.quantity)} ${line.unit}`).join(', '),
+      `est. ${estimatedTotal === null ? '—' : formatPeso(estimatedTotal)}`,
+      neededBy && `needed by ${shortDateLabel(neededBy)}`,
+    ].filter(part => typeof part === 'string').join(' · ')
+  }
+  const draft = action.draft
+  return [
+    `${draft.finishedGoodName} ${draft.batchCount} × ${formatQuantity(draft.batchWeight)} ${draft.unit} = ${formatQuantity(draft.plannedQty)} ${draft.unit}`,
+    shortDateLabel(draft.plannedDate),
+    draft.branchName,
+    draft.shortages === 0 ? 'stock enough' : `${draft.shortages} ${draft.shortages === 1 ? 'ingredient' : 'ingredients'} short`,
+  ].join(' · ')
 }
 
 function seconds(ms: number | null): string {
@@ -52,8 +95,8 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
         <Link href="/admin/ai" className="text-sm text-gray-400 hover:text-gray-600">← AI Settings</Link>
         <h1 className="mt-1 text-2xl font-bold text-gray-800">Assistant questions</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Every question asked of the dashboard assistant: who asked, what it looked up, and what it answered.
-          Query results are not kept — only the queries.
+          Every question asked of the dashboard assistant: who asked, what it looked up, what it answered, and any
+          document it drafted and whether it was confirmed. Query results are not kept — only the queries.
         </p>
       </div>
 
@@ -97,6 +140,9 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
                     <span className="block text-xs text-gray-400">
                       {question.userName} · {formatDateTime(question.createdAt)}
                       {question.lookups.length > 0 && ` · ${question.lookups.length} ${question.lookups.length === 1 ? 'lookup' : 'lookups'}`}
+                      {question.action && (
+                        <> · <span className={ACTION_STYLE[question.action.status]}>{ACTION_TITLE[question.action.type].toLowerCase()} {actionOutcome(question.action)}</span></>
+                      )}
                     </span>
                   </span>
                   <span className="shrink-0 text-right text-xs tabular-nums text-gray-500">
@@ -120,6 +166,25 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
                   )}
                   {question.status === 'PENDING' && (
                     <p className="text-amber-700">Still pending: being answered now, or the server stopped before it finished.</p>
+                  )}
+
+                  {question.action && (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Drafted</p>
+                      <div className="mt-1 rounded-lg border border-gray-200 bg-white p-2 text-xs">
+                        <p className="text-gray-700">
+                          {ACTION_TITLE[question.action.type]} ·{' '}
+                          <span className={ACTION_STYLE[question.action.status]}>
+                            {question.action.status === 'CONFIRMED' && question.action.document
+                              ? <>confirmed → <Link href={question.action.document.href} className="font-medium text-orange-600 hover:underline">{question.action.document.number}</Link></>
+                              : actionOutcome(question.action)}
+                          </span>
+                          {question.action.decidedAt && question.action.status !== 'PROPOSED' && <> · {formatDateTime(question.action.decidedAt)}</>}
+                        </p>
+                        <p className="mt-1 text-gray-600">{actionContents(question.action)}</p>
+                        {question.action.draft.notes && <p className="mt-0.5 text-gray-500">Note: {question.action.draft.notes}</p>}
+                      </div>
+                    </div>
                   )}
 
                   {question.lookups.length > 0 && (

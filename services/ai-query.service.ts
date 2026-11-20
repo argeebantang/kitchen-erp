@@ -2,6 +2,7 @@ import { AiQueryStatus } from '@prisma/client'
 import { z } from 'zod'
 import { toDecimalString } from '@/lib/decimal'
 import { AiQueryRepository, type AiQueryLookupRecord } from '@/repositories/ai-query.repository'
+import { AssistantActionService, type AssistantActionDto } from '@/services/assistant-action.service'
 
 /**
  * The assistant's query log as admins read it (Week 9 Task 4, H7): AI
@@ -29,6 +30,8 @@ export type AiQueryDto = {
   /** From its AiCall rows: Claude calls made for it, and their estimated cost in USD. */
   rounds: number
   costUsd: string
+  /** The document Claude drafted on this question, and what the user did with it (Week 9 Task 5). */
+  action: AssistantActionDto | null
 }
 
 export type AiQueryPageDto = {
@@ -87,6 +90,7 @@ async function list(filter: { userId?: string; conversationId?: string; page: nu
         durationMs:     row.durationMs,
         rounds:         calls?.rounds ?? 0,
         costUsd:        calls ? toDecimalString(calls.costUsd) : '0',
+        action:         AssistantActionService.toDto(row),
       }
     }),
   }

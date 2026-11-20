@@ -1013,6 +1013,16 @@ export const ProductionOrderService = {
     }
   },
 
+  /**
+   * Checks an order without saving it, under exactly the rules create()
+   * applies. For the assistant's drafts (Week 9 Task 5), so a draft that
+   * would be refused at Confirm is refused when it is drafted.
+   */
+  async check(input: CreateProductionOrderServiceInput): Promise<ProductionOrderResult<null>> {
+    const checked = await validateOrder(input)
+    return checked.success ? { success: true, data: null } : checked
+  },
+
   /** What the new / edit form offers: plannable goods and active branches. */
   async getForm(): Promise<ProductionOrderFormDto> {
     const [boms, branches] = await Promise.all([

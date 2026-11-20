@@ -59,6 +59,18 @@ export const BranchRepository = {
     })
   },
 
+  /**
+   * The main kitchen: the oldest active commissary (Main Commissary). Where
+   * the assistant plans production (Week 9 Task 5, I6).
+   */
+  async findMainKitchen(): Promise<{ id: string; name: string } | null> {
+    return prisma.branch.findFirst({
+      where:   { isActive: true, type: BranchType.COMMISSARY },
+      select:  { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    })
+  },
+
   /** For Master Data and GET /api/branches — same order as findAllActive. */
   async findAll(includeInactive: boolean): Promise<BranchWithManager[]> {
     return prisma.branch.findMany({

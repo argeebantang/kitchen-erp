@@ -3,12 +3,30 @@
 import { useEffect, useRef, useState } from 'react'
 import { Send, Sparkles } from 'lucide-react'
 import type { AssistantAnswerDto, AssistantMessage } from '@/services/assistant.service'
+import type { AssistantActionDto } from '@/services/assistant-action.service'
 import { formatUsd } from '@/lib/format'
 import { primaryButtonClass } from '@/components/ui/form'
+import { ACTION_NAME, AssistantActionPanel } from '@/components/ai/AssistantActionPanel'
 
 type Turn =
   | { role: 'user'; content: string }
-  | ({ role: 'assistant'; content: string } & Pick<AssistantAnswerDto, 'lookups' | 'costUsd'>)
+  | ({ role: 'assistant'; content: string } & Pick<AssistantAnswerDto, 'lookups' | 'costUsd' | 'action'>)
+
+/**
+ * An answer as resent with later questions. Claude cannot see the panel, so
+ * what became of its draft is added, or a follow-up like "did it go through?"
+ * would be answered blind (Week 9 Task 5, I9).
+ */
+function historyContent(turn: Turn): string {
+  if (turn.role === 'user' || turn.action === null) return turn.content
+  const { status, document, type } = turn.action
+  const { title, document: noun } = ACTION_NAME[type]
+  const outcome = status === 'CONFIRMED' ? `the user confirmed it, and ${document?.number ?? 'it'} was created as a draft ${noun}`
+    : status === 'CANCELLED' ? 'the user cancelled it; nothing was created'
+    : status === 'EXPIRED' ? 'it expired unconfirmed; nothing was created'
+    : 'the user has not confirmed it yet; nothing is created'
+  return `${turn.content}\n\n[${title}: ${outcome}.]`
+}
 
 const EXAMPLES = [
   'Magkano ang gastos namin ngayong buwan?',
@@ -42,7 +60,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
     if (asked === '' || pending !== null) return
 
     const messages: AssistantMessage[] = [
-      ...turns.slice(-history).map(({ role, content }) => ({ role, content })),
+      ...turns.slice(-history).map(turn => ({ role: turn.role, content: historyContent(turn) })),
       { role: 'user', content: asked },
     ]
     setPending(asked)
@@ -65,7 +83,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
       setTurns(previous => [
         ...previous,
         { role: 'user', content: asked },
-        { role: 'assistant', content: answer.answer, lookups: answer.lookups, costUsd: answer.costUsd },
+        { role: 'assistant', content: answer.answer, lookups: answer.lookups, costUsd: answer.costUsd, action: answer.action },
       ])
     } catch {
       setError('Could not reach the server.')
@@ -73,6 +91,10 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
     } finally {
       setPending(null)
     }
+  }
+
+  function updateAction(action: AssistantActionDto) {
+    setTurns(previous => previous.map(turn => (turn.role === 'assistant' && turn.action?.id === action.id ? { ...turn, action } : turn)))
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -132,6 +154,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
                   </div>
                 </details>
               )}
+              {turn.action && <AssistantActionPanel action={turn.action} onChange={updateAction} />}
             </div>
           ))}
           {pending !== null && (
