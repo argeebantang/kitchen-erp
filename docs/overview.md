@@ -39,7 +39,7 @@ Built (Weeks 1–9):
 * Assistant write actions (Week 9): admin and production can ask the assistant to order materials ("Mag-order ng 150 kg na pork belly") or plan a run ("Gawa tayo ng 2 batch ng Bopis bukas"). Claude only drafts; a panel under its answer shows the purchase request (with estimated cost) or the production order (with ingredient shortages), and only the user's Confirm creates it — as a draft under their name, submitted for approval as usual
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
-Planned (see the roadmap): raw-material write-offs and stock adjustments; the remaining five AI features (Weeks 9–10) and streaming answers for the assistant.
+Planned (see the roadmap): raw-material write-offs and stock adjustments; the remaining five AI features (Weeks 9–10). Streaming the assistant's answers was skipped (2026-11-20) as not needed yet.
 
 ## Tech Stack
 

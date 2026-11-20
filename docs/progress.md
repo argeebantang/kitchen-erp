@@ -498,7 +498,11 @@ expensive batches and what was lost to write-offs and transfers.
       AI Settings → Assistant questions** (`/admin/ai/questions`, ADMIN): 50 per page, filter by who asked, one
       conversation in order, each question expandable, and any draft with its outcome and document. Not readable by
       `kitchen_ai_reader`. Tested by Claude at the owner's request.
-- [ ] Streaming NL query UI
+- [~] Streaming NL query UI — **skipped by owner decision (2026-11-20)**: a nice-to-have. Answers take about 3 s
+      (1–2 rounds, mostly the lookup; 80–240 output tokens) and the card already shows "Thinking…" and blocks a
+      second question, so streaming would only change how the wait feels. Revisit if the assistant feels slow in
+      daily use; the useful part would be progress lines ("Looking up…") as each tool is called, more than
+      word-by-word text.
 
 ### Week 10 — KitchenAI Predictive Features
 - [ ] Waste Pattern Detector (weekly BullMQ job)
