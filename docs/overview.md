@@ -35,7 +35,7 @@ Built (Weeks 1–9):
 * Approvals inbox for accounting; nobody approves their own work, ADMIN included
 * KitchenAI foundation (Week 9): the Claude API (Sonnet 5.5) behind one service that every AI feature uses — a monthly budget, refusal fallback, friendly errors and a log of every call with its estimated cost. Admin → AI Settings shows whether the key is set, each feature's model, this month's spend against the budget and the latest calls, with a Test connection button
 * Cost Variance Explainer (Week 9, KitchenAI Feature 1): every completed production order shows why the batch cost what it did — cost per kg against the previous batch of the same good (or its plan, for the first), split into ingredient prices and usage / yield, each ingredient's part — and Claude's plain-language explanation of those figures, written automatically seconds after accounting approves the run ("Explain this batch" / "Try again" by hand)
-* Dashboard assistant (Week 9, KitchenAI Feature 2): an "Ask KitchenAI" box on the Dashboard for admin, accounting and production — questions in English, Filipino or Taglish answered from the system's own data, with follow-ups. Cost questions use the Costing dashboard's own figures; anything else, Claude writes a read-only database query through a locked-down login, shown under "How I got this"
+* Dashboard assistant (Week 9, KitchenAI Feature 2): an "Ask KitchenAI" box on the Dashboard for admin, accounting and production — questions in English, Filipino or Taglish answered from the system's own data, with follow-ups. Cost questions use the Costing dashboard's own figures; anything else, Claude writes a read-only database query through a locked-down login, shown under "How I got this". Every question is logged; admins read who asked what, what was looked up and what was answered on AI Settings → Assistant questions
 * Notification bell on every page: unread count and latest notifications, pushed live over Server-Sent Events (request submitted, daily jobs); mark one or all read
 
 Planned (see the roadmap): raw-material write-offs and stock adjustments; the remaining five AI features (Weeks 9–10) and the assistant's write actions on top of the Week 9 foundation.
@@ -65,7 +65,7 @@ Planned (see the roadmap): raw-material write-offs and stock adjustments; the re
 * `worker/` — the BullMQ consumer, a standalone process; never imported from `app/`
 * `scripts/` — command-line helpers (`run-job.ts`: `npm run job -- <name>`)
 * `hooks/` — client-side React hooks (`useUser.ts`, `useNotifications.ts`)
-* `prisma/` — `schema.prisma` (31 models), `migrations/`, `seed.ts`
+* `prisma/` — `schema.prisma` (32 models), `migrations/`, `seed.ts`
 * `middleware.ts` — authentication and role guards for every request
 * `docker-compose.yml` — local Postgres + Redis services
 

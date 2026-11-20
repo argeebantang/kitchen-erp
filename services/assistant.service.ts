@@ -1,15 +1,18 @@
-import { AiFeature, Role } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
+import { AiFeature, AiQueryStatus, Role } from '@prisma/client'
 import type Anthropic from '@anthropic-ai/sdk'
 import { addDays, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { AiService, type AiResult, type AiToolCall, type AiToolResult } from '@/services/ai.service'
-import { toolsFor, type AssistantTool, type ToolQuery } from '@/services/assistant-tools'
+import { toolsFor, type AssistantTool, type ToolOutcome, type ToolQuery } from '@/services/assistant-tools'
+import { AiQueryRepository, type AiQueryLookupRecord, type FinishAiQueryInput } from '@/repositories/ai-query.repository'
 
 /**
  * FEATURE 2 — the dashboard assistant (Week 9 Task 3,
  * docs/2026-11-19-week9-nl-query.md). A question in English, Filipino or
  * Taglish, answered from the system's own data. The conversation lives on
- * the page (F5): it sends the last few messages with every question and the
- * server keeps nothing.
+ * the page (F5): it sends the last few messages with every question; the
+ * server keeps no conversation state, but logs each question for admins
+ * (Week 9 Task 4, AiQuery — docs/2026-11-20-week9-ai-query-log.md).
  */
 
 /** Who may ask (F4). Same list as the /api/ai/assistant guard in middleware.ts. */
@@ -40,6 +43,8 @@ export type AssistantAnswerDto = {
   lookups: AssistantLookupDto[]
   /** The question's estimated cost in USD, all rounds together. */
   costUsd: string
+  /** Send it back with the next question so the log keeps the conversation together (Week 9 Task 4, H4). */
+  conversationId: string
 }
 
 /**
@@ -94,40 +99,111 @@ function conversation(messages: AssistantMessage[]): Anthropic.Beta.BetaMessageP
 }
 
 /**
- * Runs the tool Claude asked for, if this viewer was offered it, and notes
- * what it looked up for "Looked up: …". Errors go back to Claude to correct.
+ * Runs the tool Claude asked for, if this viewer was offered it. Notes what it
+ * looked up for "Looked up: …" and logs every call, failed ones included, for
+ * the query log (Week 9 Task 4, H2). Errors go back to Claude to correct.
  */
-function toolRunner(tools: AssistantTool[], viewer: AssistantViewer, lookups: AssistantLookupDto[]) {
+function toolRunner(
+  tools: AssistantTool[],
+  viewer: AssistantViewer,
+  lookups: AssistantLookupDto[],
+  log: AiQueryLookupRecord[],
+) {
   return async ({ name, input }: AiToolCall): Promise<AiToolResult> => {
+    const entry: AiQueryLookupRecord = {
+      tool: name, input: JSON.stringify(input) ?? 'null', label: null, sql: null, rowCount: null, truncated: null, error: null,
+    }
+    log.push(entry)
     const tool = tools.find(candidate => candidate.definition.name === name)
-    if (!tool) return { content: `There is no tool called ${name}.`, isError: true }
-    const outcome = await tool.run(input, viewer)
-    if (!outcome.ok) return { content: outcome.error, isError: true }
+    if (!tool) {
+      entry.error = `There is no tool called ${name}.`
+      return { content: entry.error, isError: true }
+    }
+    let outcome: ToolOutcome
+    try {
+      outcome = await tool.run(input, viewer)
+    } catch (error) {
+      entry.error = 'The lookup failed on the server.'
+      throw error
+    }
+    if (!outcome.ok) {
+      entry.error = outcome.error
+      return { content: outcome.error, isError: true }
+    }
+    entry.label = outcome.label
+    entry.sql = outcome.query?.sql ?? null
+    entry.rowCount = outcome.query?.rowCount ?? null
+    entry.truncated = outcome.query?.truncated ?? null
     const seen = lookups.some(lookup => lookup.label === outcome.label && lookup.query?.sql === outcome.query?.sql)
     if (!seen) lookups.push({ tool: name, label: outcome.label, query: outcome.query })
     return { content: JSON.stringify(outcome.data), isError: false }
   }
 }
 
-/** Answers the last message of the conversation. The route has checked its shape. */
-async function ask(messages: AssistantMessage[], viewer: AssistantViewer): Promise<AiResult<AssistantAnswerDto>> {
+/** Logs the question before Claude is called (H1). A log that cannot be written never blocks the answer (H6). */
+async function startLog(viewer: AssistantViewer, conversationId: string, question: string): Promise<string | null> {
+  try {
+    return await AiQueryRepository.start({ userId: viewer.userId, conversationId, question })
+  } catch (error) {
+    console.error('[AI] could not log an assistant question', error)
+    return null
+  }
+}
+
+async function finishLog(id: string | null, input: FinishAiQueryInput): Promise<void> {
+  if (id === null) return
+  try {
+    await AiQueryRepository.finish(id, input)
+  } catch (error) {
+    console.error(`[AI] could not finish assistant question ${id} in the log`, error)
+  }
+}
+
+/**
+ * Answers the last message of the conversation; the route has checked its
+ * shape. The first question of a conversation gets its id here (H4) — not
+ * from the page, where crypto.randomUUID() needs HTTPS or localhost — and the
+ * page sends it back with the follow-ups.
+ */
+async function ask(
+  messages: AssistantMessage[],
+  viewer: AssistantViewer,
+  conversationId: string | null,
+): Promise<AiResult<AssistantAnswerDto>> {
+  const started = Date.now()
+  const conversationKey = conversationId ?? randomUUID()
+  const queryId = await startLog(viewer, conversationKey, messages.at(-1)?.content ?? '')
   const tools = toolsFor(viewer.role)
   const lookups: AssistantLookupDto[] = []
-  const result = await AiService.converse({
-    feature:      AiFeature.ASSISTANT,
-    instructions: instructionsFor(tools),
-    context:      context(todayIsoDate()),
-    messages:     conversation(messages),
-    tools:        tools.map(tool => tool.definition),
-    runTool:      toolRunner(tools, viewer, lookups),
-    maxRounds:    ASSISTANT_MAX_ROUNDS,
-    userId:       viewer.userId,
-  })
-  if (!result.success) return result
+  const log: AiQueryLookupRecord[] = []
 
+  let result: Awaited<ReturnType<typeof AiService.converse>>
+  try {
+    result = await AiService.converse({
+      feature:      AiFeature.ASSISTANT,
+      instructions: instructionsFor(tools),
+      context:      context(todayIsoDate()),
+      messages:     conversation(messages),
+      tools:        tools.map(tool => tool.definition),
+      runTool:      toolRunner(tools, viewer, lookups, log),
+      maxRounds:    ASSISTANT_MAX_ROUNDS,
+      userId:       viewer.userId,
+      aiQueryId:    queryId,
+    })
+  } catch (error) {
+    await finishLog(queryId, { status: AiQueryStatus.FAILED, error: 'Internal server error', lookups: log, durationMs: Date.now() - started })
+    throw error
+  }
+
+  const durationMs = Date.now() - started
+  if (!result.success) {
+    await finishLog(queryId, { status: AiQueryStatus.FAILED, error: result.error, lookups: log, durationMs })
+    return result
+  }
+  await finishLog(queryId, { status: AiQueryStatus.ANSWERED, answer: result.data.text, lookups: log, durationMs })
   return {
     success: true,
-    data: { answer: result.data.text, lookups, costUsd: result.data.costUsd },
+    data: { answer: result.data.text, lookups, costUsd: result.data.costUsd, conversationId: conversationKey },
   }
 }
 

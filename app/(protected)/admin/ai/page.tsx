@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { AiService, LATEST_AI_CALLS, TEST_MESSAGE_MAX } from '@/services/ai.service'
 import { shortDateLabel } from '@/lib/dates'
 import { formatUsd } from '@/lib/format'
@@ -105,7 +106,11 @@ export default async function AiSettingsPage() {
       </section>
 
       <section className="mt-4 rounded-xl border border-gray-200 bg-white">
-        <h2 className="border-b border-gray-100 px-5 py-3 text-sm font-semibold text-gray-700">Latest {LATEST_AI_CALLS} calls</h2>
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+          <h2 className="text-sm font-semibold text-gray-700">Latest {LATEST_AI_CALLS} calls</h2>
+          {/* Week 9 Task 4 (H7): the assistant's query log. */}
+          <Link href="/admin/ai/questions" className="text-sm text-orange-600 hover:underline">Assistant questions →</Link>
+        </div>
         <RecentAiCalls calls={overview.latestCalls} />
       </section>
     </div>

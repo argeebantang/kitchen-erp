@@ -15,6 +15,8 @@ const MessageSchema = z.object({
 // The page sends the conversation so far; the last message is the question.
 const AskSchema = z.object({
   messages: z.array(MessageSchema).min(1).max(ASSISTANT_HISTORY + 1),
+  // Null for a new conversation: the answer carries the id to send next time.
+  conversationId: z.string().uuid().nullable().default(null),
 }).superRefine(({ messages }, ctx) => {
   // Zod still runs this when .min(1) has failed, so an empty list reaches here.
   const question = messages.at(-1)
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const result = await AssistantService.ask(parsed.data.messages, { userId, role })
+    const result = await AssistantService.ask(parsed.data.messages, { userId, role }, parsed.data.conversationId)
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }

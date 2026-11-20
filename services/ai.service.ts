@@ -285,6 +285,8 @@ type RoundInput = {
   tools?: Anthropic.Beta.BetaTool[]
   /** Automatic caching of the growing conversation, for a tool loop's later rounds. */
   cacheTail?: boolean
+  /** The assistant question this round belongs to (Week 9 Task 4), recorded on its AiCall. */
+  aiQueryId?: string | null
 }
 
 type RoundSuccess = { message: Anthropic.Beta.BetaMessage; usage: AiUsageEstimate; durationMs: number; callId: string }
@@ -302,7 +304,7 @@ async function round(input: RoundInput): Promise<AiResult<RoundSuccess>> {
   }
 
   const settings = AI_FEATURES[input.feature]
-  const call = { feature: input.feature, model: settings.model, userId: input.userId }
+  const call = { feature: input.feature, model: settings.model, userId: input.userId, aiQueryId: input.aiQueryId ?? null }
 
   // Soft cap (D5). Two calls at once can both pass and overshoot by a call's
   // cost; the Console's spend limit, set higher, is the hard stop.
@@ -411,6 +413,8 @@ export type AiConverseInput = AiCompleteInput & {
   runTool(call: AiToolCall): Promise<AiToolResult>
   /** Claude calls before giving up; each one is recorded and counted toward the budget. */
   maxRounds: number
+  /** The logged question (AiQuery) every round's AiCall points at; null when it could not be logged. */
+  aiQueryId: string | null
 }
 
 export type AiConversation = {
@@ -451,6 +455,7 @@ async function converse(input: AiConverseInput): Promise<AiResult<AiConversation
       messages,
       tools:   input.tools,
       cacheTail: true,
+      aiQueryId: input.aiQueryId,
     })
     if (!result.success) return result
 

@@ -15,6 +15,8 @@ export type CreateAiCallInput = {
   durationMs?: number
   requestId?: string | null
   errorType?: string | null
+  /** The assistant question this call is a round of (Week 9 Task 4); null for other features. */
+  aiQueryId?: string | null
 }
 
 const aiCallSummarySelect = {

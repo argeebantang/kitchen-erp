@@ -214,9 +214,9 @@ Week 9 Task 3 (see `docs/2026-11-19-week9-nl-query.md`). One question per reques
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/ai/assistant` | `{ messages: [{ role: 'user' \| 'assistant', content }] }` — 1–7 messages, each 1–4,000 characters after trimming; the last is the question (`user`, at most 1,000) | 200 `{ answer, lookups: [{ tool, label, query: { sql, rowCount, truncated } \| null }], costUsd }` — `query` is set for `run_query` lookups ("How I got this"); `costUsd` covers every round | 400 validation, or Claude declined · 422 more than 5 rounds of lookups · 429 budget used up or rate limited · 502 key rejected, cut off or another API error · 503 not set up, unreachable or overloaded |
+| POST | `/api/ai/assistant` | `{ messages: [{ role: 'user' \| 'assistant', content }], conversationId? }` — 1–7 messages, each 1–4,000 characters after trimming; the last is the question (`user`, at most 1,000); `conversationId` a uuid from the previous answer, or null / absent for a new conversation (Week 9 Task 4) | 200 `{ answer, lookups: [{ tool, label, query: { sql, rowCount, truncated } \| null }], costUsd, conversationId }` — `query` is set for `run_query` lookups ("How I got this"); `costUsd` covers every round | 400 validation, or Claude declined · 422 more than 5 rounds of lookups · 429 budget used up or rate limited · 502 key rejected, cut off or another API error · 503 not set up, unreachable or overloaded |
 
-ADMIN, ACCOUNTING, PRODUCTION_MANAGER (middleware; others → `/unauthorized`). Each round is one `ASSISTANT` `AiCall` against the caller (`x-user-id`). The tools offered depend on the role and on `AI_DATABASE_URL` (`run_query` only when it is set).
+ADMIN, ACCOUNTING, PRODUCTION_MANAGER (middleware; others → `/unauthorized`). Each question is logged as an `AiQuery` (Week 9 Task 4; admins read it at `/admin/ai/questions`, a Server Component with no endpoint) and each round is one `ASSISTANT` `AiCall` against the caller (`x-user-id`) pointing at it. The tools offered depend on the role and on `AI_DATABASE_URL` (`run_query` only when it is set).
 
 ## Notifications
 

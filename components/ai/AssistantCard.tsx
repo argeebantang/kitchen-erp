@@ -19,14 +19,18 @@ const EXAMPLES = [
 /**
  * The dashboard assistant (Week 9 Task 3, F5). The conversation lives here,
  * in the page: each question is sent with the last `history` messages so a
- * follow-up has its context, and nothing is stored on the server. A failed
- * question is not added; it goes back into the box to try again.
+ * follow-up has its context; the server logs each question for admins
+ * (Week 9 Task 4) but keeps no conversation state. A failed question is not
+ * added; it goes back into the box to try again.
  */
 export function AssistantCard({ maxLength, history }: { maxLength: number; history: number }) {
   const [turns, setTurns]       = useState<Turn[]>([])
   const [question, setQuestion] = useState('')
   const [pending, setPending]   = useState<string | null>(null)
   const [error, setError]       = useState<string | null>(null)
+  // Issued by the server with the first answer and sent back with follow-ups,
+  // so the query log keeps a conversation together (Week 9 Task 4, H4).
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,7 +52,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
       const response = await fetch('/api/ai/assistant', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ messages }),
+        body:    JSON.stringify({ messages, conversationId }),
       })
       const body = await response.json().catch(() => null)
       if (!response.ok || !body) {
@@ -57,6 +61,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
         return
       }
       const answer: AssistantAnswerDto = body
+      setConversationId(answer.conversationId)
       setTurns(previous => [
         ...previous,
         { role: 'user', content: asked },
@@ -87,7 +92,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
         {turns.length > 0 && (
           <button
             type="button"
-            onClick={() => { setTurns([]); setError(null) }}
+            onClick={() => { setTurns([]); setError(null); setConversationId(null) }}
             disabled={pending !== null}
             className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
           >
