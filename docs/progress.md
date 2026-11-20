@@ -26,7 +26,7 @@ and as the foundation for Week 11's notification bell + email. Final count is th
 | Conversion costing + approval | **Done (2026-11-12).** `ConversionOrder` replaces the unused `Conversion` stub: status, submitter, `sourceCost` / `conversionCost` / `costPerUnit` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-conversion-orders.md`. | Week 7 |
 | `writeoffs` | **Done (2026-11-12).** `WriteOff` — one finished-goods lot at one branch, quantity, reason (`WriteOffReason`), status, `unitCost` / `totalCost` recorded at approval (the approver is on `Approval`); see `docs/2026-11-12-week7-write-offs.md`. | Week 7 |
 | `ai_insights` | **Done (2026-11-19)** as `AiInsight` — stored AI output about one record (type + reference, unique), status PENDING / READY / FAILED, the text with the facts and prompt it came from, the `AiCall` behind it; first used by Feature 1; see `docs/2026-11-19-week9-cost-variance-explainer.md`. 31 models. | Week 9 |
-| `ai_query_log` | **Missing.** Required by Feature 2 and its write-action audit trail. | Week 9 |
+| `ai_query_log` | **Done (2026-11-20)** as `AiQuery` — one row per assistant question: who, the question, the answer or the error shown, each lookup (tool, input, SQL, rows, error); its rounds are the `AiCall` rows pointing at it (`aiQueryId`). The write-action columns (action type, confirmed / cancelled, created document) come with the write actions. See `docs/2026-11-20-week9-ai-query-log.md`. 32 models. | Week 9 |
 | `AiCall` (not on the plan) | **Done (2026-11-18).** One row per Claude API call — feature, outcome, tokens, estimated USD cost — for the monthly AI budget and AI Settings; see `docs/2026-11-18-week9-claude-api-integration.md`. 30 models. | Week 9 |
 
 Two consequences worth planning around:
@@ -478,8 +478,19 @@ expensive batches and what was lost to write-offs and transfers.
       createdAt; no AI or notification tables; read-only, 5 s, 200 rows), shown under "How I got this". Optional
       `AI_DATABASE_URL`. The other five named functions are covered by `run_query` for now; the grants are not per
       branch, so branch and procurement roles wait for row-level security. `POST /api/ai/assistant`.
+      *Decision 2026-11-20:* the other five named functions are **skipped** — `run_query` answers any question
+      from the data, which is what the owner wants from the assistant; fixed per-topic functions (like
+      `get_production_costs`) would only be worth adding to give branch / procurement managers a scoped assistant.
 - [ ] AI write actions — `create_purchase_request`, `create_production_order`, confirm-before-execute
-- [ ] AI query log table (incl. action type, confirmed/cancelled, created document id)
+- [~] AI query log table (incl. action type, confirmed/cancelled, created document id) — **log done 2026-11-20**
+      (`docs/2026-11-20-week9-ai-query-log.md`); the action columns come with the write actions. **`AiQuery`**
+      (migration `20261120090000_ai_query_log`, 32 models): every assistant question, PENDING → ANSWERED / FAILED,
+      the answer or the error the user saw, each lookup in order (tool, Claude's input, SQL, row count, error — never
+      the rows), a conversation id the server issues and the card sends back. `AiCall.aiQueryId` groups a question's
+      rounds; rounds and cost are summed from them. A log that cannot be written never blocks the answer. **Admin →
+      AI Settings → Assistant questions** (`/admin/ai/questions`, ADMIN): 50 per page, filter by who asked, one
+      conversation in order, each question expandable. Not readable by `kitchen_ai_reader`. Tested by Claude at the
+      owner's request.
 - [ ] Streaming NL query UI
 
 ### Week 10 — KitchenAI Predictive Features

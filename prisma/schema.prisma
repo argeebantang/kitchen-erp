@@ -173,6 +173,14 @@ enum AiInsightStatus {
   FAILED
 }
 
+/// Where a question to the assistant is (Week 9 Task 4, H1). PENDING while
+/// Claude is answering — one left PENDING means the server stopped mid-question.
+enum AiQueryStatus {
+  PENDING
+  ANSWERED
+  FAILED
+}
+
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -201,6 +209,7 @@ model User {
   notifications           Notification[]
   receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
   aiCalls                 AiCall[]
+  aiQueries               AiQuery[]
 }
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
@@ -1015,12 +1024,52 @@ model AiCall {
   /// ('APIError 400: Your credit balance is too low…'), or the refusal
   /// category ('refusal: cyber'). At most 300 characters.
   errorType        String?
+  /// The assistant question this call was a round of (Week 9 Task 4, H3);
+  /// null for every other feature.
+  aiQueryId        String?
+  aiQuery          AiQuery?      @relation(fields: [aiQueryId], references: [id], onDelete: SetNull)
   createdAt        DateTime      @default(now())
 
   insights         AiInsight[]
 
   // Month-to-date spend (the budget) and the latest calls both read by time.
   @@index([createdAt])
+  @@index([aiQueryId])
+}
+
+/// One question to the dashboard assistant (Week 9 Task 4) — the plan's
+/// ai_query_log, the audit trail admins read on AI Settings → Assistant
+/// questions. Created PENDING before Claude is called, so each round's
+/// AiCall can point at it; rounds, tokens and cost are read from those
+/// calls, never copied here. The write actions (Task 5) add their own
+/// columns. Not granted to kitchen_ai_reader: the assistant cannot read
+/// what people asked it.
+model AiQuery {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id])
+  /// Made by the server: the questions of one conversation share it (H4).
+  conversationId String
+  question       String
+  status         AiQueryStatus @default(PENDING)
+  /// Null until ANSWERED.
+  answer         String?
+  /// What the user was shown when it FAILED.
+  error          String?
+  /// Every tool call in order (H2): { tool, input, label, sql, rowCount,
+  /// truncated, error }. Never the rows a query returned.
+  lookups        Json          @default("[]")
+  /// The whole question, lookups included, once finished.
+  durationMs     Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  aiCalls        AiCall[]
+
+  // The admin list: newest first, optionally one user's.
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([conversationId])
 }
 
 /// Stored AI output about one record (Week 9 Task 2, E3) — the plan's
