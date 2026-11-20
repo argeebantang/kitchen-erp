@@ -71,7 +71,7 @@ function ProductionOrderDraft({ draft }: { draft: ProductionOrderDraftDto }) {
       <p className="mt-1.5 text-xs text-gray-700">
         <span className="font-medium">{draft.finishedGoodName}</span>
         {' '}· {draft.batchCount} {draft.batchCount === 1 ? 'batch' : 'batches'} × {formatQuantity(draft.batchWeight)} {draft.unit}
-        {' '}= {formatQuantity(draft.plannedQty)} {draft.unit} · {shortDateLabel(draft.plannedDate)} · {draft.branchName} · recipe v{draft.bomVersion}
+        {' '}= {formatQuantity(draft.plannedQty)} {draft.unit} · {shortDateLabel(draft.plannedDate)} · Kitchen: <span className="font-medium">{draft.branchName}</span> · recipe v{draft.bomVersion}
       </p>
       {draft.notes && <p className="mt-0.5 text-xs text-gray-500">Note: {draft.notes}</p>}
       <table className="mt-2 w-full text-xs">

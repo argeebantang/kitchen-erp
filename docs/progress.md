@@ -498,6 +498,14 @@ expensive batches and what was lost to write-offs and transfers.
       AI Settings → Assistant questions** (`/admin/ai/questions`, ADMIN): 50 per page, filter by who asked, one
       conversation in order, each question expandable, and any draft with its outcome and document. Not readable by
       `kitchen_ai_reader`. Tested by Claude at the owner's request.
+- [x] The assistant plans at the kitchen you name — **done 2026-11-20** (`docs/2026-11-20-week9-ai-kitchen-choice.md`,
+      Task 7). There are several central kitchens and outlets never cook (owner, 2026-11-20).
+      `draft_production_order` takes an optional `kitchen` matched among active commissaries:
+      - one kitchen and none named → that kitchen
+      - several → Claude asks
+      - an outlet named → refused
+      The panel shows "Kitchen: …". `findMainKitchen()` was removed. Next in the multi-kitchen plan: kitchens-only
+      production / conversion / receiving, returns from outlets, and the branch stock request.
 - [~] Streaming NL query UI — **skipped by owner decision (2026-11-20)**: a nice-to-have. Answers take about 3 s
       (1–2 rounds, mostly the lookup; 80–240 output tokens) and the card already shows "Thinking…" and blocks a
       second question, so streaming would only change how the wait feels. Revisit if the assistant feels slow in
