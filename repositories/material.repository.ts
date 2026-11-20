@@ -99,6 +99,27 @@ export const MaterialRepository = {
     return new Map(rows.map(row => [row.id, row]))
   },
 
+  /**
+   * Active materials whose name or code contains every word ('all') or any
+   * word ('any'), case-insensitive, by name. For the assistant's drafts (Week
+   * 9 Task 5, I4), which name materials the way people say them.
+   */
+  async searchActive(words: string[], match: 'all' | 'any', take: number): Promise<MaterialWithRelations[]> {
+    if (words.length === 0) return []
+    const conditions: Prisma.MaterialWhereInput[] = words.map(word => ({
+      OR: [
+        { name: { contains: word, mode: Prisma.QueryMode.insensitive } },
+        { code: { contains: word, mode: Prisma.QueryMode.insensitive } },
+      ],
+    }))
+    return prisma.material.findMany({
+      where:   match === 'all' ? { isActive: true, AND: conditions } : { isActive: true, OR: conditions },
+      include: materialInclude,
+      orderBy: { name: 'asc' },
+      take,
+    })
+  },
+
   async existsByCode(code: string): Promise<boolean> {
     const found = await prisma.material.findUnique({
       where:  { code },

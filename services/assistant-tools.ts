@@ -3,7 +3,9 @@ import { Prisma, Role } from '@prisma/client'
 import { z } from 'zod'
 import { addDays, addMonths, shortDateLabel, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { AiReaderRepository } from '@/repositories/ai-reader.repository'
+import { ACTION_ROLES, AssistantActionService, DRAFT_MAX_LINES } from '@/services/assistant-action.service'
 import { CostingService } from '@/services/costing.service'
+import { MAX_BATCH_COUNT } from '@/services/production-order.service'
 
 /**
  * The assistant's tools (Week 9 Task 3, F2 / F3): what Claude may ask the
@@ -14,6 +16,9 @@ import { CostingService } from '@/services/costing.service'
  */
 
 export type AssistantToolViewer = { userId: string; role: string }
+
+/** What a tool runs with: who is asking, and the question being answered (null if it could not be logged) — a draft is stored on it. */
+export type AssistantToolContext = AssistantToolViewer & { queryId: string | null }
 
 /** The SQL behind an answer, for "How I got this" (F3). */
 export type ToolQuery = { sql: string; rowCount: number; truncated: boolean }
@@ -26,9 +31,11 @@ export type ToolOutcome =
 export type AssistantTool = {
   definition: Anthropic.Beta.BetaTool
   roles: readonly Role[]
+  /** 'draft' tools prepare a document for the user to confirm (Week 9 Task 5); they are not shown under "Looked up". */
+  kind: 'lookup' | 'draft'
   /** False when the server is not set up for it; the tool is then not offered. */
   available(): boolean
-  run(input: unknown, viewer: AssistantToolViewer): Promise<ToolOutcome>
+  run(input: unknown, context: AssistantToolContext): Promise<ToolOutcome>
 }
 
 type ToolSpec<T> = {
@@ -38,22 +45,24 @@ type ToolSpec<T> = {
   inputSchema: Anthropic.Beta.BetaTool.InputSchema
   input: z.ZodType<T>
   roles: readonly Role[]
+  kind?: 'lookup' | 'draft'
   available?: () => boolean
-  run(input: T, viewer: AssistantToolViewer): Promise<ToolOutcome>
+  run(input: T, context: AssistantToolContext): Promise<ToolOutcome>
 }
 
 function defineTool<T>(spec: ToolSpec<T>): AssistantTool {
   return {
     definition: { name: spec.name, description: spec.description, input_schema: spec.inputSchema, strict: true },
     roles: spec.roles,
+    kind: spec.kind ?? 'lookup',
     available: spec.available ?? (() => true),
-    async run(input, viewer) {
+    async run(input, context) {
       const parsed = spec.input.safeParse(input)
       if (!parsed.success) {
         const issues = parsed.error.issues.map(issue => `${issue.path.join('.') || 'input'}: ${issue.message}`)
         return { ok: false, error: `Invalid input. ${issues.join('; ')}` }
       }
-      return spec.run(parsed.data, viewer)
+      return spec.run(parsed.data, context)
     },
   }
 }
@@ -235,9 +244,119 @@ const runQuery = defineTool({
   },
 })
 
+// ─── draft_purchase_request ──────────────────────────────────────────────────
+
+/** Largest quantity on one drafted line, in the material's unit. */
+const DRAFT_QUANTITY_MAX = 100_000
+
+const DraftPurchaseRequestInput = z.object({
+  items: z.array(z.object({
+    material: z.string().trim().min(1).max(100),
+    // At most 3 decimals: the gram, for kg.
+    quantity: z.number().positive().max(DRAFT_QUANTITY_MAX)
+      .refine(value => Number(value.toFixed(3)) === value, 'At most 3 decimal places'),
+    unit:     z.string().trim().min(1).max(30),
+  }).strict()).min(1).max(DRAFT_MAX_LINES),
+  neededBy: isoDate.optional(),
+  notes:    z.string().trim().max(500).optional(),
+}).strict()
+
+const draftPurchaseRequest = defineTool({
+  name: 'draft_purchase_request',
+  description: [
+    'Prepares a purchase request for the user to confirm. It creates nothing: the draft is shown under your answer with Confirm and Cancel buttons, and only the user\'s Confirm creates it, as a DRAFT request they then submit for approval.',
+    'Use it only when the user asks to order, buy or request materials. One draft per question, with every material on it.',
+    'Name each material as the user did (in English, as materials are named in the system); the server finds it. If a name matches several materials or none, you get the candidates: ask the user which one, then draft again.',
+    'quantity is in the material\'s own unit; unit is the unit the user gave (e.g. kg). If it is not the material\'s unit you get an error: ask the user for the quantity in that unit, never convert.',
+    'Each line is priced at the material\'s current reference price. Returns the draft as saved.',
+  ].join(' '),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      items: {
+        type: 'array',
+        description: `The materials, at most ${DRAFT_MAX_LINES}, each once.`,
+        minItems: 1,
+        items: {
+          type: 'object',
+          properties: {
+            material: { type: 'string', description: 'The material\'s name, e.g. "pork belly".' },
+            quantity: { type: 'number', description: `How much, in the material's unit; more than 0, at most ${DRAFT_QUANTITY_MAX}, up to 3 decimals.` },
+            unit:     { type: 'string', description: 'The unit the user gave, e.g. "kg" or "L".' },
+          },
+          required: ['material', 'quantity', 'unit'],
+          additionalProperties: false,
+        },
+      },
+      neededBy: { type: 'string', format: 'date', description: 'When it is needed, YYYY-MM-DD, today or later. Only if the user said.' },
+      notes:    { type: 'string', description: 'A note for the approver, at most 500 characters. Only if the user gave one.' },
+    },
+    required: ['items'],
+    additionalProperties: false,
+  },
+  input: DraftPurchaseRequestInput,
+  kind: 'draft',
+  // Week 9 Task 5, I5: the kitchen's planners. Re-checked at Confirm.
+  roles: ACTION_ROLES,
+  async run(input, context) {
+    const outcome = await AssistantActionService.draftPurchaseRequest(input, context)
+    return outcome.ok
+      ? { ok: true, label: 'purchase request draft', data: outcome.summary, query: null }
+      : { ok: false, error: outcome.error }
+  },
+})
+
+// ─── draft_production_order ──────────────────────────────────────────────────
+
+/** Largest batch weight Claude may set, in the product's unit. */
+const DRAFT_BATCH_WEIGHT_MAX = 1000
+
+const DraftProductionOrderInput = z.object({
+  product:     z.string().trim().min(1).max(100),
+  batches:     z.number().int().min(1).max(MAX_BATCH_COUNT),
+  plannedDate: isoDate,
+  batchWeight: z.number().positive().max(DRAFT_BATCH_WEIGHT_MAX)
+    .refine(value => Number(value.toFixed(3)) === value, 'At most 3 decimal places').optional(),
+  notes:       z.string().trim().max(500).optional(),
+}).strict()
+
+const draftProductionOrder = defineTool({
+  name: 'draft_production_order',
+  description: [
+    'Prepares a production order (a planned cooking run) for the user to confirm. It creates nothing: the draft is shown under your answer with Confirm and Cancel buttons, and only the user\'s Confirm creates it, as a DRAFT order they then submit for approval.',
+    'Use it only when the user asks to plan, cook or produce something. One draft per question.',
+    'Name the product as the user did (e.g. "Bopis"); the server finds it. If the name matches several products or none, you get the candidates: ask the user which one, then draft again.',
+    'It is cooked at the main kitchen (Main Commissary). batches is how many batches; each batch is the recipe\'s batch size unless the user gave a weight per batch. If the user gave a total amount instead, ask how many batches.',
+    'plannedDate is required: if the user did not say when, ask; never assume a date.',
+    'Returns the draft as saved, with the ingredients that are short at the kitchen right now.',
+  ].join(' '),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      product:     { type: 'string', description: 'The product\'s name, e.g. "Bopis".' },
+      batches:     { type: 'integer', description: `How many batches, 1 to ${MAX_BATCH_COUNT}.` },
+      plannedDate: { type: 'string', format: 'date', description: 'The day to cook, YYYY-MM-DD, today or later.' },
+      batchWeight: { type: 'number', description: 'Weight of one batch in the product\'s unit, only if the user gave one. Leave it out to use the recipe\'s batch size.' },
+      notes:       { type: 'string', description: 'A note on the order, at most 500 characters. Only if the user gave one.' },
+    },
+    required: ['product', 'batches', 'plannedDate'],
+    additionalProperties: false,
+  },
+  input: DraftProductionOrderInput,
+  kind: 'draft',
+  // Week 9 Task 5, I5. ProductionOrderService.create checks the role again at Confirm.
+  roles: ACTION_ROLES,
+  async run(input, context) {
+    const outcome = await AssistantActionService.draftProductionOrder(input, context)
+    return outcome.ok
+      ? { ok: true, label: 'production order draft', data: outcome.summary, query: null }
+      : { ok: false, error: outcome.error }
+  },
+})
+
 // ─── Registry ────────────────────────────────────────────────────────────────
 
-const TOOLS: readonly AssistantTool[] = [getProductionCosts, runQuery]
+const TOOLS: readonly AssistantTool[] = [getProductionCosts, runQuery, draftPurchaseRequest, draftProductionOrder]
 
 /** The tools offered to a role (F2), among those the server is set up for. */
 export function toolsFor(role: string): AssistantTool[] {

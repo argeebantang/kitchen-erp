@@ -181,6 +181,20 @@ enum AiQueryStatus {
   FAILED
 }
 
+/// A document the assistant drafted for the user to confirm (Week 9 Task 5, I1).
+enum AiActionType {
+  PURCHASE_REQUEST
+  PRODUCTION_ORDER
+}
+
+/// What became of a drafted action (I8). "Expired" is not stored: a PROPOSED
+/// draft older than ACTION_TTL_HOURS (24, assistant-action.service.ts) can no longer be confirmed.
+enum AiActionStatus {
+  PROPOSED
+  CONFIRMED
+  CANCELLED
+}
+
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 model User {
@@ -1041,7 +1055,7 @@ model AiCall {
 /// ai_query_log, the audit trail admins read on AI Settings → Assistant
 /// questions. Created PENDING before Claude is called, so each round's
 /// AiCall can point at it; rounds, tokens and cost are read from those
-/// calls, never copied here. The write actions (Task 5) add their own
+/// calls, never copied here. The write actions (Task 5) are the action*
 /// columns. Not granted to kitchen_ai_reader: the assistant cannot read
 /// what people asked it.
 model AiQuery {
@@ -1061,6 +1075,22 @@ model AiQuery {
   lookups        Json          @default("[]")
   /// The whole question, lookups included, once finished.
   durationMs     Int?
+  /// The write action Claude drafted while answering (Week 9 Task 5) — at
+  /// most one per question (I7); all null when it drafted none.
+  actionType           AiActionType?
+  actionStatus         AiActionStatus?
+  /// The checked draft, exactly what Confirm creates (I2): ids resolved on
+  /// the server, plus the names and figures the panel shows.
+  actionDraft          Json?
+  actionProposedAt     DateTime?
+  /// Set first when someone confirms or cancels — the claim that makes a
+  /// double click create one document, not two — and kept as when it was decided.
+  actionDecidedAt      DateTime?
+  /// The document Confirm created (PurchaseRequest or ProductionOrder by
+  /// actionType); polymorphic like Approval.referenceId, so not a foreign key.
+  actionDocumentId     String?
+  /// PR-000012 / PRD-000013, for the log without a lookup.
+  actionDocumentNumber String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 

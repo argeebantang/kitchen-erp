@@ -1,4 +1,4 @@
-import { AiQueryStatus, Prisma } from '@prisma/client'
+import { AiActionStatus, AiActionType, AiQueryStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 /**
@@ -31,8 +31,16 @@ export type FinishAiQueryInput =
 
 export type AiQueryListFilter = { userId?: string; conversationId?: string; skip: number; take: number; oldestFirst: boolean }
 
+const aiActionSelect = {
+  id: true, userId: true, actionType: true, actionStatus: true, actionDraft: true,
+  actionProposedAt: true, actionDecidedAt: true, actionDocumentId: true, actionDocumentNumber: true,
+} satisfies Prisma.AiQuerySelect
+
+export type AiActionRow = Prisma.AiQueryGetPayload<{ select: typeof aiActionSelect }>
+
 const aiQueryListSelect = {
-  id: true, conversationId: true, question: true, status: true, answer: true, error: true,
+  ...aiActionSelect,
+  conversationId: true, question: true, status: true, answer: true, error: true,
   lookups: true, durationMs: true, createdAt: true,
   user: { select: { name: true } },
 } satisfies Prisma.AiQuerySelect
@@ -40,6 +48,10 @@ const aiQueryListSelect = {
 export type AiQueryListRow = Prisma.AiQueryGetPayload<{ select: typeof aiQueryListSelect }>
 
 export type AiQueryCallTotals = { aiQueryId: string; rounds: number; costUsd: Prisma.Decimal; inputTokens: number; outputTokens: number }
+
+export type CompleteAiActionInput =
+  | { status: typeof AiActionStatus.CONFIRMED; documentId: string; documentNumber: string }
+  | { status: typeof AiActionStatus.CANCELLED }
 
 export const AiQueryRepository = {
   /** Records the question before Claude is called; returns its id for the rounds to point at. */
@@ -95,6 +107,54 @@ export const AiQueryRepository = {
       inputTokens:  group._sum.inputTokens ?? 0,
       outputTokens: group._sum.outputTokens ?? 0,
     }])
+  },
+
+  /**
+   * Stores the draft Claude proposed on its question, PROPOSED (Week 9 Task
+   * 5, I2). False when the question already has one: one per question (I7).
+   */
+  async proposeAction(id: string, type: AiActionType, draft: Prisma.InputJsonValue): Promise<boolean> {
+    const { count } = await prisma.aiQuery.updateMany({
+      where: { id, actionType: null },
+      data:  { actionType: type, actionStatus: AiActionStatus.PROPOSED, actionDraft: draft, actionProposedAt: new Date() },
+    })
+    return count === 1
+  },
+
+  async findAction(id: string): Promise<AiActionRow | null> {
+    return prisma.aiQuery.findUnique({ where: { id }, select: aiActionSelect })
+  },
+
+  /**
+   * Claims a PROPOSED action for one decision (I7): only its asker, only if
+   * proposed at or after `proposedSince`, only once. Setting actionDecidedAt
+   * is the claim, so of two clicks one wins and the other gets false.
+   */
+  async claimAction(id: string, userId: string, proposedSince: Date): Promise<boolean> {
+    const { count } = await prisma.aiQuery.updateMany({
+      where: { id, userId, actionStatus: AiActionStatus.PROPOSED, actionDecidedAt: null, actionProposedAt: { gte: proposedSince } },
+      data:  { actionDecidedAt: new Date() },
+    })
+    return count === 1
+  },
+
+  /** Gives a claim back when creating the document failed, so it can be tried again. */
+  async releaseAction(id: string): Promise<void> {
+    await prisma.aiQuery.updateMany({
+      where: { id, actionStatus: AiActionStatus.PROPOSED },
+      data:  { actionDecidedAt: null },
+    })
+  },
+
+  /** Records the decision on a claimed action: CONFIRMED with the document it created, or CANCELLED. */
+  async completeAction(id: string, input: CompleteAiActionInput): Promise<boolean> {
+    const { count } = await prisma.aiQuery.updateMany({
+      where: { id, actionStatus: AiActionStatus.PROPOSED, actionDecidedAt: { not: null } },
+      data: input.status === AiActionStatus.CONFIRMED
+        ? { actionStatus: input.status, actionDocumentId: input.documentId, actionDocumentNumber: input.documentNumber }
+        : { actionStatus: input.status },
+    })
+    return count === 1
   },
 
   /** Everyone who has asked the assistant, by name — the page's user filter. */

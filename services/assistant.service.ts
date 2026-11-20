@@ -4,6 +4,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { addDays, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { AiService, type AiResult, type AiToolCall, type AiToolResult } from '@/services/ai.service'
 import { toolsFor, type AssistantTool, type ToolOutcome, type ToolQuery } from '@/services/assistant-tools'
+import { AssistantActionService, type AssistantActionDto } from '@/services/assistant-action.service'
 import { AiQueryRepository, type AiQueryLookupRecord, type FinishAiQueryInput } from '@/repositories/ai-query.repository'
 
 /**
@@ -45,6 +46,8 @@ export type AssistantAnswerDto = {
   costUsd: string
   /** Send it back with the next question so the log keeps the conversation together (Week 9 Task 4, H4). */
   conversationId: string
+  /** A document Claude drafted for the user to confirm or cancel (Week 9 Task 5); null when none. */
+  action: AssistantActionDto | null
 }
 
 /**
@@ -57,6 +60,10 @@ function instructionsFor(tools: AssistantTool[]): string {
   const has = (name: string) => tools.some(tool => tool.definition.name === name)
   const costs = has('get_production_costs')
   const query = has('run_query')
+  const draftsRequests = has('draft_purchase_request')
+  const draftsOrders = has('draft_production_order')
+  const drafts = draftsRequests || draftsOrders
+  const drafted = [draftsRequests && 'purchase requests', draftsOrders && 'production orders'].filter(kind => typeof kind === 'string').join(' and ')
 
   const lookups = [
     costs && `- For production cost or spending on production ("gastos", "magkano ang nagastos"), use get_production_costs${query ? ', not run_query' : ''}: its figures are the ones on the Costing dashboard. Pick the period the question means; for any other range use custom with from and to. A week runs Monday to Sunday.`,
@@ -64,6 +71,13 @@ function instructionsFor(tools: AssistantTool[]): string {
     query
       ? "- If your tools cannot get what a question needs (AI usage, notifications, users' emails or passwords), say plainly that you cannot look that up."
       : `- You can look up ${costs ? 'production costs only' : 'nothing in the system yet'}. For anything else (stock, purchases, users and so on), say plainly that you cannot look that up yet, and do not guess.`,
+    draftsRequests && '- When the user asks to order, buy or request materials ("mag-order", "bumili"), draft a purchase request with draft_purchase_request.',
+    draftsOrders && '- When the user asks to plan, cook or produce something ("magluto", "gawa tayo ng"), draft a production order with draft_production_order. Mention any ingredients that are short.',
+    drafts && '- Draft only when asked. If something it needs is unclear (an item, a quantity, a date), ask first.',
+    drafts && "- A draft creates nothing. The page shows it under your answer with Confirm and Cancel, and only the user's Confirm creates it. Never say anything was created, submitted, ordered or scheduled: say you prepared a draft for them to check and confirm below.",
+    drafts
+      ? `- Apart from drafting ${drafted}, you cannot create, change or approve anything in the system. If asked to, say so.`
+      : '- You cannot create, change or approve anything in the system. If asked to, say so.',
   ].filter(line => typeof line === 'string')
 
   return [
@@ -106,6 +120,7 @@ function conversation(messages: AssistantMessage[]): Anthropic.Beta.BetaMessageP
 function toolRunner(
   tools: AssistantTool[],
   viewer: AssistantViewer,
+  queryId: string | null,
   lookups: AssistantLookupDto[],
   log: AiQueryLookupRecord[],
 ) {
@@ -121,7 +136,7 @@ function toolRunner(
     }
     let outcome: ToolOutcome
     try {
-      outcome = await tool.run(input, viewer)
+      outcome = await tool.run(input, { ...viewer, queryId })
     } catch (error) {
       entry.error = 'The lookup failed on the server.'
       throw error
@@ -134,6 +149,8 @@ function toolRunner(
     entry.sql = outcome.query?.sql ?? null
     entry.rowCount = outcome.query?.rowCount ?? null
     entry.truncated = outcome.query?.truncated ?? null
+    // A draft is shown as its own panel, not under "Looked up".
+    if (tool.kind === 'draft') return { content: JSON.stringify(outcome.data), isError: false }
     const seen = lookups.some(lookup => lookup.label === outcome.label && lookup.query?.sql === outcome.query?.sql)
     if (!seen) lookups.push({ tool: name, label: outcome.label, query: outcome.query })
     return { content: JSON.stringify(outcome.data), isError: false }
@@ -156,6 +173,22 @@ async function finishLog(id: string | null, input: FinishAiQueryInput): Promise<
     await AiQueryRepository.finish(id, input)
   } catch (error) {
     console.error(`[AI] could not finish assistant question ${id} in the log`, error)
+  }
+}
+
+/** The draft a tool stored on this question, if one succeeded. A failed read only loses the panel, not the answer. */
+async function draftedAction(
+  queryId: string | null,
+  tools: AssistantTool[],
+  log: AiQueryLookupRecord[],
+): Promise<AssistantActionDto | null> {
+  const drafted = log.some(entry => entry.error === null && tools.some(tool => tool.kind === 'draft' && tool.definition.name === entry.tool))
+  if (queryId === null || !drafted) return null
+  try {
+    return await AssistantActionService.forQuery(queryId)
+  } catch (error) {
+    console.error(`[AI] could not read the draft on assistant question ${queryId}`, error)
+    return null
   }
 }
 
@@ -185,7 +218,7 @@ async function ask(
       context:      context(todayIsoDate()),
       messages:     conversation(messages),
       tools:        tools.map(tool => tool.definition),
-      runTool:      toolRunner(tools, viewer, lookups, log),
+      runTool:      toolRunner(tools, viewer, queryId, lookups, log),
       maxRounds:    ASSISTANT_MAX_ROUNDS,
       userId:       viewer.userId,
       aiQueryId:    queryId,
@@ -203,7 +236,10 @@ async function ask(
   await finishLog(queryId, { status: AiQueryStatus.ANSWERED, answer: result.data.text, lookups: log, durationMs })
   return {
     success: true,
-    data: { answer: result.data.text, lookups, costUsd: result.data.costUsd, conversationId: conversationKey },
+    data: {
+      answer: result.data.text, lookups, costUsd: result.data.costUsd, conversationId: conversationKey,
+      action: await draftedAction(queryId, tools, log),
+    },
   }
 }
 
