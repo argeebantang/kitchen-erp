@@ -22,6 +22,11 @@ export function formatDateTime(iso: string): string {
   })
 }
 
+/** The kitchen's clock time of a moment, "HH:MM" (24-hour, Asia/Manila) — e.g. against a cut-off (Week 9 Task 10). */
+export function timeOfDayAt(moment: Date): string {
+  return moment.toLocaleTimeString('en-GB', { timeZone: BUSINESS_TIME_ZONE, hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
 /** The business date (YYYY-MM-DD, Asia/Manila) of a moment — e.g. the day a run was reported done. */
 export function isoDateAt(moment: Date): string {
   // en-CA is the locale whose short date format is YYYY-MM-DD.

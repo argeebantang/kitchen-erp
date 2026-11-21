@@ -527,8 +527,14 @@ Several central kitchens; outlets never cook, hold no raw materials, order from 
       - Production counts what arrived, with lost in transit as for a delivery.
       - Lots keep their number, expiry and cost, so the kitchen can convert them.
       Migration `20261121090000_transfer_returns`.
-- [ ] Branch stock request `STR-000001`: an outlet orders finished goods from a kitchen by date; the kitchen sees
-      demand per good per day, plans production and sends the transfer from it
+- [x] Branch stock request — **done 2026-11-21** (`docs/2026-11-21-week9-stock-requests.md`, Week 9 Task 10).
+      `STR-000001`: an outlet's manager asks any kitchen for goods by a day. Due by `STOCK_REQUEST_CUTOFF` (15:00) the
+      day before; later ones are flagged Late. There is no approval.
+      - The kitchen's **Demand** board totals each good per day, with batches and Plan production pre-filled.
+      - The kitchen plans (a note when it cuts) or declines (a reason).
+      - **Send the delivery** pre-fills a linked transfer. Its receipt marks the request Fulfilled or Partly fulfilled,
+        and a rejected delivery can be sent again.
+      Migration `20261121120000_stock_requests` (34 models). The multi-kitchen plan is complete.
 
 ### Week 10 — KitchenAI Predictive Features
 - [ ] Waste Pattern Detector (weekly BullMQ job)

@@ -27,6 +27,10 @@ type Props = (TransferFormDto | ReturnFormDto) & {
   mode?: 'delivery' | 'return'
   /** The sender to start on, e.g. the outlet whose Branch Inventory the form was opened from. */
   initialFromBranchId?: string
+  /** Sending a stock request (Week 9 Task 10): its outlet and planned lines, and the request it fills. */
+  initialToBranchId?: string
+  initialLines?: { finishedGoodId: string; quantity: string }[]
+  stockRequest?: { id: string; requestNumber: string }
   cancelHref?: string
 }
 
@@ -63,17 +67,22 @@ type PreviewResult = { query: string; data: TransferPreviewDto } | { query: stri
  * server checks everything again.
  */
 export function TransferOrderForm({
-  fromBranches, toBranches, finishedGoods, maxLines, mode = 'delivery', initialFromBranchId, cancelHref = '/inventory/transfers',
+  fromBranches, toBranches, finishedGoods, maxLines, mode = 'delivery', initialFromBranchId,
+  initialToBranchId, initialLines, stockRequest, cancelHref = '/inventory/transfers',
 }: Props) {
   const router = useRouter()
   const isReturn = mode === 'return'
   const [fromBranchId, setFrom] = useState(
     fromBranches.find(branch => branch.id === initialFromBranchId)?.id ?? fromBranches[0]?.id ?? '',
   )
-  const [toBranchId, setTo]     = useState('')
-  const [notes, setNotes]       = useState('')
-  const [lines, setLines]       = useState<Line[]>([{ key: 1, finishedGoodId: '', quantity: '' }])
-  const [nextKey, setNextKey]   = useState(2)
+  const [toBranchId, setTo]     = useState(toBranches.find(branch => branch.id === initialToBranchId)?.id ?? '')
+  const [notes, setNotes]       = useState(stockRequest ? `For ${stockRequest.requestNumber}` : '')
+  const [lines, setLines]       = useState<Line[]>(
+    initialLines?.length
+      ? initialLines.map((line, index) => ({ key: index + 1, ...line }))
+      : [{ key: 1, finishedGoodId: '', quantity: '' }],
+  )
+  const [nextKey, setNextKey]   = useState((initialLines?.length ?? 0) + 2)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]       = useState<string | null>(null)
 
@@ -149,6 +158,7 @@ export function TransferOrderForm({
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
+          ...(stockRequest && !isReturn ? { stockRequestId: stockRequest.id } : {}),
           fromBranchId,
           toBranchId,
           notes: notes || null,

@@ -22,6 +22,7 @@ import {
   type StockTransferJob,
 } from '@/lib/queue'
 import { signalInventoryChanged } from '@/lib/realtime'
+import { StockRequestService } from '@/services/stock-request.service'
 
 export type StockTransferLineDto = {
   finishedGoodId: string
@@ -36,6 +37,8 @@ export type StockTransferSummaryDto = {
   transferNumber: string
   /** DELIVERY from a commissary, or RETURN from an outlet back to a kitchen (Week 9 Task 9). */
   kind: TransferKind
+  /** The stock request this delivery fills (Week 9 Task 10). */
+  stockRequest: { id: string; requestNumber: string } | null
   status: TransferStatus
   submittedById: string
   fromBranch: { id: string; name: string; code: string }
@@ -114,6 +117,8 @@ export type ReturnFormDto = {
 }
 
 export type CreateStockTransferServiceInput = {
+  /** Sent from a stock request (Week 9 Task 10): it must be PLANNED, from this kitchen to this outlet, with no other delivery open. */
+  stockRequestId?: string | null
   fromBranchId: string
   toBranchId: string
   notes?: string | null
@@ -245,6 +250,7 @@ function toSummary(transfer: StockTransferWithDetail): StockTransferSummaryDto {
     id:              transfer.id,
     transferNumber:  transfer.transferNumber,
     kind:            transfer.kind,
+    stockRequest:    transfer.stockRequest,
     status:          transfer.status,
     submittedById:   transfer.submittedById,
     fromBranch:      transfer.fromBranch,
@@ -586,10 +592,16 @@ export const StockTransferService = {
       return { success: false, error: 'Receiving branch not found', status: 400 }
     }
 
+    if (input.stockRequestId) {
+      const sendable = await StockRequestService.checkSendable(input.stockRequestId, sender.data.id, receiver.id)
+      if (!sendable.success) return sendable
+    }
+
     const lines = await checkLines(sender.data, input.lines)
     if (!lines.success) return lines
 
     const created = await StockTransferRepository.create({
+      stockRequestId: input.stockRequestId ?? null,
       fromBranchId:  sender.data.id,
       toBranchId:    receiver.id,
       submittedById: actor.userId,
@@ -893,6 +905,14 @@ export const StockTransferService = {
     }
     // The lots joined its stock; no longer arriving (Week 8 Task 5).
     signalInventoryChanged([transfer.toBranch.id])
+    // A delivery sent from a stock request fulfils it, fully or partly (Week 9 Task 10).
+    if (transfer.stockRequest) {
+      try {
+        await StockRequestService.onDeliveryReceived(transfer.stockRequest.id)
+      } catch (err) {
+        console.error(`[StockTransferService] could not update ${transfer.stockRequest.requestNumber} after ${transfer.transferNumber} was received`, err)
+      }
+    }
     await enqueue(TRANSFER_RECEIVED, id)
     return {
       success: true,

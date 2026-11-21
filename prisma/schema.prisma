@@ -122,6 +122,21 @@ enum TransferKind {
   RETURN
 }
 
+/// A branch stock request's life (Week 9 Task 10):
+///   SUBMITTED         the outlet asked; the kitchen has not answered
+///   PLANNED           the kitchen will send it — every line's planned
+///                     quantity set, any cut explained
+///   DECLINED          the kitchen will not send it (reason required); final
+///   FULFILLED         its delivery was received with everything asked for
+///   PARTLY_FULFILLED  its delivery was received with less than asked
+enum StockRequestStatus {
+  SUBMITTED
+  PLANNED
+  DECLINED
+  FULFILLED
+  PARTLY_FULFILLED
+}
+
 /// Why a transfer arrived short (Week 8 Task 4, V4) — categories for the
 /// Week 10 waste analysis, like WriteOffReason.
 enum TransferVarianceReason {
@@ -219,22 +234,24 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  managedBranch           Branch?           @relation("BranchManager")
-  approvals               Approval[]
-  submittedPurchaseOrders PurchaseOrder[]   @relation("PurchaseOrderSubmitter")
-  purchaseRequests        PurchaseRequest[]
-  productionOrders        ProductionOrder[]   @relation("ProductionOrderRequester")
-  submittedProductionOrders ProductionOrder[] @relation("ProductionOrderSubmitter")
-  completedProductionOrders ProductionOrder[] @relation("ProductionOrderCompleter")
-  submittedConversionOrders ConversionOrder[] @relation("ConversionOrderSubmitter")
-  submittedWriteOffs        WriteOff[]        @relation("WriteOffSubmitter")
-  submittedStockTransfers   StockTransfer[]   @relation("StockTransferSubmitter")
-  receivedStockTransfers    StockTransfer[]   @relation("StockTransferReceiver")
-  productionStatusChanges ProductionStatusChange[]
-  notifications           Notification[]
-  receivingReports        ReceivingReport[] @relation("ReceivingReportReceiver")
-  aiCalls                 AiCall[]
-  aiQueries               AiQuery[]
+  managedBranch             Branch?                  @relation("BranchManager")
+  approvals                 Approval[]
+  submittedPurchaseOrders   PurchaseOrder[]          @relation("PurchaseOrderSubmitter")
+  purchaseRequests          PurchaseRequest[]
+  productionOrders          ProductionOrder[]        @relation("ProductionOrderRequester")
+  submittedProductionOrders ProductionOrder[]        @relation("ProductionOrderSubmitter")
+  completedProductionOrders ProductionOrder[]        @relation("ProductionOrderCompleter")
+  submittedConversionOrders ConversionOrder[]        @relation("ConversionOrderSubmitter")
+  submittedWriteOffs        WriteOff[]               @relation("WriteOffSubmitter")
+  submittedStockTransfers   StockTransfer[]          @relation("StockTransferSubmitter")
+  receivedStockTransfers    StockTransfer[]          @relation("StockTransferReceiver")
+  submittedStockRequests    StockRequest[]           @relation("StockRequestSubmitter")
+  decidedStockRequests      StockRequest[]           @relation("StockRequestDecider")
+  productionStatusChanges   ProductionStatusChange[]
+  notifications             Notification[]
+  receivingReports          ReceivingReport[]        @relation("ReceivingReportReceiver")
+  aiCalls                   AiCall[]
+  aiQueries                 AiQuery[]
 }
 
 // ─── BRANCHES ────────────────────────────────────────────────────────────────
@@ -260,13 +277,15 @@ model Branch {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  users             User[]
-  inventoryLevels   InventoryLevel[]
-  stockTransfersOut StockTransfer[]   @relation("TransferFrom")
-  stockTransfersIn  StockTransfer[]   @relation("TransferTo")
-  productionOrders  ProductionOrder[]
-  receivingReports  ReceivingReport[]
-  stockMovements    StockMovement[]
+  users                 User[]
+  inventoryLevels       InventoryLevel[]
+  stockTransfersOut     StockTransfer[]        @relation("TransferFrom")
+  stockTransfersIn      StockTransfer[]        @relation("TransferTo")
+  stockRequestsOut      StockRequest[]         @relation("StockRequestOutlet")
+  stockRequestsIn       StockRequest[]         @relation("StockRequestKitchen")
+  productionOrders      ProductionOrder[]
+  receivingReports      ReceivingReport[]
+  stockMovements        StockMovement[]
   finishedGoodLevels    FinishedGoodLevel[]
   finishedGoodMovements FinishedGoodMovement[]
   conversionOrders      ConversionOrder[]
@@ -278,10 +297,10 @@ model Branch {
 model Category {
   id        String   @id @default(cuid())
   name      String   @unique
-  type      String   // 'RAW_MATERIAL' | 'FINISHED_GOOD' | 'PACKAGING'
+  type      String // 'RAW_MATERIAL' | 'FINISHED_GOOD' | 'PACKAGING'
   createdAt DateTime @default(now())
 
-  materials    Material[]
+  materials     Material[]
   finishedGoods FinishedGood[]
 }
 
@@ -290,10 +309,10 @@ model Unit {
   name         String @unique
   abbreviation String @unique
 
-  materials Material[]
+  materials     Material[]
   finishedGoods FinishedGood[]
-  bomItems  BOMItem[]
-  boms      BOM[]
+  bomItems      BOMItem[]
+  boms          BOM[]
 }
 
 // ─── MATERIALS ────────────────────────────────────────────────────────────────
@@ -360,31 +379,32 @@ model ItemPrice {
 // ─── FINISHED GOODS ───────────────────────────────────────────────────────────
 
 model FinishedGood {
-  id           String   @id @default(cuid())
-  code         String   @unique
-  name         String
-  description  String?
-  categoryId   String
-  category     Category @relation(fields: [categoryId], references: [id])
-  unitId       String
-  unit         Unit     @relation(fields: [unitId], references: [id])
-  sellingPrice Decimal  @default(0)
+  id             String   @id @default(cuid())
+  code           String   @unique
+  name           String
+  description    String?
+  categoryId     String
+  category       Category @relation(fields: [categoryId], references: [id])
+  unitId         String
+  unit           Unit     @relation(fields: [unitId], references: [id])
+  sellingPrice   Decimal  @default(0)
   /// How long it keeps once cooked, in whole hours (1–720). A lot's expiry is
   /// the moment its run was reported done plus this (Week 6 Task 4). Null
   /// until an admin sets it; a completion cannot be approved without it.
   shelfLifeHours Int?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  boms              BOM[]             @relation("BomOutput")
+  boms              BOM[]               @relation("BomOutput")
   /// Conversion BOMs that use this good as their source.
-  conversionBoms    BOM[]             @relation("BomConversionSource")
+  conversionBoms    BOM[]               @relation("BomConversionSource")
   productionOrders  ProductionOrder[]
-  conversionOrders  ConversionOrder[] @relation("ConversionOrderOutput")
-  conversionSources ConversionOrder[] @relation("ConversionOrderSource")
+  conversionOrders  ConversionOrder[]   @relation("ConversionOrderOutput")
+  conversionSources ConversionOrder[]   @relation("ConversionOrderSource")
   lots              FinishedGoodLot[]
   transferItems     StockTransferItem[]
+  stockRequestItems StockRequestItem[]
 }
 
 // ─── BOM ─────────────────────────────────────────────────────────────────────
@@ -408,15 +428,15 @@ model FinishedGood {
 /// recipes read "v1" and "Conversion v1" rather than one borrowing the other's
 /// numbers. Production planning only ever sees PRODUCTION versions.
 model BOM {
-  id             String       @id @default(cuid())
-  finishedGoodId String
-  finishedGood   FinishedGood @relation("BomOutput", fields: [finishedGoodId], references: [id])
-  kind           BomKind      @default(PRODUCTION)
-  version        Int          @default(1)
-  isActive       Boolean      @default(true)
-  batchSize      Decimal
-  batchUnitId    String
-  batchUnit      Unit         @relation(fields: [batchUnitId], references: [id])
+  id                   String        @id @default(cuid())
+  finishedGoodId       String
+  finishedGood         FinishedGood  @relation("BomOutput", fields: [finishedGoodId], references: [id])
+  kind                 BomKind       @default(PRODUCTION)
+  version              Int           @default(1)
+  isActive             Boolean       @default(true)
+  batchSize            Decimal
+  batchUnitId          String
+  batchUnit            Unit          @relation(fields: [batchUnitId], references: [id])
   /// CONVERSION only: the finished good converted (e.g. Lechon) and how much
   /// of it one batch of batchSize uses, in the source good's own unit — the
   /// source's line of the recipe, kept apart from BOMItem because it comes
@@ -426,8 +446,8 @@ model BOM {
   sourceFinishedGoodId String?
   sourceFinishedGood   FinishedGood? @relation("BomConversionSource", fields: [sourceFinishedGoodId], references: [id])
   sourceQuantity       Decimal?
-  notes          String?
-  createdAt      DateTime     @default(now())
+  notes                String?
+  createdAt            DateTime      @default(now())
 
   items            BOMItem[]
   productionOrders ProductionOrder[]
@@ -526,7 +546,6 @@ model PurchaseOrder {
   @@index([status])
   @@index([supplierId])
   @@index([purchaseRequestId])
-
 }
 
 model PurchaseOrderItem {
@@ -651,26 +670,26 @@ model StockMovement {
 /// rows when approved (dispatched), into the receiver when received — so the
 /// End of Day "Distributed" column balances at both ends.
 model StockTransfer {
-  id             String         @id @default(cuid())
+  id             String                  @id @default(cuid())
   /// TRF-000001 from trf_number_seq; a return RTN-000001 from rtn_number_seq.
-  transferNumber String         @unique
+  transferNumber String                  @unique
   /// No default: every insert says which (Week 9 Task 9).
   kind           TransferKind
   /// An active commissary when recorded (T5); an active outlet for a return.
   fromBranchId   String
-  fromBranch     Branch         @relation("TransferFrom", fields: [fromBranchId], references: [id])
+  fromBranch     Branch                  @relation("TransferFrom", fields: [fromBranchId], references: [id])
   toBranchId     String
-  toBranch       Branch         @relation("TransferTo", fields: [toBranchId], references: [id])
-  status         TransferStatus @default(PENDING_APPROVAL)
+  toBranch       Branch                  @relation("TransferTo", fields: [toBranchId], references: [id])
+  status         TransferStatus          @default(PENDING_APPROVAL)
   /// Who recorded it. Never its approver, ADMIN included.
   submittedById  String
-  submittedBy    User           @relation("StockTransferSubmitter", fields: [submittedById], references: [id])
+  submittedBy    User                    @relation("StockTransferSubmitter", fields: [submittedById], references: [id])
   notes          String?
   /// Who confirmed it arrived: the receiving branch's manager or an ADMIN
   /// (Week 8 Task 3, R3). Set with receivedAt by the same UPDATE as RECEIVED;
   /// null until then. Dispatch is the approval, on Approval.
   receivedById   String?
-  receivedBy     User?          @relation("StockTransferReceiver", fields: [receivedById], references: [id])
+  receivedBy     User?                   @relation("StockTransferReceiver", fields: [receivedById], references: [id])
   receivedAt     DateTime?
   /// Transfer variance (Week 8 Task 4): what was sent but did not arrive,
   /// at the lots' recorded cost — Σ (sent − received) × lot cost — recorded
@@ -681,15 +700,77 @@ model StockTransfer {
   varianceReason TransferVarianceReason?
   /// Required when the reason is OTHER.
   varianceNotes  String?
+  /// The stock request this delivery fills (Week 9 Task 10), if sent from
+  /// one. Not unique: a rejected delivery leaves the request PLANNED, to be
+  /// sent again — the service allows one non-rejected delivery per request.
+  stockRequestId String?
+  stockRequest   StockRequest?           @relation(fields: [stockRequestId], references: [id])
   /// When it was recorded and submitted.
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 
   items StockTransferItem[]
 
   @@index([status])
   @@index([fromBranchId])
   @@index([toBranchId])
+  @@index([stockRequestId])
+}
+
+/// An outlet asks a kitchen for finished goods by a date (Week 9 Task 10):
+/// STR-000001 from str_number_seq. No approval — the kitchen plans it (any cut
+/// explained) or declines it, sends a delivery from it, and the delivery's
+/// receipt fulfils it.
+model StockRequest {
+  id            String             @id @default(cuid())
+  requestNumber String             @unique
+  /// The outlet asking: an active OUTLET its submitter runs, when submitted.
+  branchId      String
+  branch        Branch             @relation("StockRequestOutlet", fields: [branchId], references: [id])
+  /// The kitchen asked: an active COMMISSARY, any of them, when submitted.
+  kitchenId     String
+  kitchen       Branch             @relation("StockRequestKitchen", fields: [kitchenId], references: [id])
+  /// The day the outlet needs it — midnight UTC of the business date, like
+  /// ProductionOrder.plannedDate. Today or later when submitted.
+  neededOn      DateTime
+  status        StockRequestStatus
+  /// Submitted after the cut-off (STOCK_REQUEST_CUTOFF on the day before
+  /// neededOn, or on the day itself). Allowed, flagged — fixed at submission.
+  late          Boolean
+  submittedById String
+  submittedBy   User               @relation("StockRequestSubmitter", fields: [submittedById], references: [id])
+  notes         String?
+  /// Who planned or declined it, and when; null while SUBMITTED.
+  decidedById   String?
+  decidedBy     User?              @relation("StockRequestDecider", fields: [decidedById], references: [id])
+  decidedAt     DateTime?
+  /// The kitchen's reason: required to decline, or to plan less than asked.
+  kitchenNote   String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  items     StockRequestItem[]
+  transfers StockTransfer[]
+
+  @@index([status])
+  @@index([kitchenId, neededOn])
+  @@index([branchId])
+}
+
+/// One finished good on a stock request (one line per good).
+model StockRequestItem {
+  id              String       @id @default(cuid())
+  stockRequestId  String
+  stockRequest    StockRequest @relation(fields: [stockRequestId], references: [id], onDelete: Cascade)
+  finishedGoodId  String
+  finishedGood    FinishedGood @relation(fields: [finishedGoodId], references: [id])
+  /// Asked for, in the good's unit; > 0.
+  quantity        Decimal
+  /// What the kitchen will send, set when PLANNED: 0 ≤ planned ≤ asked. Null
+  /// until then.
+  plannedQuantity Decimal?
+
+  @@unique([stockRequestId, finishedGoodId])
 }
 
 /// One finished good on a transfer. Lots are not chosen here: dispatch takes
@@ -923,7 +1004,7 @@ model ConversionOrder {
   updatedAt            DateTime         @updatedAt
 
   /// What it produced, once approved.
-  lot                  FinishedGoodLot?
+  lot FinishedGoodLot?
 
   @@index([status])
   @@index([branchId])
@@ -1057,7 +1138,7 @@ model AiCall {
   aiQuery          AiQuery?      @relation(fields: [aiQueryId], references: [id], onDelete: SetNull)
   createdAt        DateTime      @default(now())
 
-  insights         AiInsight[]
+  insights AiInsight[]
 
   // Month-to-date spend (the budget) and the latest calls both read by time.
   @@index([createdAt])
@@ -1072,22 +1153,22 @@ model AiCall {
 /// columns. Not granted to kitchen_ai_reader: the assistant cannot read
 /// what people asked it.
 model AiQuery {
-  id             String        @id @default(cuid())
-  userId         String
-  user           User          @relation(fields: [userId], references: [id])
+  id                   String          @id @default(cuid())
+  userId               String
+  user                 User            @relation(fields: [userId], references: [id])
   /// Made by the server: the questions of one conversation share it (H4).
-  conversationId String
-  question       String
-  status         AiQueryStatus @default(PENDING)
+  conversationId       String
+  question             String
+  status               AiQueryStatus   @default(PENDING)
   /// Null until ANSWERED.
-  answer         String?
+  answer               String?
   /// What the user was shown when it FAILED.
-  error          String?
+  error                String?
   /// Every tool call in order (H2): { tool, input, label, sql, rowCount,
   /// truncated, error }. Never the rows a query returned.
-  lookups        Json          @default("[]")
+  lookups              Json            @default("[]")
   /// The whole question, lookups included, once finished.
-  durationMs     Int?
+  durationMs           Int?
   /// The write action Claude drafted while answering (Week 9 Task 5) — at
   /// most one per question (I7); all null when it drafted none.
   actionType           AiActionType?
@@ -1104,10 +1185,10 @@ model AiQuery {
   actionDocumentId     String?
   /// PR-000012 / PRD-000013, for the log without a lookup.
   actionDocumentNumber String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  aiCalls        AiCall[]
+  aiCalls AiCall[]
 
   // The admin list: newest first, optionally one user's.
   @@index([createdAt])

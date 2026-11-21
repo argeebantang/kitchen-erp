@@ -15,6 +15,7 @@ const stockTransferInclude = {
   toBranch:    { select: { id: true, name: true, code: true } },
   submittedBy: { select: { id: true, name: true } },
   receivedBy:  { select: { id: true, name: true } },
+  stockRequest: { select: { id: true, requestNumber: true } },
   items: {
     include: {
       finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
@@ -34,6 +35,8 @@ export type StockTransferDecideResult =
 class StockTransferConflict extends Error {}
 
 export type CreateStockTransferInput = {
+  /** The stock request this delivery fills (Week 9 Task 10); checked by the service. */
+  stockRequestId?: string | null
   fromBranchId: string
   toBranchId: string
   submittedById: string
@@ -123,6 +126,7 @@ export const StockTransferRepository = {
           transferNumber,
           kind:          TransferKind.DELIVERY,
           status:        TransferStatus.PENDING_APPROVAL,
+          stockRequestId: input.stockRequestId ?? null,
           fromBranchId:  input.fromBranchId,
           toBranchId:    input.toBranchId,
           submittedById: input.submittedById,
