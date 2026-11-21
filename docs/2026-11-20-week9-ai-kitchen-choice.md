@@ -88,10 +88,11 @@ monthly budget. The panel's "Kitchen:" label was not checked in a browser.
 
 ## Risks, assumptions, follow-ups
 
-- **Confirm does not re-check the kitchen's type.** If a kitchen is turned into an outlet within the 24 hours a
+- ~~**Confirm does not re-check the kitchen's type.**~~ Fixed by Task 8 (`docs/2026-11-20-week9-kitchens-only.md`):
+  `ProductionOrderService.create` refuses an outlet, so Confirm does too. Original note: If a kitchen is turned into an outlet within the 24 hours a
   draft lasts, Confirm still creates it there. `ProductionOrderService.create` only checks that the branch is
   active. Task 2 (kitchens only) adds the commissary rule to the service, which covers Confirm too.
-- The production order form still offers every branch. That is also Task 2.
+- ~~The production order form still offers every branch.~~ Fixed by Task 8.
 - Substring matching: "Cub" finds Cubao Commissary. Two kitchens sharing a word ("North", "North Annex") make
   Claude ask, which is the intended behaviour.
 - Production Managers still plan for every kitchen (owner decision 2026-11-20). Kitchen-scoped managers would

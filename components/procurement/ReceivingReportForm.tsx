@@ -206,7 +206,7 @@ export function ReceivingReportForm({ purchaseOrderId, receivingReportId, branch
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Received at branch">
+        <Field label="Received at kitchen">
           <select value={branchId} onChange={event => setBranchId(event.target.value)} className={inputClass}>
             {branches.map(branch => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>

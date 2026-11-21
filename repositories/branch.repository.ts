@@ -81,10 +81,24 @@ export const BranchRepository = {
     })
   },
 
-  async findById(id: string): Promise<{ id: string; name: string; isActive: boolean } | null> {
+  /**
+   * Active central kitchens (commissaries), oldest first: Main Commissary
+   * heads the list and becomes the form default. What production, conversion
+   * and receiving forms offer — outlets do not cook or hold raw materials
+   * (Week 9 Task 8).
+   */
+  async findActiveKitchens(): Promise<{ id: string; name: string }[]> {
+    return prisma.branch.findMany({
+      where:   { isActive: true, type: BranchType.COMMISSARY },
+      select:  { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    })
+  },
+
+  async findById(id: string): Promise<{ id: string; name: string; isActive: boolean; type: BranchType } | null> {
     return prisma.branch.findUnique({
       where:  { id },
-      select: { id: true, name: true, isActive: true },
+      select: { id: true, name: true, isActive: true, type: true },
     })
   },
 

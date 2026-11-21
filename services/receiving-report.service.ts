@@ -1,4 +1,4 @@
-import { POStatus, Prisma, Role, RRStatus } from '@prisma/client'
+import { BranchType, POStatus, Prisma, Role, RRStatus } from '@prisma/client'
 import { signalInventoryChanged } from '@/lib/realtime'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
@@ -247,6 +247,10 @@ async function validateCounts(
   if (!branch || !branch.isActive) {
     return { success: false, error: 'Branch not found', status: 400 }
   }
+  // Outlets hold no raw materials (Week 9 Task 8): supplier deliveries land at a kitchen.
+  if (branch.type !== BranchType.COMMISSARY) {
+    return { success: false, error: `${branch.name} is an outlet — deliveries are received at a central kitchen`, status: 400 }
+  }
 
   // Plain string comparison works because both sides are YYYY-MM-DD.
   if (input.receivedAt > todayIsoDate()) {
@@ -484,7 +488,7 @@ export const ReceivingReportService = {
     const [balances, openReport, branches] = await Promise.all([
       lineBalances(po),
       ReceivingReportRepository.findOpenByPurchaseOrder(po.id),
-      BranchRepository.findAllActive(),
+      BranchRepository.findActiveKitchens(),
     ])
 
     return {

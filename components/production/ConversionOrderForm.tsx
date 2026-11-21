@@ -162,7 +162,7 @@ export function ConversionOrderForm({ recipes, branches, initial }: Props) {
           )}
         </Field>
 
-        <Field label="Branch">
+        <Field label="Kitchen">
           <select value={values.branchId} onChange={event => update({ branchId: event.target.value })} className={inputClass}>
             {branches.map(branch => (
               <option key={branch.id} value={branch.id}>{branch.name}</option>

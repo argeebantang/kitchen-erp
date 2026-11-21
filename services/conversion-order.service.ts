@@ -1,4 +1,4 @@
-import { BomKind, ConversionStatus, Prisma } from '@prisma/client'
+import { BomKind, BranchType, ConversionStatus, Prisma } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { expiryFlag, isoDateAt, type ExpiryFlag } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
@@ -601,6 +601,10 @@ async function recipeAndBranch(bomId: string, branchId: string): Promise<Convers
   if (!branch || !branch.isActive) {
     return { success: false, error: 'Branch not found', status: 400 }
   }
+  // Converting is cooking, and outlets do not cook: unsold goods go back to a kitchen first (Week 9 Task 8).
+  if (branch.type !== BranchType.COMMISSARY) {
+    return { success: false, error: `${branch.name} is an outlet — conversions are done at a central kitchen`, status: 400 }
+  }
   return { success: true, data: { bom, branch } }
 }
 
@@ -679,11 +683,11 @@ export const ConversionOrderService = {
     return rows.flatMap(row => (row === null ? [] : [row]))
   },
 
-  /** What the form offers: active conversion recipes and active branches. */
+  /** What the form offers: active conversion recipes and the active central kitchens. */
   async getForm(): Promise<ConversionFormDto> {
     const [boms, branches] = await Promise.all([
       BomRepository.findAllActiveConversions(),
-      BranchRepository.findAllActive(),
+      BranchRepository.findActiveKitchens(),
     ])
 
     return {

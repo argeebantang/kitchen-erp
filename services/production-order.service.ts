@@ -1,4 +1,4 @@
-import { BomKind, Prisma, ProductionStatus } from '@prisma/client'
+import { BomKind, BranchType, Prisma, ProductionStatus } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { isoDateAt, todayIsoDate } from '@/lib/dates'
 import {
@@ -836,6 +836,11 @@ async function validateOrder(input: CreateProductionOrderServiceInput): Promise<
   if (!branch || !branch.isActive) {
     return { success: false, error: 'Branch not found', status: 400 }
   }
+  // Outlets do not cook (Week 9 Task 8). Here rather than in the form, so it
+  // holds for edits and the assistant's Confirm too.
+  if (branch.type !== BranchType.COMMISSARY) {
+    return { success: false, error: `${branch.name} is an outlet — production runs at a central kitchen`, status: 400 }
+  }
 
   const batchWeight = toDecimal(input.batchWeight)
   if (batchWeight.lessThanOrEqualTo(0)) {
@@ -1023,11 +1028,11 @@ export const ProductionOrderService = {
     return checked.success ? { success: true, data: null } : checked
   },
 
-  /** What the new / edit form offers: plannable goods and active branches. */
+  /** What the new / edit form offers: plannable goods and the active central kitchens. */
   async getForm(): Promise<ProductionOrderFormDto> {
     const [boms, branches] = await Promise.all([
       BomRepository.findAllActiveForPlanning(),
-      BranchRepository.findAllActive(),
+      BranchRepository.findActiveKitchens(),
     ])
 
     return {

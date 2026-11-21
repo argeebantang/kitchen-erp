@@ -512,6 +512,19 @@ expensive batches and what was lost to write-offs and transfers.
       daily use; the useful part would be progress lines ("Looking up…") as each tool is called, more than
       word-by-word text.
 
+### Multi-kitchen operations (owner, 2026-11-20)
+Several central kitchens; outlets never cook, hold no raw materials, order from any kitchen and send unsold goods back.
+- [x] The assistant plans at the kitchen you name — **done 2026-11-20** (Week 9 Task 7, above).
+- [x] Kitchens only — **done 2026-11-20** (`docs/2026-11-20-week9-kitchens-only.md`, Week 9 Task 8).
+      - Production orders, conversions and receiving reports must be at an active commissary. The services refuse
+        an outlet, which covers the API, edits, receiving's re-checks and the assistant's Confirm.
+      - The forms list kitchens only (`findActiveKitchens()`) and label the field Kitchen.
+      - Reverses Week 8 B6 for those three. No data was at an outlet.
+- [ ] Returns: unsold goods from an outlet back to a kitchen (Branch Manager sends, no accounting approval, kitchen
+      counts what arrived; lots keep expiry and cost)
+- [ ] Branch stock request `STR-000001`: an outlet orders finished goods from a kitchen by date; the kitchen sees
+      demand per good per day, plans production and sends the transfer from it
+
 ### Week 10 — KitchenAI Predictive Features
 - [ ] Waste Pattern Detector (weekly BullMQ job)
 - [ ] Reorder Recommender — surfaces inline on the Week 4 stock map (click a location → AI suggestion → one-click Create Purchase Order)

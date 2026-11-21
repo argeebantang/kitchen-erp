@@ -206,6 +206,19 @@ const plan = {
           deliverable: "Ask the dashboard in plain Filipino/English: 'Which branch wasted the most this week?' and get a real answer pulled from your actual database in under 3 seconds. Then say 'mag-order ng 150kg na pork belly' and it drafts the purchase request for you to confirm.",
         },
         {
+          week: "Week 9+",
+          status: "next",
+          title: "Multi-kitchen operations",
+          tag: null,
+          tasks: [
+            { t: "AI write action plans at the central kitchen the user names (see Week 9)", done: true },
+            { t: "Kitchens only: production orders, conversions and receiving reports at a central kitchen (commissary) — forms list kitchens only, services refuse an outlet; reverses Week 8 B6", done: true },
+            "Returns: unsold finished goods sent from an outlet back to a kitchen — Branch Manager sends, no accounting approval, the kitchen counts what arrived; lots keep expiry and cost so the kitchen can convert them",
+            "Branch stock request (STR-000001): an outlet orders finished goods from any kitchen by date; the kitchen sees demand per good per day, plans production from it and sends the transfer; cut or decline with a reason; late requests flagged",
+          ],
+          deliverable: "Several kitchens, outlets that only sell: an outlet orders from a kitchen, the kitchen cooks and sends, and unsold goods come back to be converted — all in the system, nothing by phone.",
+        },
+        {
           week: "Week 10",
           title: "KitchenAI — Predictive Features",
           tag: "ai",
