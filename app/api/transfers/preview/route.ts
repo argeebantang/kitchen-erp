@@ -13,6 +13,8 @@ const LineParam = z.string().regex(/^[a-z0-9]+(:\d+(\.\d+)?)?$/, 'Expected <fini
   .pipe(z.object({ finishedGoodId: z.string().cuid(), quantity: z.string().nullable() }))
 
 const PreviewQuerySchema = z.object({
+  // A return's preview (Week 9 Task 9): the sender is the viewer's own outlet.
+  kind:  z.enum(['delivery', 'return']).default('delivery'),
   from:  z.string().cuid(),
   lines: z.array(LineParam).max(MAX_TRANSFER_LINES),
 })
@@ -20,16 +22,18 @@ const PreviewQuerySchema = z.object({
 /**
  * The transfer form's live preview: the sender's stock and, per line, the
  * lots it would take and their value. Read-only; ADMIN and
- * PRODUCTION_MANAGER, like recording.
+ * PRODUCTION_MANAGER, like recording. ?kind=return is the return form's —
+ * ADMIN and BRANCH_MANAGER, the service checking it is their own outlet.
  */
 export async function GET(req: NextRequest) {
   try {
-    // The form is the kitchen's; the /api/transfers guard also admits branch managers, for receipt (R5).
-    const role = req.headers.get('x-user-role')
-    if (role !== 'ADMIN' && role !== 'PRODUCTION_MANAGER') {
-      return NextResponse.json({ error: 'Only the kitchen records transfers' }, { status: 403 })
+    const userId = req.headers.get('x-user-id')
+    const role   = req.headers.get('x-user-role')
+    if (!userId || !role) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
     const parsed = PreviewQuerySchema.safeParse({
+      kind:  req.nextUrl.searchParams.get('kind') ?? undefined,
       from:  req.nextUrl.searchParams.get('from'),
       lines: req.nextUrl.searchParams.getAll('line'),
     })
@@ -40,7 +44,15 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const result = await StockTransferService.preview({ fromBranchId: parsed.data.from, lines: parsed.data.lines })
+    const isReturn = parsed.data.kind === 'return'
+    // A delivery is the kitchen's; the /api/transfers guard also admits branch managers, for receipt (R5) and returns.
+    if (!isReturn && role !== 'ADMIN' && role !== 'PRODUCTION_MANAGER') {
+      return NextResponse.json({ error: 'Only the kitchen records transfers' }, { status: 403 })
+    }
+    const result = await StockTransferService.preview(
+      { kind: isReturn ? 'RETURN' : 'DELIVERY', fromBranchId: parsed.data.from, lines: parsed.data.lines },
+      { userId, role },
+    )
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }

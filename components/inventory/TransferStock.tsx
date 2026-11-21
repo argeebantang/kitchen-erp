@@ -19,7 +19,7 @@ export function TransferStock({ transfer }: { transfer: StockTransferDetailDto }
       <div className="grid gap-4 lg:grid-cols-2">
         <Side
           title={`Out of ${transfer.fromBranch.name}`}
-          subtitle={`Dispatched ${formatDateTime(out[0].at)}, when accounting approved it`}
+          subtitle={`Dispatched ${formatDateTime(out[0].at)}, ${transfer.kind === 'RETURN' ? `when ${transfer.submittedByName} sent it back` : 'when accounting approved it'}`}
           rows={out}
           total={outValue}
         />
@@ -44,7 +44,7 @@ export function TransferStock({ transfer }: { transfer: StockTransferDetailDto }
             <p className="font-medium">In transit to {transfer.toBranch.name}</p>
             <p className="mt-1 text-sky-700">
               The goods are on their way. They join {transfer.toBranch.name}&apos;s stock — the same lots, expiry and cost —
-              when its manager confirms they arrived.
+              {' '}{transfer.kind === 'RETURN' ? 'when the kitchen confirms they arrived.' : 'when its manager confirms they arrived.'}
             </p>
           </div>
         )}

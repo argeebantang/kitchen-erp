@@ -75,6 +75,9 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // since a prefix guard cannot exclude a sub-path.
   { path: '/inventory/transfers',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'] },
   { path: '/inventory/transfers/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // Returns (Week 9 Task 9): an outlet's manager sends unsold goods back to a
+  // kitchen; StockTransferService checks it is their own outlet.
+  { path: '/inventory/transfers/return', roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/api/transfers',           roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
   // Write-offs (Week 7 Task 2, W7): production records them, accounting reads
   // them and decides through /api/approvals.

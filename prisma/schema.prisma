@@ -111,6 +111,17 @@ enum TransferStatus {
   REJECTED
 }
 
+/// What a transfer is (Week 9 Task 9):
+///   DELIVERY  a commissary sends finished goods to a branch (TRF-000001);
+///             accounting's approval dispatches it
+///   RETURN    an outlet sends unsold goods back to a kitchen (RTN-000001);
+///             no approval — recording it dispatches it, created APPROVED
+///             (in transit). The kitchen counts what arrived, as for a delivery
+enum TransferKind {
+  DELIVERY
+  RETURN
+}
+
 /// Why a transfer arrived short (Week 8 Task 4, V4) — categories for the
 /// Week 10 waste analysis, like WriteOffReason.
 enum TransferVarianceReason {
@@ -641,9 +652,11 @@ model StockMovement {
 /// End of Day "Distributed" column balances at both ends.
 model StockTransfer {
   id             String         @id @default(cuid())
-  /// TRF-000001, from trf_number_seq.
+  /// TRF-000001 from trf_number_seq; a return RTN-000001 from rtn_number_seq.
   transferNumber String         @unique
-  /// An active commissary when recorded (T5).
+  /// No default: every insert says which (Week 9 Task 9).
+  kind           TransferKind
+  /// An active commissary when recorded (T5); an active outlet for a return.
   fromBranchId   String
   fromBranch     Branch         @relation("TransferFrom", fields: [fromBranchId], references: [id])
   toBranchId     String

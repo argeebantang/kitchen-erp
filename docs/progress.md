@@ -520,8 +520,13 @@ Several central kitchens; outlets never cook, hold no raw materials, order from 
         an outlet, which covers the API, edits, receiving's re-checks and the assistant's Confirm.
       - The forms list kitchens only (`findActiveKitchens()`) and label the field Kitchen.
       - Reverses Week 8 B6 for those three. No data was at an outlet.
-- [ ] Returns: unsold goods from an outlet back to a kitchen (Branch Manager sends, no accounting approval, kitchen
-      counts what arrived; lots keep expiry and cost)
+- [x] Returns — **done 2026-11-21** (`docs/2026-11-21-week9-returns.md`, Week 9 Task 9). A `StockTransfer` of kind
+      **RETURN**, numbered `RTN-000001`:
+      - The outlet's Branch Manager (or an admin) sends unsold goods to any kitchen.
+      - No approval: the lots leave at once, soonest expiry first.
+      - Production counts what arrived, with lost in transit as for a delivery.
+      - Lots keep their number, expiry and cost, so the kitchen can convert them.
+      Migration `20261121090000_transfer_returns`.
 - [ ] Branch stock request `STR-000001`: an outlet orders finished goods from a kitchen by date; the kitchen sees
       demand per good per day, plans production and sends the transfer from it
 

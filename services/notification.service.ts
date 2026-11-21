@@ -694,6 +694,28 @@ export const NotificationService = {
   },
 
   /**
+   * An outlet sent unsold goods back (Week 9 Task 9): tell the kitchen —
+   * production and admins, who may count it — except whoever recorded it.
+   * No approval comes first, so this is the only heads-up. Re-reads it:
+   * gone, or already received, means nothing to say.
+   */
+  async notifyReturnSent(stockTransferId: string): Promise<number> {
+    const row = await StockTransferRepository.findById(stockTransferId)
+    if (!row || row.kind !== 'RETURN' || row.status !== 'APPROVED') return 0
+
+    const kitchen = (await UserRepository.findByRoles([Role.PRODUCTION_MANAGER, Role.ADMIN]))
+      .filter(user => user.id !== row.submittedById)
+    return createAndPush(kitchen.map(user => ({
+      userId:        user.id,
+      type:          'RETURN_SENT',
+      title:         `${row.transferNumber} is on its way to ${row.toBranch.name}`,
+      body:          `${row.submittedBy.name} sent ${transferGoods(row)} back from ${row.fromBranch.name}. Count what arrives — it joins ${row.toBranch.name}'s stock then.`,
+      referenceType: 'StockTransfer',
+      referenceId:   row.id,
+    })))
+  },
+
+  /**
    * The receiving branch confirmed what arrived: tell whoever recorded it,
    * naming any shortfall. A short receipt (Task 4, V6) is logged, not
    * approved, so accounting and admins are told as well — not whoever

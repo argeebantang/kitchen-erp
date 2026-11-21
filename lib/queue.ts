@@ -57,6 +57,9 @@ export const TRANSFER_DECIDED = 'transfer-decided'
 /** The receiving branch confirmed a transfer arrived: tell whoever recorded it. */
 export const TRANSFER_RECEIVED = 'transfer-received'
 
+/** An outlet sent unsold goods back (Week 9 Task 9): tell the kitchen to count them when they arrive. */
+export const RETURN_SENT = 'return-sent'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.

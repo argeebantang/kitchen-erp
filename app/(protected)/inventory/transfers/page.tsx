@@ -5,7 +5,8 @@ import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { BranchRepository } from '@/repositories/branch.repository'
-import { isTransferStatus, StockTransferService, TRANSFER_STATUSES } from '@/services/stock-transfer.service'
+import { isTransferStatus, StockTransferService, TRANSFER_STATUSES, transferStatusLabel } from '@/services/stock-transfer.service'
+import { ReturnBadge } from '@/components/inventory/BranchTransfers'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 
 const PAGE_SIZE = 50
@@ -31,6 +32,8 @@ export default async function TransferListPage({ searchParams }: PageProps) {
   const shortOnly = shortParam === '1'
   const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
   const canRecord = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
+  // Returns (Week 9 Task 9): an outlet's manager or an admin; the form says so if they run no outlet.
+  const canReturn = session.role === 'ADMIN' || session.role === 'BRANCH_MANAGER'
 
   // Inactive branches included: their transfers are history worth finding.
   const branches = await BranchRepository.findAll(true)
@@ -69,11 +72,14 @@ export default async function TransferListPage({ searchParams }: PageProps) {
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Transfers</h1>
           <p className="mt-1 text-sm text-gray-400">
-            Finished goods sent from a commissary to another branch.
+            Finished goods sent from a commissary to another branch, and returns of unsold goods from an outlet to a kitchen.
             {scopedTo && <> Showing transfers to and from <span className="font-medium text-gray-600">{scopedTo.name}</span>, the branch you manage.</>}
           </p>
         </div>
-        {canRecord && <Link href="/inventory/transfers/new" className={primaryButtonClass}>New transfer</Link>}
+        <div className="flex gap-2">
+          {canReturn && <Link href="/inventory/transfers/return" className={secondaryButtonClass}>Return to a kitchen</Link>}
+          {canRecord && <Link href="/inventory/transfers/new" className={primaryButtonClass}>New transfer</Link>}
+        </div>
       </div>
 
       {!managesNoBranch && (
@@ -153,6 +159,7 @@ export default async function TransferListPage({ searchParams }: PageProps) {
                     <Link href={`/inventory/transfers/${row.id}`} className="font-mono text-xs text-orange-600 hover:text-orange-700 hover:underline">
                       {row.transferNumber}
                     </Link>
+                    {row.kind === 'RETURN' && <ReturnBadge />}
                   </td>
                   <td className="px-4 py-3 text-gray-700">
                     {row.fromBranch.name} <span className="text-gray-400">→</span> {row.toBranch.name}
@@ -170,7 +177,7 @@ export default async function TransferListPage({ searchParams }: PageProps) {
                     <span className="block text-xs text-gray-400">{row.submittedByName}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge status={row.status} />
+                    <StatusBadge status={row.status} label={transferStatusLabel(row)} />
                     {row.varianceReason && (
                       <span className="mt-1 block w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
                         Short{row.varianceValue !== null && <> {formatPeso(row.varianceValue)}</>}

@@ -213,7 +213,7 @@ const plan = {
           tasks: [
             { t: "AI write action plans at the central kitchen the user names (see Week 9)", done: true },
             { t: "Kitchens only: production orders, conversions and receiving reports at a central kitchen (commissary) — forms list kitchens only, services refuse an outlet; reverses Week 8 B6", done: true },
-            "Returns: unsold finished goods sent from an outlet back to a kitchen — Branch Manager sends, no accounting approval, the kitchen counts what arrived; lots keep expiry and cost so the kitchen can convert them",
+            { t: "Returns: unsold finished goods sent from an outlet back to a kitchen — Branch Manager sends, no accounting approval, the kitchen counts what arrived; lots keep expiry and cost so the kitchen can convert them", done: true },
             "Branch stock request (STR-000001): an outlet orders finished goods from any kitchen by date; the kitchen sees demand per good per day, plans production from it and sends the transfer; cut or decline with a reason; late requests flagged",
           ],
           deliverable: "Several kitchens, outlets that only sell: an outlet orders from a kitchen, the kitchen cooks and sends, and unsold goods come back to be converted — all in the system, nothing by phone.",

@@ -11,12 +11,25 @@ import type { BranchInventoryDto } from '@/services/branch-inventory.service'
  * can open it. No hooks and no 'use client', so it renders on the server.
  */
 export function BranchTransfers({ branch, transfers }: Pick<BranchInventoryDto, 'branch' | 'transfers'>) {
-  const { arriving, pending, canReceive, canOpen, truncated } = transfers
+  const { arriving, pending, canOpen, canReturn, truncated } = transfers
 
   return (
     <section className="mb-8">
-      <h2 className="mb-1 text-lg font-semibold text-gray-800">Transfers</h2>
-      <p className="mb-3 text-sm text-gray-400">On their way to {branch.name}, and waiting for accounting to approve.</p>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="mb-1 text-lg font-semibold text-gray-800">Transfers</h2>
+          <p className="text-sm text-gray-400">On their way to {branch.name}, and waiting for accounting to approve.</p>
+        </div>
+        {/* Week 9 Task 9: an outlet sends unsold goods back to a kitchen — its manager, or an admin. */}
+        {canReturn && (
+          <Link
+            href={`/inventory/transfers/return?from=${branch.id}`}
+            className="rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-700 transition-colors hover:bg-orange-50"
+          >
+            Return unsold goods to a kitchen
+          </Link>
+        )}
+      </div>
 
       {truncated && (
         <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -38,7 +51,8 @@ export function BranchTransfers({ branch, transfers }: Pick<BranchInventoryDto, 
                 <li key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                   <div className="min-w-0">
                     <p className="text-gray-800">
-                      <TransferNumber transfer={transfer} canOpen={canOpen} /> from {transfer.fromBranch.name}
+                      <TransferNumber transfer={transfer} canOpen={canOpen} />
+                      {transfer.kind === 'RETURN' && <ReturnBadge />} from {transfer.fromBranch.name}
                     </p>
                     <p className="text-gray-600">{goodsOf(transfer)}</p>
                     <p className="text-xs text-gray-400">
@@ -47,8 +61,8 @@ export function BranchTransfers({ branch, transfers }: Pick<BranchInventoryDto, 
                       {transfer.value === null ? 'value unknown' : `${formatPeso(transfer.value)} at cost`}
                     </p>
                   </div>
-                  {/* Their manager or an admin (R3) — the count happens on the transfer itself. */}
-                  {canReceive && (
+                  {/* Their manager or an admin (R3); a return, the kitchen (Week 9 Task 9) — the count happens on the transfer itself. */}
+                  {transfer.canReceive && (
                     <Link
                       href={`/inventory/transfers/${transfer.id}#receive`}
                       className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-600"
@@ -92,6 +106,11 @@ export function BranchTransfers({ branch, transfers }: Pick<BranchInventoryDto, 
       </div>
     </section>
   )
+}
+
+/** Marks a return — unsold goods coming back from an outlet (Week 9 Task 9). */
+export function ReturnBadge() {
+  return <span className="ml-1.5 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700">Return</span>
 }
 
 function TransferNumber({ transfer, canOpen }: { transfer: StockTransferSummaryDto; canOpen: boolean }) {

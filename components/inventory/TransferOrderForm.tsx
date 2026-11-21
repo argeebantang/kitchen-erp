@@ -10,6 +10,7 @@ import { formatPeso, formatQuantity } from '@/lib/format'
 // Type-only, so nothing from the service (or Prisma behind it) is bundled into
 // the browser.
 import type {
+  ReturnFormDto,
   TransferFormDto,
   TransferLinePlanDto,
   TransferPreviewDto,
@@ -17,7 +18,17 @@ import type {
 
 type Line = { key: number; finishedGoodId: string; quantity: string }
 
-type Props = TransferFormDto & { maxLines: number }
+type Props = (TransferFormDto | ReturnFormDto) & {
+  maxLines: number
+  /**
+   * 'return' (Week 9 Task 9): unsold goods from an outlet back to a kitchen —
+   * sent at once, no approval. Default: a delivery from a commissary.
+   */
+  mode?: 'delivery' | 'return'
+  /** The sender to start on, e.g. the outlet whose Branch Inventory the form was opened from. */
+  initialFromBranchId?: string
+  cancelHref?: string
+}
 
 const QUANTITY_PATTERN = /^\d+(\.\d+)?$/
 const PREVIEW_DELAY_MS = 300
@@ -31,9 +42,10 @@ function positive(value: string): boolean {
  * sent once it has a good; its quantity only once it parses, so what is on
  * hand shows before anything is typed.
  */
-function previewQuery(fromBranchId: string, lines: Line[]): string | null {
+function previewQuery(fromBranchId: string, lines: Line[], isReturn: boolean): string | null {
   if (!fromBranchId) return null
   const query = new URLSearchParams({ from: fromBranchId })
+  if (isReturn) query.set('kind', 'return')
   for (const line of lines) {
     if (!line.finishedGoodId) continue
     query.append('line', positive(line.quantity) ? `${line.finishedGoodId}:${line.quantity.trim()}` : line.finishedGoodId)
@@ -50,9 +62,14 @@ type PreviewResult = { query: string; data: TransferPreviewDto } | { query: stri
  * Submitting sends it straight to accounting; there is no draft (T6). The
  * server checks everything again.
  */
-export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, maxLines }: Props) {
+export function TransferOrderForm({
+  fromBranches, toBranches, finishedGoods, maxLines, mode = 'delivery', initialFromBranchId, cancelHref = '/inventory/transfers',
+}: Props) {
   const router = useRouter()
-  const [fromBranchId, setFrom] = useState(fromBranches[0]?.id ?? '')
+  const isReturn = mode === 'return'
+  const [fromBranchId, setFrom] = useState(
+    fromBranches.find(branch => branch.id === initialFromBranchId)?.id ?? fromBranches[0]?.id ?? '',
+  )
   const [toBranchId, setTo]     = useState('')
   const [notes, setNotes]       = useState('')
   const [lines, setLines]       = useState<Line[]>([{ key: 1, finishedGoodId: '', quantity: '' }])
@@ -79,7 +96,7 @@ export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, max
 
   // Loading is derived — the result answers an older query — so the effect
   // only ever writes a finished answer (as in ConversionOrderForm).
-  const query = previewQuery(fromBranchId, lines)
+  const query = previewQuery(fromBranchId, lines, isReturn)
   const [preview, setPreview] = useState<PreviewResult | null>(null)
   const previewLoading = query !== null && preview?.query !== query
 
@@ -128,7 +145,7 @@ export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, max
     setSubmitting(true)
     try {
       // The submitter is deliberately absent: the server takes it from x-user-id.
-      const response = await fetch('/api/transfers', {
+      const response = await fetch(isReturn ? '/api/transfers/returns' : '/api/transfers', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
@@ -155,39 +172,48 @@ export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, max
   if (fromBranches.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-gray-600">No active commissary</p>
-        <p className="mt-1 text-sm text-gray-400">Transfers are sent from a commissary — set one up in Master Data → Branches.</p>
+        <p className="text-sm font-medium text-gray-600">{isReturn ? 'No outlet to return from' : 'No active commissary'}</p>
+        <p className="mt-1 text-sm text-gray-400">
+          {isReturn
+            ? 'Returns are sent by an outlet\'s manager — you do not run an active outlet.'
+            : 'Transfers are sent from a commissary — set one up in Master Data → Branches.'}
+        </p>
       </div>
     )
   }
+  const fromName = fromBranches.find(branch => branch.id === fromBranchId)?.name ?? 'the outlet'
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="From (commissary)">
+        <Field label={isReturn ? 'From (outlet)' : 'From (commissary)'}>
           <select value={fromBranchId} onChange={event => changeFrom(event.target.value)} className={inputClass}>
             {fromBranches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         </Field>
-        <Field label="To">
+        <Field label={isReturn ? 'To (kitchen)' : 'To'}>
           <select value={toBranchId} onChange={event => setTo(event.target.value)} className={inputClass}>
-            <option value="">Choose the receiving branch…</option>
+            <option value="">{isReturn ? 'Choose the kitchen…' : 'Choose the receiving branch…'}</option>
             {destinations.map(branch => (
               <option key={branch.id} value={branch.id}>
-                {branch.name}{branch.type === 'COMMISSARY' ? ' (commissary)' : ''}
+                {branch.name}{!isReturn && branch.type === 'COMMISSARY' ? ' (commissary)' : ''}
               </option>
             ))}
           </select>
           {destinations.length === 0 && (
-            <p className="mt-1 text-xs text-amber-700">No other active branch — add one in Master Data → Branches.</p>
+            <p className="mt-1 text-xs text-amber-700">
+              {isReturn ? 'No active kitchen to send to.' : 'No other active branch — add one in Master Data → Branches.'}
+            </p>
           )}
         </Field>
       </div>
 
       <section>
-        <h2 className="mb-1 text-lg font-semibold text-gray-800">What to send</h2>
+        <h2 className="mb-1 text-lg font-semibold text-gray-800">{isReturn ? 'What goes back' : 'What to send'}</h2>
         <p className="mb-3 text-sm text-gray-400">
-          Lots are taken soonest expiry first; expired lots are never sent. Nothing moves until accounting approves.
+          {isReturn
+            ? `Lots are taken soonest expiry first; expired lots never go back — write them off instead. They leave ${fromName} as soon as you send.`
+            : 'Lots are taken soonest expiry first; expired lots are never sent. Nothing moves until accounting approves.'}
           {previewLoading && preview !== null && ' Updating…'}
         </p>
 
@@ -326,7 +352,7 @@ export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, max
           rows={2}
           value={notes}
           onChange={event => setNotes(event.target.value)}
-          placeholder="Delivery run, driver, anything accounting or the branch should know…"
+          placeholder={isReturn ? 'Why it is coming back, who is bringing it…' : 'Delivery run, driver, anything accounting or the branch should know…'}
           className={inputClass}
         />
       </Field>
@@ -345,10 +371,14 @@ export function TransferOrderForm({ fromBranches, toBranches, finishedGoods, max
           disabled={incomplete || fieldErrors.length > 0 || anyShort || submitting}
           className={primaryButtonClass}
         >
-          {submitting ? 'Submitting…' : 'Submit for approval'}
+          {submitting ? (isReturn ? 'Sending…' : 'Submitting…') : (isReturn ? 'Send back to the kitchen' : 'Submit for approval')}
         </button>
-        <Link href="/inventory/transfers" className={secondaryButtonClass}>Cancel</Link>
-        <span className="text-xs text-gray-400">Submitting sends it to accounting — there is no draft.</span>
+        <Link href={cancelHref} className={secondaryButtonClass}>Cancel</Link>
+        <span className="text-xs text-gray-400">
+          {isReturn
+            ? 'No approval: the lots leave now, and join the kitchen\'s stock when it counts what arrived.'
+            : 'Submitting sends it to accounting — there is no draft.'}
+        </span>
       </div>
     </form>
   )

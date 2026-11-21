@@ -232,8 +232,8 @@ export const BranchRepository = {
   },
 
   /** The branch a user manages (Branch.managerId is unique, so at most one). */
-  async findManagedBy(userId: string): Promise<{ id: string; name: string; code: string; isActive: boolean } | null> {
-    return prisma.branch.findUnique({ where: { managerId: userId }, select: { id: true, name: true, code: true, isActive: true } })
+  async findManagedBy(userId: string): Promise<{ id: string; name: string; code: string; isActive: boolean; type: BranchType } | null> {
+    return prisma.branch.findUnique({ where: { managerId: userId }, select: { id: true, name: true, code: true, isActive: true, type: true } })
   },
 
   /** By its code (unique, fixed once created) — the Branch Inventory URL (Week 8 Task 5). */

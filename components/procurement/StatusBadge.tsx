@@ -22,14 +22,15 @@ const STATUS_STYLES: Record<string, string> = {
   RECEIVED:           'bg-emerald-50 text-emerald-700',
 }
 
-export function StatusBadge({ status }: { status: string }) {
+/** `label` replaces the status text where the status name would mislead (a return is APPROVED without an approval). */
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
   return (
     <span
       className={`rounded px-1.5 py-0.5 text-xs font-medium ${
         STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600'
       }`}
     >
-      {status.replace(/_/g, ' ')}
+      {label ?? status.replace(/_/g, ' ')}
     </span>
   )
 }
