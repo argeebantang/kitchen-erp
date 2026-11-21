@@ -505,7 +505,7 @@ export const FinishedGoodStockRepository = {
     return db.finishedGoodMovement.findMany({
       where:   { referenceType, referenceId },
       include: {
-        lot:    { select: { lotNumber: true, producedOn: true, expiresAt: true, finishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } } } },
+        lot:    { select: { lotNumber: true, producedOn: true, expiresAt: true, finishedGood: { select: { id: true, name: true, unit: { select: { abbreviation: true } } } } } },
         branch: { select: { name: true } },
       },
       orderBy: { createdAt: 'asc' },

@@ -18,6 +18,15 @@ function usdEnv(key: string, fallback: string): string {
   return value
 }
 
+/** A clock time "HH:MM" (24-hour) from the environment; a malformed one fails fast. */
+function timeEnv(key: string, fallback: string): string {
+  const value = process.env[key] || fallback
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    throw new Error(`[Config] ${key} must be a 24-hour time such as 15:00, got "${value}"`)
+  }
+  return value
+}
+
 export const config = {
   databaseUrl:  requireEnv('DATABASE_URL'),
   redisUrl:     requireEnv('REDIS_URL'),
@@ -34,6 +43,9 @@ export const config = {
   // assistant's run_query tool uses. Without it the assistant still answers
   // cost questions; it just is not offered run_query.
   aiDatabaseUrl:      process.env.AI_DATABASE_URL || null,
+  // Week 9 Task 10: stock requests for a day are due by this time (Manila) the
+  // day before; later ones are accepted but flagged Late.
+  stockRequestCutoff: timeEnv('STOCK_REQUEST_CUTOFF', '15:00'),
   nodeEnv:      process.env.NODE_ENV ?? 'development',
   isProd:       process.env.NODE_ENV === 'production',
   isDev:        process.env.NODE_ENV !== 'production',

@@ -498,11 +498,43 @@ expensive batches and what was lost to write-offs and transfers.
       AI Settings → Assistant questions** (`/admin/ai/questions`, ADMIN): 50 per page, filter by who asked, one
       conversation in order, each question expandable, and any draft with its outcome and document. Not readable by
       `kitchen_ai_reader`. Tested by Claude at the owner's request.
+- [x] The assistant plans at the kitchen you name — **done 2026-11-20** (`docs/2026-11-20-week9-ai-kitchen-choice.md`,
+      Task 7). There are several central kitchens and outlets never cook (owner, 2026-11-20).
+      `draft_production_order` takes an optional `kitchen` matched among active commissaries:
+      - one kitchen and none named → that kitchen
+      - several → Claude asks
+      - an outlet named → refused
+      The panel shows "Kitchen: …". `findMainKitchen()` was removed. Next in the multi-kitchen plan: kitchens-only
+      production / conversion / receiving, returns from outlets, and the branch stock request.
 - [~] Streaming NL query UI — **skipped by owner decision (2026-11-20)**: a nice-to-have. Answers take about 3 s
       (1–2 rounds, mostly the lookup; 80–240 output tokens) and the card already shows "Thinking…" and blocks a
       second question, so streaming would only change how the wait feels. Revisit if the assistant feels slow in
       daily use; the useful part would be progress lines ("Looking up…") as each tool is called, more than
       word-by-word text.
+
+### Multi-kitchen operations (owner, 2026-11-20)
+Several central kitchens; outlets never cook, hold no raw materials, order from any kitchen and send unsold goods back.
+- [x] The assistant plans at the kitchen you name — **done 2026-11-20** (Week 9 Task 7, above).
+- [x] Kitchens only — **done 2026-11-20** (`docs/2026-11-20-week9-kitchens-only.md`, Week 9 Task 8).
+      - Production orders, conversions and receiving reports must be at an active commissary. The services refuse
+        an outlet, which covers the API, edits, receiving's re-checks and the assistant's Confirm.
+      - The forms list kitchens only (`findActiveKitchens()`) and label the field Kitchen.
+      - Reverses Week 8 B6 for those three. No data was at an outlet.
+- [x] Returns — **done 2026-11-21** (`docs/2026-11-21-week9-returns.md`, Week 9 Task 9). A `StockTransfer` of kind
+      **RETURN**, numbered `RTN-000001`:
+      - The outlet's Branch Manager (or an admin) sends unsold goods to any kitchen.
+      - No approval: the lots leave at once, soonest expiry first.
+      - Production counts what arrived, with lost in transit as for a delivery.
+      - Lots keep their number, expiry and cost, so the kitchen can convert them.
+      Migration `20261121090000_transfer_returns`.
+- [x] Branch stock request — **done 2026-11-21** (`docs/2026-11-21-week9-stock-requests.md`, Week 9 Task 10).
+      `STR-000001`: an outlet's manager asks any kitchen for goods by a day. Due by `STOCK_REQUEST_CUTOFF` (15:00) the
+      day before; later ones are flagged Late. There is no approval.
+      - The kitchen's **Demand** board totals each good per day, with batches and Plan production pre-filled.
+      - The kitchen plans (a note when it cuts) or declines (a reason).
+      - **Send the delivery** pre-fills a linked transfer. Its receipt marks the request Fulfilled or Partly fulfilled,
+        and a rejected delivery can be sent again.
+      Migration `20261121120000_stock_requests` (34 models). The multi-kitchen plan is complete.
 
 ### Week 10 — KitchenAI Predictive Features
 - [ ] Waste Pattern Detector (weekly BullMQ job)

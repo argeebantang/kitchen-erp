@@ -60,13 +60,14 @@ export const BranchRepository = {
   },
 
   /**
-   * The main kitchen: the oldest active commissary (Main Commissary). Where
-   * the assistant plans production (Week 9 Task 5, I6).
+   * Every active branch with its code and type, same order as findAllActive.
+   * For matching a branch the user named, e.g. the kitchen the assistant
+   * plans a run at (Week 9 Task 7).
    */
-  async findMainKitchen(): Promise<{ id: string; name: string } | null> {
-    return prisma.branch.findFirst({
-      where:   { isActive: true, type: BranchType.COMMISSARY },
-      select:  { id: true, name: true },
+  async findAllActiveWithType(): Promise<{ id: string; name: string; code: string; type: BranchType }[]> {
+    return prisma.branch.findMany({
+      where:   { isActive: true },
+      select:  { id: true, name: true, code: true, type: true },
       orderBy: { createdAt: 'asc' },
     })
   },
@@ -80,10 +81,24 @@ export const BranchRepository = {
     })
   },
 
-  async findById(id: string): Promise<{ id: string; name: string; isActive: boolean } | null> {
+  /**
+   * Active central kitchens (commissaries), oldest first: Main Commissary
+   * heads the list and becomes the form default. What production, conversion
+   * and receiving forms offer — outlets do not cook or hold raw materials
+   * (Week 9 Task 8).
+   */
+  async findActiveKitchens(): Promise<{ id: string; name: string }[]> {
+    return prisma.branch.findMany({
+      where:   { isActive: true, type: BranchType.COMMISSARY },
+      select:  { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    })
+  },
+
+  async findById(id: string): Promise<{ id: string; name: string; isActive: boolean; type: BranchType } | null> {
     return prisma.branch.findUnique({
       where:  { id },
-      select: { id: true, name: true, isActive: true },
+      select: { id: true, name: true, isActive: true, type: true },
     })
   },
 
@@ -217,8 +232,8 @@ export const BranchRepository = {
   },
 
   /** The branch a user manages (Branch.managerId is unique, so at most one). */
-  async findManagedBy(userId: string): Promise<{ id: string; name: string; code: string; isActive: boolean } | null> {
-    return prisma.branch.findUnique({ where: { managerId: userId }, select: { id: true, name: true, code: true, isActive: true } })
+  async findManagedBy(userId: string): Promise<{ id: string; name: string; code: string; isActive: boolean; type: BranchType } | null> {
+    return prisma.branch.findUnique({ where: { managerId: userId }, select: { id: true, name: true, code: true, isActive: true, type: true } })
   },
 
   /** By its code (unique, fixed once created) — the Branch Inventory URL (Week 8 Task 5). */

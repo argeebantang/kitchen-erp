@@ -1,4 +1,4 @@
-import { BranchType, Prisma, TransferStatus, TransferVarianceReason } from '@prisma/client'
+import { BranchType, Prisma, TransferKind, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { expiryFlag, type ExpiryFlag } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
@@ -15,12 +15,14 @@ import {
 import { WriteOffRepository } from '@/repositories/write-off.repository'
 import {
   getNotificationQueue,
+  RETURN_SENT,
   TRANSFER_DECIDED,
   TRANSFER_RECEIVED,
   TRANSFER_SUBMITTED,
   type StockTransferJob,
 } from '@/lib/queue'
 import { signalInventoryChanged } from '@/lib/realtime'
+import { StockRequestService } from '@/services/stock-request.service'
 
 export type StockTransferLineDto = {
   finishedGoodId: string
@@ -33,6 +35,10 @@ export type StockTransferLineDto = {
 export type StockTransferSummaryDto = {
   id: string
   transferNumber: string
+  /** DELIVERY from a commissary, or RETURN from an outlet back to a kitchen (Week 9 Task 9). */
+  kind: TransferKind
+  /** The stock request this delivery fills (Week 9 Task 10). */
+  stockRequest: { id: string; requestNumber: string } | null
   status: TransferStatus
   submittedById: string
   fromBranch: { id: string; name: string; code: string }
@@ -101,7 +107,18 @@ export type TransferFormDto = {
   finishedGoods: { id: string; code: string; name: string; unitAbbreviation: string }[]
 }
 
+/** The return form (Week 9 Task 9): the outlets the viewer may send from, and the kitchens to send to. */
+export type ReturnFormDto = {
+  /** The outlet a branch manager runs; every active outlet for an ADMIN. */
+  fromBranches: { id: string; name: string }[]
+  /** Active kitchens (commissaries). */
+  toBranches: { id: string; name: string; type: BranchType }[]
+  finishedGoods: { id: string; code: string; name: string; unitAbbreviation: string }[]
+}
+
 export type CreateStockTransferServiceInput = {
+  /** Sent from a stock request (Week 9 Task 10): it must be PLANNED, from this kitchen to this outlet, with no other delivery open. */
+  stockRequestId?: string | null
   fromBranchId: string
   toBranchId: string
   notes?: string | null
@@ -150,7 +167,11 @@ export type TransferShortLotDto = {
 }
 
 export type StockTransferDetailDto = StockTransferSummaryDto & {
-  /** In transit and the viewer may confirm it arrived: the receiving branch's manager, or an ADMIN (R3). */
+  /**
+   * In transit and the viewer may confirm it arrived: the receiving branch's
+   * manager, or an ADMIN (R3); for a return, the kitchen — production or an
+   * ADMIN (Week 9 Task 9).
+   */
   canReceive: boolean
   decisions: { id: string; decision: string; remarks: string | null; approverName: string; decidedAt: string }[]
   /**
@@ -186,14 +207,14 @@ export type InTransitTransferDto = StockTransferSummaryDto & {
   dispatchedAt: string | null
   /** Null when a dispatched lot has no cost. */
   value: string | null
+  /** The viewer may confirm what arrived — per transfer, since a return is the kitchen's to count. */
+  canReceive: boolean
 }
 
 /** A branch's open transfers, oldest first; at most OPEN_TRANSFER_LIMIT of each kind. */
 export type BranchTransfersDto = {
   arriving: InTransitTransferDto[]
   pending: StockTransferSummaryDto[]
-  /** The viewer may confirm what arrived: the branch's manager or an ADMIN (R3). */
-  canReceive: boolean
   truncated: boolean
 }
 
@@ -211,6 +232,15 @@ export type TransferReceiptInput = {
 
 export const TRANSFER_STATUSES = Object.values(TransferStatus)
 
+/**
+ * The status as shown: a return is created APPROVED — dispatched, with no
+ * approval — so it reads "In transit" (Week 9 Task 9). Undefined: the status
+ * name itself.
+ */
+export function transferStatusLabel(transfer: { kind: TransferKind; status: TransferStatus }): string | undefined {
+  return transfer.kind === TransferKind.RETURN && transfer.status === TransferStatus.APPROVED ? 'IN TRANSIT' : undefined
+}
+
 export function isTransferStatus(value: string): value is TransferStatus {
   return TRANSFER_STATUSES.some(status => status === value)
 }
@@ -219,6 +249,8 @@ function toSummary(transfer: StockTransferWithDetail): StockTransferSummaryDto {
   return {
     id:              transfer.id,
     transferNumber:  transfer.transferNumber,
+    kind:            transfer.kind,
+    stockRequest:    transfer.stockRequest,
     status:          transfer.status,
     submittedById:   transfer.submittedById,
     fromBranch:      transfer.fromBranch,
@@ -357,12 +389,86 @@ async function senderBranch(fromBranchId: string): Promise<StockTransferResult<{
 /**
  * Who may confirm a transfer arrived (R3): the manager of the receiving
  * branch, read from Branch.managerId — not the login token — or an ADMIN.
+ * A return arrives at a kitchen, so the kitchen counts it: production too
+ * (Production Managers cover every kitchen — owner, 2026-11-20).
  */
-async function mayReceive(viewer: TransferViewer, toBranchId: string): Promise<boolean> {
+async function mayReceive(viewer: TransferViewer, transfer: { kind: TransferKind; toBranchId: string }): Promise<boolean> {
   if (viewer.role === 'ADMIN') return true
+  if (transfer.kind === TransferKind.RETURN && viewer.role === 'PRODUCTION_MANAGER') return true
   if (viewer.role !== 'BRANCH_MANAGER') return false
   const managed = await BranchRepository.findManagedBy(viewer.userId)
-  return managed?.id === toBranchId
+  return managed?.id === transfer.toBranchId
+}
+
+/**
+ * The outlet a return may come from (Week 9 Task 9): an active outlet — a
+ * kitchen sends a delivery instead — that the viewer runs (Branch.managerId,
+ * never the login token), or any outlet for an ADMIN. 404 for a branch
+ * manager naming another branch, so its existence is not theirs to learn.
+ */
+async function returnSender(viewer: TransferViewer, fromBranchId: string): Promise<StockTransferResult<{ id: string; name: string }>> {
+  if (viewer.role !== 'ADMIN' && viewer.role !== 'BRANCH_MANAGER') {
+    return { success: false, error: 'Only an outlet\'s manager, or an admin, records a return', status: 403 }
+  }
+  if (viewer.role === 'BRANCH_MANAGER') {
+    const managed = await BranchRepository.findManagedBy(viewer.userId)
+    if (!managed || managed.id !== fromBranchId) return { success: false, error: 'Sending branch not found', status: 404 }
+  }
+  const branch = await BranchRepository.findById(fromBranchId)
+  if (!branch || !branch.isActive) return { success: false, error: 'Sending branch not found', status: 400 }
+  if (branch.type !== BranchType.OUTLET) {
+    return { success: false, error: `${branch.name} is a kitchen — returns come from an outlet; a kitchen sends a transfer instead`, status: 400 }
+  }
+  return { success: true, data: { id: branch.id, name: branch.name } }
+}
+
+/**
+ * The lines of a new transfer or return, checked against the sender's stock
+ * (T6, T8): at least one, at most MAX_TRANSFER_LINES, one per active good,
+ * each > 0 and within what the sender can send. Read-only — dispatch checks
+ * the lots again under a lock.
+ */
+async function checkLines(
+  sender: { id: string; name: string },
+  lines: CreateStockTransferServiceInput['lines'],
+): Promise<StockTransferResult<{ finishedGoodId: string; name: string; unitAbbreviation: string; quantity: Prisma.Decimal }[]>> {
+  if (lines.length === 0) {
+    return { success: false, error: 'Add at least one finished good', status: 400 }
+  }
+  if (lines.length > MAX_TRANSFER_LINES) {
+    return { success: false, error: `A transfer has at most ${MAX_TRANSFER_LINES} lines`, status: 400 }
+  }
+  const ids = lines.map(line => line.finishedGoodId)
+  if (new Set(ids).size !== ids.length) {
+    return { success: false, error: 'Each finished good may appear on one line only — add the quantities together', status: 400 }
+  }
+
+  const now = new Date()
+  const shortfalls: string[] = []
+  const checked: { finishedGoodId: string; name: string; unitAbbreviation: string; quantity: Prisma.Decimal }[] = []
+  for (const line of lines) {
+    const good = await FinishedGoodRepository.findById(line.finishedGoodId)
+    if (!good || !good.isActive) {
+      return { success: false, error: 'Finished good not found', status: 400 }
+    }
+    const quantity = toDecimal(line.quantity)
+    if (quantity.lessThanOrEqualTo(0)) {
+      return { success: false, error: `${good.name}: the quantity must be greater than zero`, status: 400 }
+    }
+    const a = await availabilityAt(good.id, sender.id, now, null)
+    if (quantity.greaterThan(a.available)) {
+      const unit = good.unit.abbreviation
+      shortfalls.push(
+        `${good.name} — ${trimDecimal(toDecimalString(quantity))} ${unit} asked, ${trimDecimal(toDecimalString(Prisma.Decimal.max(a.available, 0)))} ${unit} available`
+        + (a.claimed.greaterThan(0) ? ` (${trimDecimal(toDecimalString(a.unexpired))} unexpired on hand, ${trimDecimal(toDecimalString(a.claimed))} claimed by documents awaiting approval)` : ''),
+      )
+    }
+    checked.push({ finishedGoodId: good.id, name: good.name, unitAbbreviation: good.unit.abbreviation, quantity })
+  }
+  if (shortfalls.length > 0) {
+    return { success: false, error: `Not enough at ${sender.name}: ${shortfalls.join('; ')}`, status: 409 }
+  }
+  return { success: true, data: checked }
 }
 
 /** Each line of a pending transfer against the sender's stock now, its own claim left out (T7, T8). */
@@ -394,15 +500,41 @@ export const StockTransferService = {
   },
 
   /**
+   * The return form (Week 9 Task 9): a branch manager sends from the outlet
+   * they run — none if they run a kitchen or nothing — an ADMIN from any
+   * active outlet; to any active kitchen.
+   */
+  async getReturnForm(viewer: TransferViewer): Promise<ReturnFormDto> {
+    const [branches, kitchens, { rows: goods }, managed] = await Promise.all([
+      BranchRepository.findAllActiveWithType(),
+      BranchRepository.findActiveKitchens(),
+      FinishedGoodRepository.findMany({ take: 100 }),
+      viewer.role === 'BRANCH_MANAGER' ? BranchRepository.findManagedBy(viewer.userId) : null,
+    ])
+    const outlets = branches.filter(b => b.type === BranchType.OUTLET)
+    return {
+      fromBranches: viewer.role === 'ADMIN'
+        ? outlets.map(b => ({ id: b.id, name: b.name }))
+        : outlets.filter(b => b.id === managed?.id).map(b => ({ id: b.id, name: b.name })),
+      toBranches:    kitchens.map(b => ({ ...b, type: BranchType.COMMISSARY })),
+      finishedGoods: goods.map(g => ({ id: g.id, code: g.code, name: g.name, unitAbbreviation: g.unit.abbreviation })),
+    }
+  },
+
+  /**
    * The form's live preview (T7, T8): the sender's stock of every finished
    * good it holds, and for each line with a quantity, the lots it would take
-   * and their value. Read-only.
+   * and their value. Read-only. A return's sender is checked as a return's
+   * (returnSender) — the viewer's own outlet.
    */
   async preview(input: {
+    kind: TransferKind
     fromBranchId: string
     lines: { finishedGoodId: string; quantity: string | null }[]
-  }): Promise<StockTransferResult<TransferPreviewDto>> {
-    const sender = await senderBranch(input.fromBranchId)
+  }, viewer: TransferViewer): Promise<StockTransferResult<TransferPreviewDto>> {
+    const sender = input.kind === TransferKind.RETURN
+      ? await returnSender(viewer, input.fromBranchId)
+      : await senderBranch(input.fromBranchId)
     if (!sender.success) return sender
 
     const now    = new Date()
@@ -460,54 +592,69 @@ export const StockTransferService = {
       return { success: false, error: 'Receiving branch not found', status: 400 }
     }
 
-    if (input.lines.length === 0) {
-      return { success: false, error: 'Add at least one finished good', status: 400 }
-    }
-    if (input.lines.length > MAX_TRANSFER_LINES) {
-      return { success: false, error: `A transfer has at most ${MAX_TRANSFER_LINES} lines`, status: 400 }
-    }
-    const ids = input.lines.map(line => line.finishedGoodId)
-    if (new Set(ids).size !== ids.length) {
-      return { success: false, error: 'Each finished good may appear on one line only — add the quantities together', status: 400 }
+    if (input.stockRequestId) {
+      const sendable = await StockRequestService.checkSendable(input.stockRequestId, sender.data.id, receiver.id)
+      if (!sendable.success) return sendable
     }
 
-    const now = new Date()
-    const shortfalls: string[] = []
-    const items: { finishedGoodId: string; quantity: Prisma.Decimal }[] = []
-    for (const line of input.lines) {
-      const good = await FinishedGoodRepository.findById(line.finishedGoodId)
-      if (!good || !good.isActive) {
-        return { success: false, error: 'Finished good not found', status: 400 }
-      }
-      const quantity = toDecimal(line.quantity)
-      if (quantity.lessThanOrEqualTo(0)) {
-        return { success: false, error: `${good.name}: the quantity must be greater than zero`, status: 400 }
-      }
-      const a = await availabilityAt(good.id, sender.data.id, now, null)
-      if (quantity.greaterThan(a.available)) {
-        const unit = good.unit.abbreviation
-        shortfalls.push(
-          `${good.name} — ${trimDecimal(toDecimalString(quantity))} ${unit} asked, ${trimDecimal(toDecimalString(Prisma.Decimal.max(a.available, 0)))} ${unit} available`
-          + (a.claimed.greaterThan(0) ? ` (${trimDecimal(toDecimalString(a.unexpired))} unexpired on hand, ${trimDecimal(toDecimalString(a.claimed))} claimed by documents awaiting approval)` : ''),
-        )
-      }
-      items.push({ finishedGoodId: good.id, quantity })
-    }
-    if (shortfalls.length > 0) {
-      return { success: false, error: `Not enough at ${sender.data.name}: ${shortfalls.join('; ')}`, status: 409 }
-    }
+    const lines = await checkLines(sender.data, input.lines)
+    if (!lines.success) return lines
 
     const created = await StockTransferRepository.create({
+      stockRequestId: input.stockRequestId ?? null,
       fromBranchId:  sender.data.id,
       toBranchId:    receiver.id,
       submittedById: actor.userId,
       notes:         input.notes?.trim() || null,
-      items,
+      items:         lines.data.map(line => ({ finishedGoodId: line.finishedGoodId, quantity: line.quantity })),
     })
     // Awaiting approval at both ends' Branch Inventory (Week 8 Task 5).
     signalInventoryChanged([sender.data.id, receiver.id])
     await enqueue(TRANSFER_SUBMITTED, created.id)
     return { success: true, data: created }
+  },
+
+  /**
+   * Records a return and sends it (Week 9 Task 9): unsold goods from an
+   * outlet the viewer runs (returnSender) back to an active kitchen, lines
+   * checked as a transfer's. No approval — the goods are on their way — so it
+   * is dispatched at once, the lots taken soonest expiry first under a lock;
+   * 409 if the outlet no longer has them. The kitchen counts what arrives
+   * (receive), as for a delivery.
+   */
+  async createReturn(
+    input: CreateStockTransferServiceInput,
+    actor: TransferViewer,
+  ): Promise<StockTransferResult<{ id: string; transferNumber: string }>> {
+    const sender = await returnSender(actor, input.fromBranchId)
+    if (!sender.success) return sender
+
+    const kitchen = await BranchRepository.findById(input.toBranchId)
+    if (!kitchen || !kitchen.isActive) {
+      return { success: false, error: 'Kitchen not found', status: 400 }
+    }
+    if (kitchen.type !== BranchType.COMMISSARY) {
+      return { success: false, error: `${kitchen.name} is an outlet — unsold goods go back to a central kitchen`, status: 400 }
+    }
+
+    const lines = await checkLines(sender.data, input.lines)
+    if (!lines.success) return lines
+
+    const created = await StockTransferRepository.createReturn({
+      fromBranchId:   sender.data.id,
+      fromBranchName: sender.data.name,
+      toBranchId:     kitchen.id,
+      submittedById:  actor.userId,
+      notes:          input.notes?.trim() || null,
+      items:          lines.data.map(line => ({ finishedGoodId: line.finishedGoodId, quantity: line.quantity })),
+      lines:          lines.data,
+    })
+    if (!created.ok) return { success: false, error: created.message, status: 409 }
+
+    // Out of the outlet's stock, arriving at the kitchen (Week 8 Task 5).
+    signalInventoryChanged([sender.data.id, kitchen.id])
+    await enqueue(RETURN_SENT, created.id)
+    return { success: true, data: { id: created.id, transferNumber: created.transferNumber } }
   },
 
   /**
@@ -610,7 +757,7 @@ export const StockTransferService = {
 
     const base = {
       ...toSummary(transfer),
-      canReceive: transfer.status === TransferStatus.APPROVED && await mayReceive(viewer, transfer.toBranchId),
+      canReceive: transfer.status === TransferStatus.APPROVED && await mayReceive(viewer, transfer),
       decisions: decisions.map(d => ({
         id:           d.id,
         decision:     d.decision,
@@ -646,25 +793,22 @@ export const StockTransferService = {
    */
   async openForBranch(branchId: string, viewer: TransferViewer): Promise<BranchTransfersDto> {
     // One more than shown, to know whether there are more.
-    const [open, canReceive] = await Promise.all([
-      StockTransferRepository.findOpenForBranch(branchId, OPEN_TRANSFER_LIMIT + 1),
-      mayReceive(viewer, branchId),
-    ])
+    const open     = await StockTransferRepository.findOpenForBranch(branchId, OPEN_TRANSFER_LIMIT + 1)
     const arriving = open.arriving.slice(0, OPEN_TRANSFER_LIMIT)
+    const receivable = await Promise.all(arriving.map(row => mayReceive(viewer, row)))
     const pending  = open.pending.slice(0, OPEN_TRANSFER_LIMIT)
     const dispatched = await FinishedGoodStockRepository.dispatchedByTransfers(arriving.map(row => row.id))
 
     return {
-      arriving: arriving.map(row => {
+      arriving: arriving.map((row, index) => {
         const rows = dispatched.filter(m => m.referenceId === row.id)
         let value: Prisma.Decimal | null = zero
         for (const m of rows) value = value === null || m.unitCost === null ? null : value.add(m.quantity.abs().mul(m.unitCost))
         // Every lot leaves in the approval's transaction, so they share one time.
         const dispatchedAt = rows[0]?.createdAt.toISOString() ?? null
-        return { ...toSummary(row), dispatchedAt, value: value === null ? null : toDecimalString(value) }
+        return { ...toSummary(row), dispatchedAt, value: value === null ? null : toDecimalString(value), canReceive: receivable[index] ?? false }
       }),
       pending:   pending.map(toSummary),
-      canReceive,
       truncated: open.arriving.length > OPEN_TRANSFER_LIMIT || open.pending.length > OPEN_TRANSFER_LIMIT,
     }
   },
@@ -688,10 +832,12 @@ export const StockTransferService = {
     if (!visible.success) return visible
     const transfer = visible.data
 
-    if (!(await mayReceive(viewer, transfer.toBranch.id))) {
+    if (!(await mayReceive(viewer, { kind: transfer.kind, toBranchId: transfer.toBranch.id }))) {
       return {
         success: false,
-        error:   `Only the manager of ${transfer.toBranch.name}, or an admin, can confirm this transfer arrived`,
+        error:   transfer.kind === TransferKind.RETURN
+          ? `Only production, or an admin, can confirm this return arrived at ${transfer.toBranch.name}`
+          : `Only the manager of ${transfer.toBranch.name}, or an admin, can confirm this transfer arrived`,
         status:  403,
       }
     }
@@ -759,6 +905,14 @@ export const StockTransferService = {
     }
     // The lots joined its stock; no longer arriving (Week 8 Task 5).
     signalInventoryChanged([transfer.toBranch.id])
+    // A delivery sent from a stock request fulfils it, fully or partly (Week 9 Task 10).
+    if (transfer.stockRequest) {
+      try {
+        await StockRequestService.onDeliveryReceived(transfer.stockRequest.id)
+      } catch (err) {
+        console.error(`[StockTransferService] could not update ${transfer.stockRequest.requestNumber} after ${transfer.transferNumber} was received`, err)
+      }
+    }
     await enqueue(TRANSFER_RECEIVED, id)
     return {
       success: true,
@@ -785,6 +939,9 @@ export const StockTransferService = {
     const transfer = await StockTransferRepository.findById(id)
     if (!transfer) {
       return { success: false, error: 'Transfer not found', status: 404 }
+    }
+    if (transfer.kind === TransferKind.RETURN) {
+      return { success: false, error: `${transfer.transferNumber} is a return — it needs no approval; the kitchen counts what arrives`, status: 409 }
     }
     if (transfer.submittedById === viewer.userId) {
       return { success: false, error: 'You recorded this transfer, so someone else has to decide it', status: 403 }

@@ -68,8 +68,12 @@ export type BranchInventoryDto = {
   truncated: boolean
   /** This branch's raw materials, as on Stock Levels. */
   materials: BranchStockDto | null
-  /** In transit to it and awaiting approval; `canOpen` — the viewer may open a transfer (SOURCE_PAGES). */
-  transfers: BranchTransfersDto & { canOpen: boolean }
+  /**
+   * In transit to it and awaiting approval; `canOpen` — the viewer may open a
+   * transfer (SOURCE_PAGES); `canReturn` — it is an outlet and the viewer runs
+   * it, or is an ADMIN, so may send unsold goods back to a kitchen (Week 9 Task 9).
+   */
+  transfers: BranchTransfersDto & { canOpen: boolean; canReturn: boolean }
 }
 
 /**
@@ -216,7 +220,12 @@ export const BranchInventoryService = {
       goods:     groupByGood(finished.lots),
       truncated: finished.truncated,
       materials,
-      transfers: { ...transfers, canOpen: SOURCE_PAGES.StockTransfer.roles.includes(viewer.role) },
+      transfers: {
+        ...transfers,
+        canOpen:   SOURCE_PAGES.StockTransfer.roles.includes(viewer.role),
+        canReturn: branch.type === BranchType.OUTLET
+          && (viewer.role === 'ADMIN' || (viewer.role === 'BRANCH_MANAGER' && branch.managerId === viewer.userId)),
+      },
     }
   },
 }

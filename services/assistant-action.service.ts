@@ -1,4 +1,4 @@
-import { AiActionStatus, AiActionType, BomKind, Prisma, Role } from '@prisma/client'
+import { AiActionStatus, AiActionType, BomKind, BranchType, Prisma, Role } from '@prisma/client'
 import { z } from 'zod'
 import { toDecimal, toDecimalString } from '@/lib/decimal'
 import { todayIsoDate } from '@/lib/dates'
@@ -164,6 +164,8 @@ export type ProductionOrderDraftInput = {
   product: string
   batches: number
   plannedDate: string
+  /** The central kitchen as the user named it; optional when only one is active. */
+  kitchen?: string
   batchWeight?: number
   notes?: string
 }
@@ -171,6 +173,60 @@ export type ProductionOrderDraftInput = {
 // ─── Drafting ────────────────────────────────────────────────────────────────
 
 type Named = { name: string; code: string }
+
+/** The words of a name, lower-cased, without punctuation or 1-letter words. */
+function wordsOf(term: string): string[] {
+  return term.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 2)
+}
+
+/** Words that say "a kitchen" without saying which one ("sa kitchen", "the commissary"). */
+const KITCHEN_FILLER = new Set(['kitchen', 'kitchens', 'commissary', 'central', 'branch', 'the', 'sa', 'ng'])
+
+type Kitchen = { id: string; name: string }
+type KitchenMatch = { ok: true; kitchen: Kitchen } | { ok: false; error: string }
+
+/**
+ * The central kitchen a run is planned at (Week 9 Task 7, K1–K3): production
+ * happens only at commissaries, and there can be several. The one the user
+ * named (exact name or code, or the only kitchen containing every word); the
+ * only active one when the user named none; otherwise an error listing the
+ * kitchens, for Claude to ask which. Naming an outlet is refused: outlets do
+ * not cook.
+ */
+async function matchKitchen(term: string | undefined): Promise<KitchenMatch> {
+  const branches = await BranchRepository.findAllActiveWithType()
+  const kitchens = branches.filter(branch => branch.type === BranchType.COMMISSARY)
+  const kitchenList = kitchens.map(kitchen => kitchen.name).join(', ')
+  const [onlyKitchen] = kitchens
+  if (!onlyKitchen) return { ok: false, error: 'There is no active central kitchen to cook in. Tell the user.' }
+
+  const words = wordsOf(term ?? '').filter(word => !KITCHEN_FILLER.has(word))
+  if (words.length === 0) {
+    return kitchens.length === 1
+      ? { ok: true, kitchen: onlyKitchen }
+      : { ok: false, error: `There are ${kitchens.length} central kitchens: ${kitchenList}. Ask the user which kitchen will cook it.` }
+  }
+
+  const wanted = (term ?? '').trim().toLowerCase()
+  const containsAll = (branch: Named) => {
+    const text = `${branch.name} ${branch.code}`.toLowerCase()
+    return words.every(word => text.includes(word))
+  }
+  const exact = branches.find(branch => branch.name.toLowerCase() === wanted || branch.code.toLowerCase() === wanted)
+  const matches = exact ? [exact] : kitchens.filter(containsAll)
+  const [match] = matches
+
+  if (match && matches.length === 1 && match.type === BranchType.COMMISSARY) return { ok: true, kitchen: match }
+  if (matches.length > 1) {
+    return { ok: false, error: `"${term}" matches several kitchens: ${matches.map(m => m.name).join(', ')}. Ask the user which one.` }
+  }
+  const outlet = match ?? branches.find(branch => branch.type === BranchType.OUTLET && containsAll(branch))
+  if (outlet) {
+    return { ok: false, error: `${outlet.name} is an outlet, and outlets do not cook. Runs are planned at a central kitchen: ${kitchenList}. Ask the user which one.` }
+  }
+  return { ok: false, error: `No central kitchen is called "${term}". The kitchens are: ${kitchenList}. Ask the user which one.` }
+}
+
 type NameSearch<T> = (words: string[], match: 'all' | 'any', take: number) => Promise<T[]>
 type Match<T> = { ok: true; item: T } | { ok: false; error: string }
 
@@ -180,7 +236,7 @@ type Match<T> = { ok: true; item: T } | { ok: false; error: string }
  * candidates, for Claude to ask the user which one.
  */
 async function matchByName<T extends Named>(term: string, noun: string, search: NameSearch<T>): Promise<Match<T>> {
-  const words = term.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 2)
+  const words = wordsOf(term)
   if (words.length === 0) return { ok: false, error: `"${term}" is not a ${noun} name.` }
 
   const matches = await search(words, 'all', MATCH_LIMIT + 1)
@@ -322,9 +378,10 @@ function productionOrderDraftDto(draft: ProductionOrderDraft): ProductionOrderDr
 
 /**
  * draft_production_order (I1, I4, I6): matches the product, takes the batch
- * size from its active recipe unless the user gave one, plans it at the main
- * kitchen, checks it under the same rules as Create, and stores it with the
- * ingredient check (shortages) as of now. Creates nothing.
+ * size from its active recipe unless the user gave one, plans it at the
+ * central kitchen the user named (matchKitchen), checks it under the same
+ * rules as Create, and stores it with the ingredient check (shortages) as of
+ * now. Creates nothing.
  */
 async function draftProductionOrder(input: ProductionOrderDraftInput, context: DraftContext): Promise<DraftOutcome> {
   if (context.queryId === null) {
@@ -336,12 +393,13 @@ async function draftProductionOrder(input: ProductionOrderDraftInput, context: D
   if (!match.ok) return { ok: false, error: `Nothing was drafted. ${match.error}` }
   const good = match.item
 
-  const [bom, kitchen] = await Promise.all([
+  const [bom, kitchenMatch] = await Promise.all([
     BomRepository.findActiveByFinishedGood(good.id, BomKind.PRODUCTION),
-    BranchRepository.findMainKitchen(),
+    matchKitchen(input.kitchen),
   ])
   if (!bom) return { ok: false, error: `Nothing was drafted. ${good.name} has no active recipe, so it cannot be planned. Tell the user.` }
-  if (!kitchen) return { ok: false, error: 'Nothing was drafted. There is no active commissary to cook in. Tell the user.' }
+  if (!kitchenMatch.ok) return { ok: false, error: `Nothing was drafted. ${kitchenMatch.error}` }
+  const { kitchen } = kitchenMatch
 
   const order = {
     finishedGoodId: good.id,

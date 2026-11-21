@@ -19,6 +19,9 @@ import {
   PRODUCTION_ORDER_SUBMITTED,
   redisConnection,
   STOCK_RECONCILIATION,
+  RETURN_SENT,
+  STOCK_REQUEST_DECIDED,
+  STOCK_REQUEST_SUBMITTED,
   TRANSFER_DECIDED,
   TRANSFER_RECEIVED,
   TRANSFER_SUBMITTED,
@@ -27,6 +30,7 @@ import {
   type ConversionOrderJob,
   type PrSubmittedJob,
   type ProductionOrderJob,
+  type StockRequestJob,
   type StockTransferJob,
   type WriteOffJob,
 } from '@/lib/queue'
@@ -110,6 +114,21 @@ async function handleTransferReceived(job: Job<StockTransferJob>) {
   console.log(`  → wrote ${count} notification(s)`)
 }
 
+async function handleStockRequestSubmitted(job: Job<StockRequestJob>) {
+  const count = await NotificationService.notifyStockRequestSubmitted(job.data.stockRequestId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleStockRequestDecided(job: Job<StockRequestJob>) {
+  const count = await NotificationService.notifyStockRequestDecided(job.data.stockRequestId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleReturnSent(job: Job<StockTransferJob>) {
+  const count = await NotificationService.notifyReturnSent(job.data.stockTransferId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
 async function handleLowStockCheck() {
   // The run's own date, in Manila — it is also what stops a second run today.
   const date = todayIsoDate()
@@ -172,6 +191,12 @@ const worker = new Worker(
         return handleTransferDecided(job)
       case TRANSFER_RECEIVED:
         return handleTransferReceived(job)
+      case RETURN_SENT:
+        return handleReturnSent(job)
+      case STOCK_REQUEST_SUBMITTED:
+        return handleStockRequestSubmitted(job)
+      case STOCK_REQUEST_DECIDED:
+        return handleStockRequestDecided(job)
       case LOW_STOCK_CHECK:
         return handleLowStockCheck()
       case STOCK_RECONCILIATION:

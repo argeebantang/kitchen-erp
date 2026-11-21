@@ -1,21 +1,29 @@
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { todayIsoDate } from '@/lib/dates'
+import { trimDecimal } from '@/lib/format'
 import { MAX_BATCH_COUNT, ProductionOrderService } from '@/services/production-order.service'
 import { ProductionOrderForm } from '@/components/production/ProductionOrderForm'
 
 type PageProps = {
-  searchParams: Promise<{ date?: string }>
+  // ?date= from the schedule's "+"; ?good=, ?branch=, ?batches= too from the
+  // stock-request demand board's "Plan production" (Week 9 Task 10).
+  searchParams: Promise<{ date?: string; good?: string; branch?: string; batches?: string }>
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 export default async function NewProductionOrderPage({ searchParams }: PageProps) {
-  const [{ goods, branches }, { date }] = await Promise.all([ProductionOrderService.getForm(), searchParams])
+  const [{ goods, branches }, { date, good, branch, batches }] = await Promise.all([ProductionOrderService.getForm(), searchParams])
   const today = todayIsoDate()
   // ?date= comes from "+" on the schedule calendar. A past or malformed date
   // falls back to today rather than pre-filling something the form would reject.
   const plannedDate = date && DATE_PATTERN.test(date) && date >= today ? date : today
+  // Unknown or unplannable values are ignored, the same way.
+  const prefillGood = goods.find(candidate => candidate.finishedGoodId === good && candidate.unitsMatch)
+  const prefillBranch = branches.find(candidate => candidate.id === branch)
+  const batchCount = Number.parseInt(batches ?? '', 10)
+  const prefillBatches = Number.isInteger(batchCount) && batchCount >= 1 && batchCount <= MAX_BATCH_COUNT ? String(batchCount) : '1'
 
   return (
     <div>
@@ -47,12 +55,12 @@ export default async function NewProductionOrderPage({ searchParams }: PageProps
           today={today}
           maxBatchCount={MAX_BATCH_COUNT}
           initial={{
-            finishedGoodId: '',
-            batchWeight:    '',
-            batchCount:     '1',
+            finishedGoodId: prefillGood?.finishedGoodId ?? '',
+            batchWeight:    prefillGood ? trimDecimal(prefillGood.batchSize) : '',
+            batchCount:     prefillGood ? prefillBatches : '1',
             plannedDate,
-            // Oldest active branch first: Main Commissary, where production happens.
-            branchId:       branches[0].id,
+            // Oldest active kitchen first: Main Commissary — unless the link named one.
+            branchId:       prefillBranch?.id ?? branches[0].id,
             notes:          '',
           }}
         />

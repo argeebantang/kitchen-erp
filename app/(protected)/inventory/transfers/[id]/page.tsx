@@ -4,7 +4,8 @@ import { ArrowLeft } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
-import { StockTransferService } from '@/services/stock-transfer.service'
+import { StockTransferService, transferStatusLabel } from '@/services/stock-transfer.service'
+import { ReturnBadge } from '@/components/inventory/BranchTransfers'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { TransferStock } from '@/components/inventory/TransferStock'
@@ -52,7 +53,8 @@ export default async function TransferDetailPage({ params }: PageProps) {
       <div className="mb-6">
         <div className="flex items-center gap-3">
           <h1 className="font-mono text-2xl font-bold text-gray-800">{transfer.transferNumber}</h1>
-          <StatusBadge status={transfer.status} />
+          <StatusBadge status={transfer.status} label={transferStatusLabel(transfer)} />
+          {transfer.kind === 'RETURN' && <ReturnBadge />}
         </div>
         <p className="mt-1 text-sm text-gray-400">
           {transfer.fromBranch.name} <span className="text-gray-300">→</span> {transfer.toBranch.name}
@@ -83,10 +85,17 @@ export default async function TransferDetailPage({ params }: PageProps) {
 
       {transfer.status === 'APPROVED' && (
         <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-800">
-          <p>
-            In transit: it left {transfer.fromBranch.name} when accounting approved it, and joins {transfer.toBranch.name}&apos;s stock
-            when the branch confirms it arrived.
-          </p>
+          {transfer.kind === 'RETURN' ? (
+            <p>
+              In transit: unsold goods sent back — they left {transfer.fromBranch.name} when {transfer.submittedByName} sent them (a
+              return needs no approval), and join {transfer.toBranch.name}&apos;s stock when the kitchen confirms what arrived.
+            </p>
+          ) : (
+            <p>
+              In transit: it left {transfer.fromBranch.name} when accounting approved it, and joins {transfer.toBranch.name}&apos;s stock
+              when the branch confirms it arrived.
+            </p>
+          )}
         </div>
       )}
       {/* R3: the receiving branch's manager, or an admin, counts what arrived (Task 4, V1). */}

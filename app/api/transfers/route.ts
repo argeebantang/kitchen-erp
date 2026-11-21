@@ -8,6 +8,8 @@ const QuantityString = z.string().trim().regex(/^\d+(\.\d+)?$/, 'Must be a posit
 // commissary sending, an active receiver, one line per active good, > 0,
 // within what the sender can send) belong to StockTransferService.
 const CreateStockTransferSchema = z.object({
+  // Sent from a stock request (Week 9 Task 10); the service checks it.
+  stockRequestId: z.string().cuid().nullish(),
   fromBranchId: z.string().cuid(),
   toBranchId:   z.string().cuid(),
   notes:        z.string().trim().max(1000).nullish(),

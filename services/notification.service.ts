@@ -11,6 +11,7 @@ import { ProductionOrderRepository } from '@/repositories/production-order.repos
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { StockTransferRepository, type StockTransferWithDetail } from '@/repositories/stock-transfer.repository'
+import { StockRequestRepository, type StockRequestWithDetail } from '@/repositories/stock-request.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { reasonLabel } from '@/services/write-off.service'
 import { transferVarianceReasonLabel } from '@/lib/transfer-variance'
@@ -56,6 +57,7 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   ConversionOrder:     id => `/production/conversions/${id}`,
   WriteOff:            id => `/inventory/write-offs/${id}`,
   StockTransfer:       id => `/inventory/transfers/${id}`,
+  StockRequest:        id => `/inventory/requests/${id}`,
 }
 
 export type NotificationDto = {
@@ -694,6 +696,76 @@ export const NotificationService = {
   },
 
   /**
+   * An outlet asked a kitchen for stock (Week 9 Task 10): tell the kitchen —
+   * production and admins — except whoever asked. A late request says so.
+   * Re-reads it: gone, or already answered, means nothing to say.
+   */
+  async notifyStockRequestSubmitted(stockRequestId: string): Promise<number> {
+    const row = await StockRequestRepository.findById(stockRequestId)
+    if (!row || row.status !== 'SUBMITTED') return 0
+
+    const kitchen = (await UserRepository.findByRoles([Role.PRODUCTION_MANAGER, Role.ADMIN]))
+      .filter(user => user.id !== row.submittedById)
+    const neededOn = shortDate(row.neededOn)
+    return createAndPush(kitchen.map(user => ({
+      userId:        user.id,
+      type:          'STOCK_REQUEST_SUBMITTED',
+      title:         `${row.late ? 'Late: ' : ''}${row.branch.name} asks ${row.kitchen.name} for ${neededOn}`,
+      body:          `${row.requestNumber} from ${row.submittedBy.name}: ${requestGoods(row, 'asked')}. Plan it, or decline it with the reason.`,
+      referenceType: 'StockRequest',
+      referenceId:   row.id,
+    })))
+  },
+
+  /**
+   * The kitchen answered a stock request: tell whoever asked — planned (with
+   * what was cut and why) or declined (with the reason).
+   */
+  async notifyStockRequestDecided(stockRequestId: string): Promise<number> {
+    const row = await StockRequestRepository.findById(stockRequestId)
+    if (!row || (row.status !== 'PLANNED' && row.status !== 'DECLINED')) return 0
+    if (row.decidedById === row.submittedById) return 0
+
+    const decider = row.decidedBy?.name ?? 'The kitchen'
+    const declined = row.status === 'DECLINED'
+    const cut = row.items.some(item => item.plannedQuantity !== null && item.plannedQuantity.lessThan(item.quantity))
+    return createAndPush([{
+      userId:        row.submittedById,
+      type:          declined ? 'STOCK_REQUEST_DECLINED' : 'STOCK_REQUEST_PLANNED',
+      title:         declined
+        ? `${row.requestNumber} was declined`
+        : `${row.requestNumber} is planned${cut ? ' — with cuts' : ''}`,
+      body:          declined
+        ? `${decider}: ${row.kitchenNote ?? 'no reason given'}.`
+        : `${decider} will send ${requestGoods(row, 'planned')} for ${shortDate(row.neededOn)}.${row.kitchenNote ? ` Note: ${row.kitchenNote}.` : ''}`,
+      referenceType: 'StockRequest',
+      referenceId:   row.id,
+    }])
+  },
+
+  /**
+   * An outlet sent unsold goods back (Week 9 Task 9): tell the kitchen —
+   * production and admins, who may count it — except whoever recorded it.
+   * No approval comes first, so this is the only heads-up. Re-reads it:
+   * gone, or already received, means nothing to say.
+   */
+  async notifyReturnSent(stockTransferId: string): Promise<number> {
+    const row = await StockTransferRepository.findById(stockTransferId)
+    if (!row || row.kind !== 'RETURN' || row.status !== 'APPROVED') return 0
+
+    const kitchen = (await UserRepository.findByRoles([Role.PRODUCTION_MANAGER, Role.ADMIN]))
+      .filter(user => user.id !== row.submittedById)
+    return createAndPush(kitchen.map(user => ({
+      userId:        user.id,
+      type:          'RETURN_SENT',
+      title:         `${row.transferNumber} is on its way to ${row.toBranch.name}`,
+      body:          `${row.submittedBy.name} sent ${transferGoods(row)} back from ${row.fromBranch.name}. Count what arrives — it joins ${row.toBranch.name}'s stock then.`,
+      referenceType: 'StockTransfer',
+      referenceId:   row.id,
+    })))
+  },
+
+  /**
    * The receiving branch confirmed what arrived: tell whoever recorded it,
    * naming any shortfall. A short receipt (Task 4, V6) is logged, not
    * approved, so accounting and admins are told as well — not whoever
@@ -743,6 +815,22 @@ export const NotificationService = {
 }
 
 /** "Bopis 6 kg, Dinuguan 2 kg" — what a transfer carries, for a notification. */
+/** A request's lines as words: what was asked, or what the kitchen will send. */
+function requestGoods(row: StockRequestWithDetail, which: 'asked' | 'planned'): string {
+  const line = (item: StockRequestWithDetail['items'][number], quantity: Prisma.Decimal) =>
+    `${item.finishedGood.name} ${formatQuantity(quantity.toString())} ${item.finishedGood.unit.abbreviation}`
+  if (which === 'asked') return row.items.map(item => line(item, item.quantity)).join(', ')
+  // Planned: what will come, then what will not ("none of Dinuguan").
+  const sent = row.items.filter(item => item.plannedQuantity?.greaterThan(0)).map(item => line(item, item.plannedQuantity as Prisma.Decimal))
+  const none = row.items.filter(item => !item.plannedQuantity?.greaterThan(0)).map(item => item.finishedGood.name)
+  return [sent.join(', '), none.length > 0 ? `none of ${none.join(', ')}` : ''].filter(Boolean).join(' — ')
+}
+
+/** A stored business date (midnight UTC) as "Nov 22". */
+function shortDate(value: Date): string {
+  return value.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 function transferGoods(row: StockTransferWithDetail): string {
   return row.items.map(item => `${item.finishedGood.name} ${formatQuantity(item.quantity.toString())} ${item.finishedGood.unit.abbreviation}`).join(', ')
 }

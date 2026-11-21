@@ -57,6 +57,15 @@ export const TRANSFER_DECIDED = 'transfer-decided'
 /** The receiving branch confirmed a transfer arrived: tell whoever recorded it. */
 export const TRANSFER_RECEIVED = 'transfer-received'
 
+/** An outlet sent unsold goods back (Week 9 Task 9): tell the kitchen to count them when they arrive. */
+export const RETURN_SENT = 'return-sent'
+
+/** An outlet asked a kitchen for stock (Week 9 Task 10): tell the kitchen. */
+export const STOCK_REQUEST_SUBMITTED = 'stock-request-submitted'
+
+/** The kitchen planned or declined a stock request: tell whoever asked. */
+export const STOCK_REQUEST_DECIDED = 'stock-request-decided'
+
 /**
  * The daily summary of what needs reordering. No payload: the job reads
  * current stock when it runs, and the date it reports is the run's own.
@@ -142,6 +151,10 @@ export type WriteOffJob = {
 /** Same rule: an id, re-read when the job runs. */
 export type StockTransferJob = {
   stockTransferId: string
+}
+
+export type StockRequestJob = {
+  stockRequestId: string
 }
 
 /** An order id, re-read when the job runs; and who asked, for the AiCall row (null when automatic). */

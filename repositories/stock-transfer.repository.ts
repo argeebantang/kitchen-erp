@@ -1,11 +1,13 @@
-import { MovementType, Prisma, TransferStatus, TransferVarianceReason } from '@prisma/client'
+import { MovementType, Prisma, TransferKind, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
 
 /**
  * Transfer Orders (Week 8 Task 2): finished goods sent from a commissary to
  * another branch. Stock moves only from Task 3 (dispatch on approval,
- * arrival on receipt), through FinishedGoodStockRepository.
+ * arrival on receipt), through FinishedGoodStockRepository. Returns (Week 9
+ * Task 9) are transfers of kind RETURN, from an outlet back to a kitchen:
+ * dispatched when recorded (createReturn), received like any other.
  */
 
 const stockTransferInclude = {
@@ -13,6 +15,7 @@ const stockTransferInclude = {
   toBranch:    { select: { id: true, name: true, code: true } },
   submittedBy: { select: { id: true, name: true } },
   receivedBy:  { select: { id: true, name: true } },
+  stockRequest: { select: { id: true, requestNumber: true } },
   items: {
     include: {
       finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
@@ -32,6 +35,8 @@ export type StockTransferDecideResult =
 class StockTransferConflict extends Error {}
 
 export type CreateStockTransferInput = {
+  /** The stock request this delivery fills (Week 9 Task 10); checked by the service. */
+  stockRequestId?: string | null
   fromBranchId: string
   toBranchId: string
   submittedById: string
@@ -49,6 +54,62 @@ export type StockTransferListFilters = {
   take?: number
 }
 
+/** What dispatching takes: the transfer and, per line, what leaves the sender. */
+type DispatchInput = {
+  id: string
+  transferNumber: string
+  fromBranchId: string
+  fromBranchName: string
+  lines: { finishedGoodId: string; name: string; unitAbbreviation: string; quantity: Prisma.Decimal }[]
+}
+
+/**
+ * Sends a transfer's lines out of the sender, on the caller's transaction —
+ * a delivery when accounting approves it, a return when it is recorded. For
+ * each line, goods in id order — so two dispatches locking several goods take
+ * them in the same order and cannot deadlock; conversions and write-offs lock
+ * one good, by the same lockLots — it locks the good's lot levels at the
+ * sender, re-reads them, and plans soonest expiry first as of now, expired
+ * lots skipped (planFefoTakes, the rule the form showed). Any line short
+ * throws StockTransferConflict (every short line named), so the caller's
+ * transaction rolls back whole. Otherwise each lot taken leaves as one
+ * TRANSFER (−) movement at the lot's recorded cost; the receiver gets the
+ * same lots on receipt.
+ */
+async function dispatch(tx: Prisma.TransactionClient, input: DispatchInput, shortHint: string): Promise<void> {
+  const now   = new Date()
+  const lines = [...input.lines].sort((a, b) => a.finishedGoodId.localeCompare(b.finishedGoodId))
+  const plans = []
+  const shortfalls: string[] = []
+  for (const line of lines) {
+    await FinishedGoodStockRepository.lockLots(tx, line.finishedGoodId, input.fromBranchId)
+    const lots = await FinishedGoodStockRepository.lotsOnHand(line.finishedGoodId, input.fromBranchId, tx)
+    const plan = planFefoTakes(lots, line.quantity, now)
+    if (plan.short.greaterThan(0)) {
+      shortfalls.push(`${line.name} — ${line.quantity.toString()} ${line.unitAbbreviation} to send, ${line.quantity.sub(plan.short).toString()} ${line.unitAbbreviation} unexpired on hand`)
+    }
+    plans.push(plan)
+  }
+  if (shortfalls.length > 0) {
+    throw new StockTransferConflict(`${input.fromBranchName} no longer has enough: ${shortfalls.join('; ')}. ${shortHint}`)
+  }
+
+  for (const plan of plans) {
+    for (const take of plan.takes) {
+      await FinishedGoodStockRepository.takeFromLot(tx, {
+        lotId:         take.lot.id,
+        branchId:      input.fromBranchId,
+        quantity:      take.quantity,
+        unitCost:      take.lot.movements[0]?.unitCost ?? null,
+        type:          MovementType.TRANSFER,
+        referenceType: 'StockTransfer',
+        referenceId:   input.id,
+        notes:         input.transferNumber,
+      })
+    }
+  }
+}
+
 export const StockTransferRepository = {
   /**
    * Inserts a transfer numbered TRF-000001 from trf_number_seq, already
@@ -63,7 +124,9 @@ export const StockTransferRepository = {
       return tx.stockTransfer.create({
         data: {
           transferNumber,
+          kind:          TransferKind.DELIVERY,
           status:        TransferStatus.PENDING_APPROVAL,
+          stockRequestId: input.stockRequestId ?? null,
           fromBranchId:  input.fromBranchId,
           toBranchId:    input.toBranchId,
           submittedById: input.submittedById,
@@ -76,19 +139,56 @@ export const StockTransferRepository = {
   },
 
   /**
+   * Records a return and dispatches it, in one transaction (Week 9 Task 9):
+   * numbered RTN-000001 from rtn_number_seq, created APPROVED — in transit;
+   * there is no approval — and its lines leave the outlet through dispatch(),
+   * the same lot rule as a delivery's approval. Short → nothing is written,
+   * { ok: false } with every short line named.
+   */
+  async createReturn(input: CreateStockTransferInput & {
+    fromBranchName: string
+    lines: { finishedGoodId: string; name: string; unitAbbreviation: string; quantity: Prisma.Decimal }[]
+  }): Promise<{ ok: true; id: string; transferNumber: string } | { ok: false; message: string }> {
+    try {
+      return await prisma.$transaction(async tx => {
+        const [row] = await tx.$queryRaw<{ nextval: bigint }[]>`SELECT nextval('rtn_number_seq')`
+        const transferNumber = `RTN-${row.nextval.toString().padStart(6, '0')}`
+
+        const created = await tx.stockTransfer.create({
+          data: {
+            transferNumber,
+            kind:          TransferKind.RETURN,
+            status:        TransferStatus.APPROVED,
+            fromBranchId:  input.fromBranchId,
+            toBranchId:    input.toBranchId,
+            submittedById: input.submittedById,
+            notes:         input.notes,
+            items:         { create: input.items },
+          },
+          select: { id: true, transferNumber: true },
+        })
+        await dispatch(tx, {
+          id:             created.id,
+          transferNumber: created.transferNumber,
+          fromBranchId:   input.fromBranchId,
+          fromBranchName: input.fromBranchName,
+          lines:          input.lines,
+        }, 'Since the form was opened it was sold, written off or has expired — reload and send what is on hand')
+        return { ok: true as const, ...created }
+      })
+    } catch (err) {
+      if (err instanceof StockTransferConflict) return { ok: false, message: err.message }
+      throw err
+    }
+  },
+
+  /**
    * Accounting's decision, in one transaction (Week 8 Task 3, R1). The status
    * moves first, with PENDING_APPROVAL in the WHERE (0 rows → someone decided
    * it first, nothing written), then the Approval row. Rejecting stops there.
    *
-   * Approving is the dispatch. For each line, goods in id order — so two
-   * approvals locking several goods take them in the same order and cannot
-   * deadlock; conversions and write-offs lock one good, by the same lockLots
-   * — it locks the good's lot levels at the sender, re-reads them, and plans
-   * soonest expiry first as of now, expired lots skipped (planFefoTakes, the
-   * rule the form showed). Any line short refuses the whole approval
-   * ('stock', every short line named). Otherwise each lot taken leaves as
-   * one TRANSFER (−) movement at the lot's recorded cost; the receiver gets
-   * the same lots on receipt.
+   * Approving is the dispatch (dispatch(), shared with returns). Any line
+   * short refuses the whole approval ('stock', every short line named).
    */
   async decide(input: {
     id: string
@@ -126,40 +226,7 @@ export const StockTransferRepository = {
         if (input.decision.kind === 'REJECTED') return { ok: true as const }
         const approved = input.decision
 
-        const now   = new Date()
-        const lines = [...approved.lines].sort((a, b) => a.finishedGoodId.localeCompare(b.finishedGoodId))
-        const plans = []
-        const shortfalls: string[] = []
-        for (const line of lines) {
-          await FinishedGoodStockRepository.lockLots(tx, line.finishedGoodId, approved.fromBranchId)
-          const lots = await FinishedGoodStockRepository.lotsOnHand(line.finishedGoodId, approved.fromBranchId, tx)
-          const plan = planFefoTakes(lots, line.quantity, now)
-          if (plan.short.greaterThan(0)) {
-            shortfalls.push(`${line.name} — ${line.quantity.toString()} ${line.unitAbbreviation} to send, ${line.quantity.sub(plan.short).toString()} ${line.unitAbbreviation} unexpired on hand`)
-          }
-          plans.push(plan)
-        }
-        if (shortfalls.length > 0) {
-          throw new StockTransferConflict(
-            `${approved.fromBranchName} no longer has enough: ${shortfalls.join('; ')}. `
-            + 'Since this was recorded it was used, converted, written off, sent elsewhere or has expired — reject it, and production records what can be sent',
-          )
-        }
-
-        for (const plan of plans) {
-          for (const take of plan.takes) {
-            await FinishedGoodStockRepository.takeFromLot(tx, {
-              lotId:         take.lot.id,
-              branchId:      approved.fromBranchId,
-              quantity:      take.quantity,
-              unitCost:      take.lot.movements[0]?.unitCost ?? null,
-              type:          MovementType.TRANSFER,
-              referenceType: 'StockTransfer',
-              referenceId:   input.id,
-              notes:         approved.transferNumber,
-            })
-          }
-        }
+        await dispatch(tx, { id: input.id, ...approved }, 'Since this was recorded it was used, converted, written off, sent elsewhere or has expired — reject it, and production records what can be sent')
         return { ok: true as const }
       })
     } catch (err) {
