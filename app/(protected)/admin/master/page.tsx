@@ -9,6 +9,8 @@ import { MaterialsPanel } from '@/components/master/MaterialsPanel'
 import { FinishedGoodsPanel } from '@/components/master/FinishedGoodsPanel'
 import { ReferenceDataPanel } from '@/components/master/ReferenceDataPanel'
 import { BranchesPanel } from '@/components/master/BranchesPanel'
+import { SuppliersPanel } from '@/components/master/SuppliersPanel'
+import { SupplierService } from '@/services/supplier.service'
 
 // Next.js 15: searchParams is a Promise in Server Components and must be
 // awaited. Destructuring it directly (the Next 14 shape) yields undefined.
@@ -34,7 +36,7 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Master Data</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Materials, finished goods, the categories and units they reference, and branches
+          Materials, finished goods, the categories and units they reference, branches and suppliers
         </p>
       </div>
 
@@ -49,6 +51,7 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
         <ReferenceDataPanel kind="units" categories={categories} units={units} />
       )}
       {active === 'branches' && <BranchesTab />}
+      {active === 'suppliers' && <SuppliersPanel suppliers={await SupplierService.list()} />}
     </div>
   )
 }

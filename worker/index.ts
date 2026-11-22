@@ -7,6 +7,9 @@ import {
   WASTE_PATTERN_REPORT,
   WASTE_PATTERN_WEEKLY,
   AI_SCHEDULED_JOBS,
+  SUPPLIER_PERFORMANCE_MONTHLY,
+  SUPPLIER_PERFORMANCE_REPORT,
+  type SupplierPerformanceJob,
   type WastePatternJob,
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
@@ -42,6 +45,7 @@ import { BUSINESS_TIME_ZONE, isoWeekKey, todayIsoDate } from '@/lib/dates'
 import { NotificationService } from '@/services/notification.service'
 import { CostVarianceService } from '@/services/cost-variance.service'
 import { WastePatternService } from '@/services/waste-pattern.service'
+import { lastCompleteMonth, SupplierPerformanceService } from '@/services/supplier-performance.service'
 /**
  * Background job consumer — a SEPARATE PROCESS from the Next.js app.
  *
@@ -257,10 +261,28 @@ async function handleWastePatternWeekly() {
   console.log(`  → ${week} ${result.success ? (result.data.queued ? 'queued' : 'already asked for') : `refused: ${result.error}`}`)
 }
 
+/** The monthly supplier report (Week 10 Task 3): same retry rule. */
+async function handleSupplierPerformanceReport(job: Job<SupplierPerformanceJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await SupplierPerformanceService.write(job.data.month, {
+    userId:      job.data.requestedById,
+    lastAttempt: job.attemptsMade + 1 >= attempts,
+  })
+  console.log(`  → ${job.data.month} ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('the AI service is busy or unreachable — will retry')
+}
+
+/** The 1st-of-the-month clock job: ask for the report on the month that just ended. */
+async function handleSupplierPerformanceMonthly() {
+  const month = lastCompleteMonth()
+  const result = await SupplierPerformanceService.request(month, null)
+  console.log(`  → ${month} ${result.success ? (result.data.queued ? 'queued' : 'already asked for') : `refused: ${result.error}`}`)
+}
+
 // A second worker, on its own queue, so a slow Claude call never holds up a
 // notification. Two at once: a burst of approvals does not queue up for
 // long, and Anthropic's rate limits are far above that.
-const aiWorker = new Worker<CostVarianceJob | WastePatternJob>(
+const aiWorker = new Worker<CostVarianceJob | WastePatternJob | SupplierPerformanceJob>(
   AI_QUEUE,
   async job => {
     console.log(`[worker:ai] job ${job.id} (${job.name})`)
@@ -271,6 +293,10 @@ const aiWorker = new Worker<CostVarianceJob | WastePatternJob>(
         return handleWastePatternReport(job as Job<WastePatternJob>)
       case WASTE_PATTERN_WEEKLY:
         return handleWastePatternWeekly()
+      case SUPPLIER_PERFORMANCE_REPORT:
+        return handleSupplierPerformanceReport(job as Job<SupplierPerformanceJob>)
+      case SUPPLIER_PERFORMANCE_MONTHLY:
+        return handleSupplierPerformanceMonthly()
       default:
         throw new Error(`Unknown job name: ${job.name}`)
     }
@@ -287,6 +313,7 @@ aiWorker.on('failed', (job, err) => {
   const marked =
     job.name === COST_VARIANCE_EXPLAIN ? CostVarianceService.giveUp((job.data as CostVarianceJob).productionOrderId, 'Could not write the explanation. Try again.')
     : job.name === WASTE_PATTERN_REPORT ? WastePatternService.giveUp((job.data as WastePatternJob).week, 'Could not write the report. Try again.')
+    : job.name === SUPPLIER_PERFORMANCE_REPORT ? SupplierPerformanceService.giveUp((job.data as SupplierPerformanceJob).month, 'Could not write the report. Try again.')
     : null
   marked?.catch(giveUpError => console.error(`[worker:ai] could not mark the insight failed: ${giveUpError.message}`))
 })

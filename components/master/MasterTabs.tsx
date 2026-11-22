@@ -6,6 +6,7 @@ export const MASTER_TABS = [
   { key: 'categories',     label: 'Categories' },
   { key: 'units',          label: 'Units' },
   { key: 'branches',       label: 'Branches' },
+  { key: 'suppliers',      label: 'Suppliers' },
 ] as const
 
 export type MasterTabKey = (typeof MASTER_TABS)[number]['key']

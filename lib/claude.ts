@@ -44,6 +44,8 @@ export const AI_FEATURES: Record<AiFeature, AiFeatureSettings> = {
   ASSISTANT:       { label: 'Assistant', model: AI_MODEL, effort: 'low', maxTokens: 4000 },
   // Patterns among 30 days of waste figures, as structured findings (Week 10 Task 2).
   WASTE_PATTERN:   { label: 'Waste pattern detector', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
+  // A month of deliveries per supplier, as structured findings (Week 10 Task 3).
+  SUPPLIER_PERFORMANCE: { label: 'Supplier performance', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
 }
 
 /** USD per million tokens. Writes are the 5-minute cache rate (1.25 × input). */

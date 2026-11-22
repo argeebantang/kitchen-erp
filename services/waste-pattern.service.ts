@@ -1,5 +1,5 @@
 import { AiFeature, AiInsightStatus, AiInsightType, Prisma } from '@prisma/client'
-import { z } from 'zod'
+import { findingsAbout, findingsSchema, keepKnownFindings, parseFindings, type AiFinding, type AiFindingsReport } from '@/services/ai-findings'
 import { addDays, businessDayRange, isoWeekKey, todayIsoDate, weekKeyStart } from '@/lib/dates'
 import { AI_JOB_OPTIONS, getAiQueue, WASTE_PATTERN_REPORT, type WastePatternJob } from '@/lib/queue'
 import { AiInsightRepository, type AiInsightReference } from '@/repositories/ai-insight.repository'
@@ -323,52 +323,15 @@ async function facts(week: string): Promise<WasteFacts | null> {
 
 // ─── Claude's findings ────────────────────────────────────────────────────────
 
-const PRIORITIES = ['high', 'medium', 'low'] as const
-
-export type WasteFinding = {
-  figureIds: string[]
-  title: string
-  pattern: string
-  recommendation: string
-  priority: (typeof PRIORITIES)[number]
-}
-export type WasteReportContent = { summary: string; findings: WasteFinding[] }
+export type WasteFinding = AiFinding
+export type WasteReportContent = AiFindingsReport
 
 /** What Claude must return (structured output): schema-valid every time; the code still checks ids and caps the count. */
-const REPORT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['summary', 'findings'],
-  properties: {
-    summary: { type: 'string', description: 'Two sentences: what was lost in total, and which branch and goods most of it is at.' },
-    findings: {
-      type: 'array',
-      description: `At most ${MAX_FINDINGS}, the costliest first.`,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['figureIds', 'title', 'pattern', 'recommendation', 'priority'],
-        properties: {
-          figureIds:      { type: 'array', items: { type: 'string' }, description: 'Ids of the rows it rests on, e.g. ["W1"], ["B2", "W4"] or ["T1"].' },
-          title:          { type: 'string', description: 'Branch and good, a few words.' },
-          pattern:        { type: 'string', description: 'What keeps happening, one or two sentences quoting the figures as given.' },
-          recommendation: { type: 'string', description: 'One concrete action for this week: who does what.' },
-          priority:       { type: 'string', enum: [...PRIORITIES] },
-        },
-      },
-    },
-  },
-} as const
-
-const ReportSchema = z.object({
-  summary: z.string().trim().min(1),
-  findings: z.array(z.object({
-    figureIds:      z.array(z.string()),
-    title:          z.string().trim().min(1),
-    pattern:        z.string().trim().min(1),
-    recommendation: z.string().trim().min(1),
-    priority:       z.enum(PRIORITIES),
-  })),
+const REPORT_SCHEMA = findingsSchema({
+  summary:   'Two sentences: what was lost in total, and which branch and goods most of it is at.',
+  findings:  `At most ${MAX_FINDINGS}, the costliest first.`,
+  figureIds: 'Ids of the rows it rests on, e.g. ["W1"], ["B2", "W4"] or ["T1"].',
+  title:     'Branch and good, a few words.',
 })
 
 const INSTRUCTIONS = `You read the last 30 days of waste at Lydia's Lechon and find the patterns behind it. Kitchens (commissaries) cook; outlets only sell, order from a kitchen and send unsold goods back.
@@ -400,13 +363,7 @@ function reference(week: string): AiInsightReference {
 
 /** A stored report's content, read back; null when it is not one (never written, or not JSON). */
 export function parseReport(content: string | null): WasteReportContent | null {
-  if (!content) return null
-  try {
-    const parsed = ReportSchema.safeParse(JSON.parse(content))
-    return parsed.success ? parsed.data : null
-  } catch {
-    return null
-  }
+  return parseFindings(content)
 }
 
 export type WasteReportResult<T> =
@@ -468,7 +425,7 @@ async function write(week: string, options: { userId: string | null; lastAttempt
     instructions: INSTRUCTIONS,
     messages:     [{ role: 'user', content: prompt }],
     userId:       options.userId,
-    format:       { type: 'json_schema', schema: REPORT_SCHEMA as unknown as Record<string, unknown> },
+    format:       { type: 'json_schema', schema: REPORT_SCHEMA },
   })
 
   if (!result.success) {
@@ -483,13 +440,10 @@ async function write(week: string, options: { userId: string | null; lastAttempt
     return 'FAILED'
   }
   const ids = new Set([...figures.branches, ...figures.rows, ...figures.routes, ...figures.recovered].map(row => row.id))
-  const findings = report.findings
-    .map(finding => ({ ...finding, figureIds: finding.figureIds.filter(id => ids.has(id)) }))
-    .filter(finding => finding.figureIds.length > 0)
-    .slice(0, MAX_FINDINGS)
+  const kept = keepKnownFindings(report, ids, MAX_FINDINGS)
 
   await AiInsightRepository.complete(ref, {
-    content: JSON.stringify({ summary: report.summary, findings } satisfies WasteReportContent),
+    content: JSON.stringify(kept satisfies WasteReportContent),
     facts: factsJson, prompt, model: result.data.servedModel, aiCallId: result.data.callId,
   })
   return 'READY'
@@ -578,7 +532,7 @@ async function dashboard(options: { branchId?: string; today?: string } = {}): P
     week,
     facts,
     insight,
-    report: report ? { ...report, findings: report.findings.filter(f => f.figureIds.some(id => ids.has(id))) } : null,
+    report: report ? findingsAbout(report, ids) : null,
     totalFindings: report?.findings.length ?? 0,
     scope: {
       branchId: selected.id,

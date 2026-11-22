@@ -227,9 +227,19 @@ Week 10 Task 2 (see `docs/2026-11-23-week10-waste-pattern-detector.md`). One end
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN`), `referenceId` (a production order id, or an ISO week such as `2026-W48`), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER); 404 unknown order; 409 an order not completed and costed |
+| POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN` · `SUPPLIER_PERFORMANCE`), `referenceId` (a production order id, an ISO week such as `2026-W48`, or a month such as `2026-10` that has ended), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER; `SUPPLIER_PERFORMANCE`: ADMIN, ACCOUNTING, PROCUREMENT_MANAGER); 404 unknown order; 409 an order not completed and costed |
 
-Guard: ADMIN, ACCOUNTING, PRODUCTION_MANAGER (others → `/unauthorized`). The caller is recorded on the `AiCall`. The weekly waste report is also asked for by the clock job `waste-pattern-weekly` (Mondays 06:00), recorded as a background call. The dashboard reads the report in a Server Component (`WastePatternService.dashboard`), no endpoint.
+Guard: ADMIN, ACCOUNTING, PRODUCTION_MANAGER, PROCUREMENT_MANAGER (others → `/unauthorized`). The monthly supplier review is also asked for by `supplier-performance-monthly` (the 1st, 06:00).
+
+### Suppliers
+
+Week 10 Task 3. Master Data → Suppliers (a Server Component reading `SupplierService.list()`).
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| PATCH | `/api/suppliers/[id]` | `{ leadTimeDays: 1–60 \| null }` — the promised lead time in whole days; null clears it | 200 `{ supplier: { id, leadTimeDays } }` | 400 validation; 404 unknown supplier |
+
+ADMIN only (middleware). The caller is recorded on the `AiCall`. The weekly waste report is also asked for by the clock job `waste-pattern-weekly` (Mondays 06:00), recorded as a background call. The dashboard reads the report in a Server Component (`WastePatternService.dashboard`), no endpoint.
 
 ### Dashboard assistant
 

@@ -6,6 +6,8 @@ import { AutoRefresh } from '@/components/ui/AutoRefresh'
 import { WasteReportCard } from '@/components/ai/WasteReportCard'
 import { AiInsightService } from '@/services/ai-insight.service'
 import { WASTE_REPORT_ROLES, WastePatternService } from '@/services/waste-pattern.service'
+import { SupplierReportCard } from '@/components/ai/SupplierReportCard'
+import { SUPPLIER_REPORT_ROLES, SupplierPerformanceService } from '@/services/supplier-performance.service'
 
 type Stat = {
   label: string
@@ -25,15 +27,18 @@ const stats: Stat[] = [
 
 type PageProps = {
   // ?wasteBranch= narrows the Waste card to one branch (Week 10 Task 2 follow-up).
-  searchParams: Promise<{ wasteBranch?: string }>
+  searchParams: Promise<{ wasteBranch?: string; supplierMonth?: string; supplier?: string }>
 }
 
 export default async function DashboardPage({ searchParams }: PageProps) {
   const session = await getSession()
-  const { wasteBranch } = await searchParams
+  const { wasteBranch, supplierMonth, supplier } = await searchParams
   const roleLabel = session?.role.replace(/_/g, ' ').toLowerCase()
   // Week 10 Task 2: the KitchenAI insights the role may read (figures are free; only Generate / Regenerate cost).
   const waste = session && WASTE_REPORT_ROLES.includes(session.role) ? await WastePatternService.dashboard({ branchId: wasteBranch }) : null
+  const suppliers = session && SUPPLIER_REPORT_ROLES.includes(session.role)
+    ? await SupplierPerformanceService.dashboard({ month: supplierMonth, supplier })
+    : null
 
   return (
     <div>
@@ -58,13 +63,14 @@ export default async function DashboardPage({ searchParams }: PageProps) {
       ))}
 
       {/* Week 10: KitchenAI insights — Feature 3 first; F4–F6 join in later tasks. */}
-      {session && waste && (
-        <div className="mb-6">
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-800">
+      {session && (waste || suppliers) && (
+        <div className="mb-6 space-y-4">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-800">
             <Sparkles size={18} className="text-purple-600" aria-hidden="true" /> KitchenAI insights
           </h2>
-          <WasteReportCard data={waste} canGenerate={AiInsightService.canGenerate('WASTE_PATTERN', session.role)} />
-          {waste.insight?.status === 'PENDING' && <AutoRefresh seconds={5} />}
+          {waste && <WasteReportCard data={waste} canGenerate={AiInsightService.canGenerate('WASTE_PATTERN', session.role)} />}
+          {suppliers && <SupplierReportCard data={suppliers} canGenerate={AiInsightService.canGenerate('SUPPLIER_PERFORMANCE', session.role)} />}
+          {(waste?.insight?.status === 'PENDING' || suppliers?.insight?.status === 'PENDING') && <AutoRefresh seconds={5} />}
         </div>
       )}
 

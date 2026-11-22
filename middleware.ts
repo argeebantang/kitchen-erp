@@ -52,6 +52,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/units',             roles: ['ADMIN'], methods: WRITE_METHODS },
   // Branches (Week 8 Task 1): read by later forms, managed in Master Data.
   { path: '/api/branches',          roles: ['ADMIN'], methods: WRITE_METHODS },
+  // Master Data → Suppliers (Week 10 Task 3): the promised lead time.
+  { path: '/api/suppliers',         roles: ['ADMIN'] },
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
   // Accounting reads production orders to approve them (the decision itself
@@ -103,7 +105,7 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/ai/test',           roles: ['ADMIN'] },
   // Ask for / regenerate any AI insight (Week 10 Task 2; replaces Week 9's
   // /api/ai/cost-variance) — each type narrows its roles in AiInsightService.
-  { path: '/api/ai/insights',       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  { path: '/api/ai/insights',       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'PROCUREMENT_MANAGER'] },
   // Week 9 Task 3 (F4): the dashboard assistant — ASSISTANT_ROLES in
   // services/assistant.service.ts. Its database login cannot narrow rows to
   // one branch, so roles that see only part of the data wait for that.

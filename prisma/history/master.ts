@@ -67,6 +67,8 @@ export async function createCast(startedAt: Date): Promise<Cast> {
         const row = await tx.supplier.create({
           data: {
             name: supplier.name, contactName: supplier.contactName, phone: supplier.phone, address: supplier.address,
+            // What it promises (Week 10 Task 3); its deliveries show what it really does.
+            leadTimeDays: supplier.leadTimeDays,
             createdAt: startedAt,
           },
         })

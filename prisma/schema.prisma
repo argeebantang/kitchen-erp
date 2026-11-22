@@ -171,6 +171,8 @@ enum AiFeature {
   ASSISTANT
   /// Feature 3 (Week 10 Task 2): the weekly waste pattern report.
   WASTE_PATTERN
+  /// Feature 6 (Week 10 Task 3): the monthly supplier performance report.
+  SUPPLIER_PERFORMANCE
 }
 
 /// How a Claude API call ended (D4).
@@ -193,6 +195,8 @@ enum AiInsightType {
   COST_VARIANCE
   /// Feature 3 (Week 10 Task 2): one report per ISO week, referenceType 'Week', referenceId '2026-W48'.
   WASTE_PATTERN
+  /// Feature 6 (Week 10 Task 3): one report per month, referenceType 'Month', referenceId '2026-10'.
+  SUPPLIER_PERFORMANCE
 }
 
 /// PENDING → READY | FAILED. A FAILED one can be asked for again (back to
@@ -488,6 +492,10 @@ model Supplier {
   phone       String?
   address     String?
   taxId       String?
+  /// Days the supplier promises from an approved order to delivery (Week 10
+  /// Task 3). Null = not set: the Reorder Recommender then uses the lead time
+  /// measured from deliveries, or a default (SupplierService.leadTimes).
+  leadTimeDays Int?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

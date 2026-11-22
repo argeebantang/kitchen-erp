@@ -570,7 +570,20 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
       - Migration `20261123090000_ai_waste_pattern`.
 - [ ] Reorder Recommender — surfaces inline on the Week 4 stock map (click a location → AI suggestion → one-click Create Purchase Order)
 - [ ] Demand Forecaster
-- [ ] Supplier Performance Analyzer (monthly BullMQ job)
+- [x] Supplier Performance Analyzer (monthly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-supplier-performance.md`, Task 3).
+      - **Dashboard → KitchenAI insights → Suppliers — <month>** (ADMIN, ACCOUNTING, PROCUREMENT_MANAGER, VIEWER), with
+        a month picker and a supplier filter.
+      - **Per supplier, worked out by the system:** short deliveries and their value, rejected, late orders against
+        the promised date, measured against promised lead time, and unfilled orders.
+      - **Flags set by a rule:** short or late on at least 3 deliveries / orders that are at least 25 % of them. The
+        plan's "or 25 % of lines" flagged everyone; the threshold is still the owner's call.
+      - **Claude's review** (about $0.018): it flagged Nueva Ecija short on onions and Divisoria late; every number it
+        quoted was in the facts.
+      - **`supplier-performance-monthly`** on the 1st at 06:00.
+      - **Master Data → Suppliers:** promised lead time (new `Supplier.leadTimeDays`), measured lead time, and the one
+        reorders use. Measured if there are 3+ orders in 180 days, else promised, else 2 days (`SupplierService.leadTimes`,
+        for F4).
+      - Migration `20261123120000_supplier_performance`.
 - [ ] Decision Simulator — what-if batch plan vs live BOM/stock/prices; shortages, cost, cost/kg, resulting stock (read-only)
 - [~] AI badge + Regenerate button on all AI insights — **built 2026-11-23** (Task 2) as shared pieces.
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and

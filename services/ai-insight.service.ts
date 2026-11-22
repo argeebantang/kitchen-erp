@@ -1,6 +1,7 @@
 import { AiInsightType } from '@prisma/client'
 import { CostVarianceService } from '@/services/cost-variance.service'
 import { WastePatternService } from '@/services/waste-pattern.service'
+import { SupplierPerformanceService } from '@/services/supplier-performance.service'
 
 /**
  * Every stored AI insight type, in one place (Week 10 Task 2, P6): who may see
@@ -33,6 +34,11 @@ const HANDLERS: Partial<Record<AiInsightType, InsightHandler>> = {
   [AiInsightType.WASTE_PATTERN]: {
     generateRoles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER'],
     request: (week, userId, options) => WastePatternService.request(week, userId, options),
+  },
+  // Feature 6 (Week 10 Task 3): the monthly supplier performance report, by month (2026-10).
+  [AiInsightType.SUPPLIER_PERFORMANCE]: {
+    generateRoles: ['ADMIN', 'ACCOUNTING', 'PROCUREMENT_MANAGER'],
+    request: (month, userId, options) => SupplierPerformanceService.request(month, userId, options),
   },
 }
 

@@ -1,0 +1,8 @@
+-- AlterEnum
+ALTER TYPE "AiFeature" ADD VALUE 'SUPPLIER_PERFORMANCE';
+
+-- AlterEnum
+ALTER TYPE "AiInsightType" ADD VALUE 'SUPPLIER_PERFORMANCE';
+
+-- AlterTable
+ALTER TABLE "Supplier" ADD COLUMN     "leadTimeDays" INTEGER;

@@ -115,6 +115,12 @@ export const WASTE_PATTERN_REPORT = 'waste-pattern-report'
  */
 export const WASTE_PATTERN_WEEKLY = 'waste-pattern-weekly'
 
+/** Write the monthly supplier performance report (FEATURE 6, Week 10 Task 3). */
+export const SUPPLIER_PERFORMANCE_REPORT = 'supplier-performance-report'
+
+/** The 1st-of-the-month clock job: asks for the report on the month that just ended. No payload. */
+export const SUPPLIER_PERFORMANCE_MONTHLY = 'supplier-performance-monthly'
+
 /**
  * Retries for AI jobs: only a failure worth retrying (busy, overloaded,
  * unreachable) throws and comes back — 30 s, then 60 s. Anything else marks
@@ -144,6 +150,7 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
  */
 export const AI_SCHEDULED_JOBS: { name: string; pattern: string }[] = [
   { name: WASTE_PATTERN_WEEKLY, pattern: '0 6 * * 1' }, // Mondays 06:00: the 30 days to Sunday night
+  { name: SUPPLIER_PERFORMANCE_MONTHLY, pattern: '0 6 1 * *' }, // the 1st, 06:00: the month that just ended
 ]
 
 /**
@@ -189,6 +196,12 @@ export type CostVarianceJob = {
 /** The week (2026-W48) the report covers; who asked (null for the clock job). Figures are read when it runs. */
 export type WastePatternJob = {
   week: string
+  requestedById: string | null
+}
+
+/** The month (2026-10) the report covers; who asked (null for the clock job). */
+export type SupplierPerformanceJob = {
+  month: string
   requestedById: string | null
 }
 
