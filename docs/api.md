@@ -217,9 +217,19 @@ Week 9 Task 2 (see `docs/2026-11-19-week9-cost-variance-explainer.md`). The expl
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/ai/cost-variance` | `{ productionOrderId }` (cuid) | 200 `{ queued: true }` — the explanation is now `PENDING` and the job queued · 200 `{ queued: false }` — one is already `PENDING` or `READY`: nothing queued, nothing spent | 400 validation · 404 order not found · 409 not a completed order with a recorded cost |
+| POST | `/api/ai/insights` | `{ type: 'COST_VARIANCE', referenceId: productionOrderId, regenerate? }` — the generic insight endpoint (Week 10 Task 2; it replaced `/api/ai/cost-variance`) | see **AI insights** below | see below |
 
 ADMIN, PRODUCTION_MANAGER, ACCOUNTING (middleware) — the roles that can open production orders. The caller (`x-user-id`) is recorded on the `AiCall`. AI failures (not set up, over budget, refused, …) are not returned here: the job stores them on the insight and the card shows them with Try again.
+
+### AI insights (Ask, Regenerate) and the Waste Pattern Detector
+
+Week 10 Task 2 (see `docs/2026-11-23-week10-waste-pattern-detector.md`). One endpoint asks for any stored AI insight or regenerates it; `AiInsightService` holds, per type, who may ask and how. It only queues the job — the page shows the insight being written and refreshes.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN`), `referenceId` (a production order id, or an ISO week such as `2026-W48`), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER); 404 unknown order; 409 an order not completed and costed |
+
+Guard: ADMIN, ACCOUNTING, PRODUCTION_MANAGER (others → `/unauthorized`). The caller is recorded on the `AiCall`. The weekly waste report is also asked for by the clock job `waste-pattern-weekly` (Mondays 06:00), recorded as a background call. The dashboard reads the report in a Server Component (`WastePatternService.dashboard`), no endpoint.
 
 ### Dashboard assistant
 

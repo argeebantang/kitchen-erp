@@ -42,6 +42,8 @@ export const AI_FEATURES: Record<AiFeature, AiFeatureSettings> = {
   COST_VARIANCE:   { label: 'Cost variance explainer', model: AI_MODEL, effort: 'low', maxTokens: 2000 },
   // Chat with simple lookups (Week 9 Task 3, F6). Per round: a tool call or the answer.
   ASSISTANT:       { label: 'Assistant', model: AI_MODEL, effort: 'low', maxTokens: 4000 },
+  // Patterns among 30 days of waste figures, as structured findings (Week 10 Task 2).
+  WASTE_PATTERN:   { label: 'Waste pattern detector', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
 }
 
 /** USD per million tokens. Writes are the 5-minute cache rate (1.25 × input). */

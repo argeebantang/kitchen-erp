@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "AiFeature" ADD VALUE 'WASTE_PATTERN';
+
+-- AlterEnum
+ALTER TYPE "AiInsightType" ADD VALUE 'WASTE_PATTERN';

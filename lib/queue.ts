@@ -103,6 +103,19 @@ export const AI_QUEUE = 'ai'
 export const COST_VARIANCE_EXPLAIN = 'cost-variance-explain'
 
 /**
+ * Write the weekly waste pattern report (FEATURE 3, Week 10 Task 2): from
+ * Generate now / Regenerate, and from the Monday clock job.
+ */
+export const WASTE_PATTERN_REPORT = 'waste-pattern-report'
+
+/**
+ * The Monday clock job (Week 10 Task 2): asks for this week's waste report,
+ * which queues WASTE_PATTERN_REPORT like the Generate button. No payload —
+ * the week is the run's own.
+ */
+export const WASTE_PATTERN_WEEKLY = 'waste-pattern-weekly'
+
+/**
  * Retries for AI jobs: only a failure worth retrying (busy, overloaded,
  * unreachable) throws and comes back — 30 s, then 60 s. Anything else marks
  * its insight FAILED on the first attempt and completes.
@@ -121,6 +134,16 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
   { name: STOCK_RECONCILIATION, pattern: '0 6 * * *' },
   { name: EXPIRY_CHECK,         pattern: '0 6 * * *' }, // before service: what to sell, convert or write off first
   { name: END_OF_DAY_SUMMARY,   pattern: '0 21 * * *' }, // 21:00, after the kitchen closes (Week 7 Task 4)
+]
+
+/**
+ * Clock jobs on the AI queue (Week 10, P7): weekly and monthly reports.
+ * Same mechanism as DAILY_JOBS — cron patterns in BUSINESS_TIME_ZONE,
+ * registered by the worker at startup — but on the ai queue, so a report
+ * never waits behind notifications.
+ */
+export const AI_SCHEDULED_JOBS: { name: string; pattern: string }[] = [
+  { name: WASTE_PATTERN_WEEKLY, pattern: '0 6 * * 1' }, // Mondays 06:00: the 30 days to Sunday night
 ]
 
 /**
@@ -160,6 +183,12 @@ export type StockRequestJob = {
 /** An order id, re-read when the job runs; and who asked, for the AiCall row (null when automatic). */
 export type CostVarianceJob = {
   productionOrderId: string
+  requestedById: string | null
+}
+
+/** The week (2026-W48) the report covers; who asked (null for the clock job). Figures are read when it runs. */
+export type WastePatternJob = {
+  week: string
   requestedById: string | null
 }
 

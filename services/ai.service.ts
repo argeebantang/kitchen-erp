@@ -51,6 +51,12 @@ export type AiCompleteInput = {
   messages: Anthropic.Beta.BetaMessageParam[]
   /** Who asked; null for a background job. */
   userId: string | null
+  /**
+   * Structured output (Week 10 Task 2): the answer is JSON valid against this
+   * schema (output_config.format). The text still comes back as `text`; the
+   * feature parses and checks it.
+   */
+  format?: Anthropic.Beta.BetaJSONOutputFormat
 }
 
 export type AiCompletion = {
@@ -287,6 +293,8 @@ type RoundInput = {
   cacheTail?: boolean
   /** The assistant question this round belongs to (Week 9 Task 4), recorded on its AiCall. */
   aiQueryId?: string | null
+  /** Structured output, see AiCompleteInput. */
+  format?: Anthropic.Beta.BetaJSONOutputFormat
 }
 
 type RoundSuccess = { message: Anthropic.Beta.BetaMessage; usage: AiUsageEstimate; durationMs: number; callId: string }
@@ -323,7 +331,7 @@ async function round(input: RoundInput): Promise<AiResult<RoundSuccess>> {
       model:         settings.model,
       max_tokens:    settings.maxTokens,
       thinking:      { type: 'adaptive' },
-      output_config: { effort: settings.effort },
+      output_config: { effort: settings.effort, ...(input.format ? { format: input.format } : {}) },
       system:        input.system,
       messages:      input.messages,
       ...(input.tools && input.tools.length > 0 ? { tools: input.tools } : {}),
@@ -383,6 +391,7 @@ async function complete(input: AiCompleteInput): Promise<AiResult<AiCompletion>>
     userId:   input.userId,
     system:   [{ type: 'text', text: BASE_SYSTEM_PROMPT }, { type: 'text', text: input.instructions }],
     messages: input.messages,
+    format:   input.format,
   })
   if (!result.success) return result
 
@@ -502,7 +511,13 @@ async function converse(input: AiConverseInput): Promise<AiResult<AiConversation
 export type AiInsightDto = {
   status: AiInsightStatus
   content: string | null
+  /**
+   * FAILED: why. READY: the last Regenerate could not be written, and the text
+   * shown is the earlier one (Week 10 Task 2). Otherwise null.
+   */
   error: string | null
+  /** PENDING with the earlier text still there: a Regenerate is being written. */
+  regenerating: boolean
   model: string | null
   /** ISO; set once READY. */
   generatedAt: string | null
@@ -515,6 +530,7 @@ export function toInsightDto(insight: AiInsightSummary): AiInsightDto {
     status:      insight.status,
     content:     insight.content,
     error:       insight.error,
+    regenerating: insight.status === 'PENDING' && insight.content !== null,
     model:       insight.model,
     generatedAt: insight.generatedAt?.toISOString() ?? null,
     costUsd:     insight.aiCall ? toDecimalString(insight.aiCall.costUsd) : null,

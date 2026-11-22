@@ -2,6 +2,10 @@ import { getSession } from '@/lib/session'
 import { ShoppingCart, Package, BarChart3, AlertTriangle, Sparkles } from 'lucide-react'
 import { AssistantCard } from '@/components/ai/AssistantCard'
 import { ASSISTANT_HISTORY, ASSISTANT_QUESTION_MAX, canUseAssistant } from '@/services/assistant.service'
+import { AutoRefresh } from '@/components/ui/AutoRefresh'
+import { WasteReportCard } from '@/components/ai/WasteReportCard'
+import { AiInsightService } from '@/services/ai-insight.service'
+import { WASTE_REPORT_ROLES, WastePatternService } from '@/services/waste-pattern.service'
 
 type Stat = {
   label: string
@@ -22,6 +26,8 @@ const stats: Stat[] = [
 export default async function DashboardPage() {
   const session = await getSession()
   const roleLabel = session?.role.replace(/_/g, ' ').toLowerCase()
+  // Week 10 Task 2: the KitchenAI insights the role may read (figures are free; only Generate / Regenerate cost).
+  const waste = session && WASTE_REPORT_ROLES.includes(session.role) ? await WastePatternService.dashboard() : null
 
   return (
     <div>
@@ -44,6 +50,17 @@ export default async function DashboardPage() {
           <Sparkles size={14} aria-hidden="true" /> The KitchenAI assistant is not available for your role yet.
         </p>
       ))}
+
+      {/* Week 10: KitchenAI insights — Feature 3 first; F4–F6 join in later tasks. */}
+      {session && waste && (
+        <div className="mb-6">
+          <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-gray-800">
+            <Sparkles size={18} className="text-purple-600" aria-hidden="true" /> KitchenAI insights
+          </h2>
+          <WasteReportCard data={waste} canGenerate={AiInsightService.canGenerate('WASTE_PATTERN', session.role)} />
+          {waste.insight?.status === 'PENDING' && <AutoRefresh seconds={5} />}
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

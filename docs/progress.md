@@ -558,12 +558,25 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         soonest expiry first; takings, cost of goods and margin; End of Day gains **Sold**. Migration
         `20261122120000_outlet_sales` (35 models; readable by `kitchen_ai_reader`). Until now sold goods stayed on the
         outlet's books.
-- [ ] Waste Pattern Detector (weekly BullMQ job)
+- [x] Waste Pattern Detector (weekly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-waste-pattern-detector.md`, Task 2).
+      - **Dashboard → KitchenAI insights → Waste — last 30 days** (ADMIN, ACCOUNTING, PRODUCTION_MANAGER, VIEWER). The
+        system works out lost against produced, per branch and good by reason, the waste rate, routes losing goods in
+        transit, conversions recovered, and the change on the previous 30 days.
+      - **Claude** (structured output, Sonnet 5.5 effort low, about $0.023 a report) returns up to 5 findings, each with
+        what to do and the rows it rests on, shown beside it. Every number it quotes was checked to be in the facts. It
+        found every built-in pattern of the history data.
+      - One report per ISO week (insight `WASTE_PATTERN` / `'Week'` / `'2026-W48'`). **`waste-pattern-weekly`**
+        (Mondays 06:00) on the `ai` queue (`AI_SCHEDULED_JOBS`), plus Generate / Regenerate.
+      - Migration `20261123090000_ai_waste_pattern`.
 - [ ] Reorder Recommender — surfaces inline on the Week 4 stock map (click a location → AI suggestion → one-click Create Purchase Order)
 - [ ] Demand Forecaster
 - [ ] Supplier Performance Analyzer (monthly BullMQ job)
 - [ ] Decision Simulator — what-if batch plan vs live BOM/stock/prices; shortages, cost, cost/kg, resulting stock (read-only)
-- [ ] AI badge + Regenerate button on all AI insights
+- [~] AI badge + Regenerate button on all AI insights — **built 2026-11-23** (Task 2) as shared pieces.
+      - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
+        "regenerate failed").
+      - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
+      - On Feature 1 (cost explanation) and Feature 3 so far. Task 7 sweeps the rest.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

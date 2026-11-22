@@ -4,6 +4,10 @@ import {
   COST_VARIANCE_EXPLAIN,
   getAiQueue,
   type CostVarianceJob,
+  WASTE_PATTERN_REPORT,
+  WASTE_PATTERN_WEEKLY,
+  AI_SCHEDULED_JOBS,
+  type WastePatternJob,
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
@@ -34,9 +38,10 @@ import {
   type StockTransferJob,
   type WriteOffJob,
 } from '@/lib/queue'
-import { BUSINESS_TIME_ZONE, todayIsoDate } from '@/lib/dates'
+import { BUSINESS_TIME_ZONE, isoWeekKey, todayIsoDate } from '@/lib/dates'
 import { NotificationService } from '@/services/notification.service'
 import { CostVarianceService } from '@/services/cost-variance.service'
+import { WastePatternService } from '@/services/waste-pattern.service'
 /**
  * Background job consumer — a SEPARATE PROCESS from the Next.js app.
  *
@@ -234,17 +239,38 @@ async function handleCostVarianceExplain(job: Job<CostVarianceJob>) {
   if (outcome === 'RETRY') throw new Error('the AI service is busy or unreachable — will retry')
 }
 
+/** The weekly waste pattern report (Week 10 Task 2): same retry rule as the explanation. */
+async function handleWastePatternReport(job: Job<WastePatternJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await WastePatternService.write(job.data.week, {
+    userId:      job.data.requestedById,
+    lastAttempt: job.attemptsMade + 1 >= attempts,
+  })
+  console.log(`  → ${job.data.week} ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('the AI service is busy or unreachable — will retry')
+}
+
+/** The Monday clock job: ask for this week's report (queues WASTE_PATTERN_REPORT unless one is already there). */
+async function handleWastePatternWeekly() {
+  const week = isoWeekKey(todayIsoDate())
+  const result = await WastePatternService.request(week, null)
+  console.log(`  → ${week} ${result.success ? (result.data.queued ? 'queued' : 'already asked for') : `refused: ${result.error}`}`)
+}
+
 // A second worker, on its own queue, so a slow Claude call never holds up a
 // notification. Two at once: a burst of approvals does not queue up for
-// long, and Anthropic's rate limits are far above that. Typed by its one job
-// so far; a Week 10 job widens it to a union.
-const aiWorker = new Worker<CostVarianceJob>(
+// long, and Anthropic's rate limits are far above that.
+const aiWorker = new Worker<CostVarianceJob | WastePatternJob>(
   AI_QUEUE,
   async job => {
     console.log(`[worker:ai] job ${job.id} (${job.name})`)
     switch (job.name) {
       case COST_VARIANCE_EXPLAIN:
-        return handleCostVarianceExplain(job)
+        return handleCostVarianceExplain(job as Job<CostVarianceJob>)
+      case WASTE_PATTERN_REPORT:
+        return handleWastePatternReport(job as Job<WastePatternJob>)
+      case WASTE_PATTERN_WEEKLY:
+        return handleWastePatternWeekly()
       default:
         throw new Error(`Unknown job name: ${job.name}`)
     }
@@ -257,10 +283,12 @@ aiWorker.on('failed', (job, err) => {
   console.error(`[worker:ai] job ${job?.id} FAILED: ${err.message}`)
   // Out of attempts on something explain() did not expect (the database was
   // down, a bug): the insight would stay PENDING and the card spin forever.
-  if (job && job.name === COST_VARIANCE_EXPLAIN && job.attemptsMade >= (job.opts.attempts ?? 1)) {
-    CostVarianceService.giveUp(job.data.productionOrderId, 'Could not write the explanation. Try again.')
-      .catch(giveUpError => console.error(`[worker:ai] could not mark the insight failed: ${giveUpError.message}`))
-  }
+  if (!job || job.attemptsMade < (job.opts.attempts ?? 1)) return
+  const marked =
+    job.name === COST_VARIANCE_EXPLAIN ? CostVarianceService.giveUp((job.data as CostVarianceJob).productionOrderId, 'Could not write the explanation. Try again.')
+    : job.name === WASTE_PATTERN_REPORT ? WastePatternService.giveUp((job.data as WastePatternJob).week, 'Could not write the report. Try again.')
+    : null
+  marked?.catch(giveUpError => console.error(`[worker:ai] could not mark the insight failed: ${giveUpError.message}`))
 })
 
 console.log(`[worker] listening on "${AI_QUEUE}" — 2 at a time`)
@@ -273,14 +301,16 @@ console.log(`[worker] listening on "${AI_QUEUE}" — 2 at a time`)
  * 06:00; it runs when the worker is back.
  */
 async function scheduleDailyJobs() {
-  const queue = getNotificationQueue()
-  for (const { name, pattern } of DAILY_JOBS) {
-    await queue.upsertJobScheduler(name, { pattern, tz: BUSINESS_TIME_ZONE }, { name, data: {} })
-    const next = (await queue.getJobScheduler(name))?.next
-    const when = next === undefined
-      ? 'unknown'
-      : new Date(next).toLocaleString('en-PH', { timeZone: BUSINESS_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' })
-    console.log(`[worker] ${name} scheduled "${pattern}" ${BUSINESS_TIME_ZONE} — next run ${when}`)
+  // Daily jobs on the notifications queue; weekly / monthly AI reports on the ai queue (Week 10, P7).
+  for (const [queue, jobs] of [[getNotificationQueue(), DAILY_JOBS], [getAiQueue(), AI_SCHEDULED_JOBS]] as const) {
+    for (const { name, pattern } of jobs) {
+      await queue.upsertJobScheduler(name, { pattern, tz: BUSINESS_TIME_ZONE }, { name, data: {} })
+      const next = (await queue.getJobScheduler(name))?.next
+      const when = next === undefined
+        ? 'unknown'
+        : new Date(next).toLocaleString('en-PH', { timeZone: BUSINESS_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' })
+      console.log(`[worker] ${name} scheduled "${pattern}" ${BUSINESS_TIME_ZONE} — next run ${when}`)
+    }
   }
 }
 

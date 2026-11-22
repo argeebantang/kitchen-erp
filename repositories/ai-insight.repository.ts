@@ -48,6 +48,20 @@ export const AiInsightRepository = {
     return created.count === 1
   },
 
+  /**
+   * Regenerate (Week 10 Task 2, P2): READY → PENDING, keeping the text, facts
+   * and call it was written from, so the page goes on showing them while the
+   * new one is written. False when it is not READY — a PENDING one is already
+   * being written, so a second click queues nothing.
+   */
+  async regenerate(ref: AiInsightReference): Promise<boolean> {
+    const { count } = await prisma.aiInsight.updateMany({
+      where: { ...ref, status: AiInsightStatus.READY },
+      data:  { status: AiInsightStatus.PENDING, error: null },
+    })
+    return count === 1
+  },
+
   /** PENDING → READY with the text and what produced it. False if it was no longer PENDING. */
   async complete(ref: AiInsightReference, result: {
     content: string; facts: Prisma.InputJsonValue; prompt: string; model: string; aiCallId: string | null
@@ -59,10 +73,21 @@ export const AiInsightRepository = {
     return count === 1
   },
 
-  /** PENDING → FAILED with a reason. Facts and prompt are kept, to see what was tried. */
+  /**
+   * A PENDING insight's attempt failed. A regenerate (it still has the earlier
+   * text) goes back to READY with that text and its facts untouched, and the
+   * reason in `error` — the page says the new one could not be written. A
+   * first attempt goes to FAILED, keeping the facts and prompt to see what was
+   * tried. False if it was no longer PENDING.
+   */
   async fail(ref: AiInsightReference, result: {
     error: string; facts?: Prisma.InputJsonValue; prompt?: string; aiCallId?: string | null
   }): Promise<boolean> {
+    const kept = await prisma.aiInsight.updateMany({
+      where: { ...ref, status: AiInsightStatus.PENDING, content: { not: null } },
+      data:  { status: AiInsightStatus.READY, error: result.error },
+    })
+    if (kept.count === 1) return true
     const { count } = await prisma.aiInsight.updateMany({
       where: { ...ref, status: AiInsightStatus.PENDING },
       data:  { ...result, status: AiInsightStatus.FAILED },

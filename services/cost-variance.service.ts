@@ -353,6 +353,7 @@ export type CostVarianceResult<T> =
 async function request(
   productionOrderId: string,
   requestedById: string | null,
+  options: { regenerate?: boolean } = {},
 ): Promise<CostVarianceResult<{ queued: boolean }>> {
   const found = await ProductionOrderRepository.findForCostComparison(productionOrderId)
   if (!found) {
@@ -363,7 +364,9 @@ async function request(
   }
 
   const ref = insightReference(productionOrderId)
-  if (!(await AiInsightRepository.request(ref))) return { success: true, data: { queued: false } }
+  // Regenerate (Week 10 Task 2) rewrites a READY one; otherwise a missing or FAILED one is asked for.
+  const asked = options.regenerate ? await AiInsightRepository.regenerate(ref) : await AiInsightRepository.request(ref)
+  if (!asked) return { success: true, data: { queued: false } }
 
   try {
     await getAiQueue().add(COST_VARIANCE_EXPLAIN, { productionOrderId, requestedById } satisfies CostVarianceJob, AI_JOB_OPTIONS)

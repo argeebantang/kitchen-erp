@@ -1,11 +1,10 @@
 import Link from 'next/link'
-import { Sparkles } from 'lucide-react'
-import { formatDateTime, shortDateLabel } from '@/lib/dates'
-import { formatPeso, formatQuantity, formatSignedPeso, formatUsd, trimDecimal } from '@/lib/format'
+import { shortDateLabel } from '@/lib/dates'
+import { formatPeso, formatQuantity, formatSignedPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the order page.
 import type { CostComparisonDto, IngredientChangeDto } from '@/services/cost-variance.service'
 import type { AiInsightDto } from '@/services/ai.service'
-import { ExplainBatchButton } from '@/components/production/ExplainBatchButton'
+import { AiInsightPanel } from '@/components/ai/AiInsightPanel'
 
 /** Dearer is red, cheaper green, as on the costing dashboard. */
 function changeClass(value: string): string {
@@ -28,50 +27,6 @@ function nowAndThen(now: string | null, then: string | null, format: (value: str
     <>
       <span className="text-gray-800">{now === null ? '—' : format(now)}</span>
       <span className="text-gray-400"> / {then === null ? '—' : format(then)}</span>
-    </>
-  )
-}
-
-/**
- * Claude's explanation in whichever state it is (E5), with the button to ask
- * for one when there is none or it failed (E6). The figures above never
- * depend on it. Everyone who can open this page may ask: the /production
- * guard and /api/ai/cost-variance admit the same roles.
- */
-function Explanation({ insight, productionOrderId }: { insight: AiInsightDto | null; productionOrderId: string }) {
-  if (insight === null) {
-    return (
-      <>
-        <p className="mt-1 text-sm text-gray-400">No explanation yet.</p>
-        <ExplainBatchButton productionOrderId={productionOrderId} label="Explain this batch" />
-      </>
-    )
-  }
-  if (insight.status === 'PENDING') {
-    return (
-      <p className="mt-1 flex items-center gap-2 text-sm text-purple-700">
-        <span className="h-3 w-3 animate-spin rounded-full border-2 border-purple-300 border-t-purple-700" aria-hidden="true" />
-        Claude is explaining this batch…
-      </p>
-    )
-  }
-  if (insight.status === 'FAILED') {
-    return (
-      <>
-        <p className="mt-1 text-sm text-red-700">Could not explain this batch: {insight.error ?? 'unknown error'}</p>
-        <ExplainBatchButton productionOrderId={productionOrderId} label="Try again" />
-      </>
-    )
-  }
-  return (
-    <>
-      <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">{insight.content}</p>
-      <p className="mt-2 text-xs text-gray-400">
-        {insight.generatedAt && <>Written {formatDateTime(insight.generatedAt)}</>}
-        {insight.model && <> by <span className="font-mono">{insight.model}</span></>}
-        {insight.costUsd && <> · {formatUsd(insight.costUsd, 4)}</>}
-        {' · '}Check it against the figures above.
-      </p>
     </>
   )
 }
@@ -108,7 +63,8 @@ function IngredientRows({ rows, unit }: { rows: IngredientChangeDto[]; unit: str
  * each ingredient's part. Every figure is the service's, in Decimal; this
  * only formats. Claude's explanation sits on top of these figures.
  */
-export function CostVarianceCard({ comparison, insight }: { comparison: CostComparisonDto; insight: AiInsightDto | null }) {
+/** `canExplain`: the viewer may ask for, or regenerate, the explanation (AiInsightService.canGenerate). */
+export function CostVarianceCard({ comparison, insight, canExplain }: { comparison: CostComparisonDto; insight: AiInsightDto | null; canExplain: boolean }) {
   const { current, previous, unitAbbreviation: unit, ingredients } = comparison
 
   return (
@@ -150,11 +106,22 @@ export function CostVarianceCard({ comparison, insight }: { comparison: CostComp
         {previous && (comparison.recipeChanged ? <>, changed from v{previous.bomVersion}</> : <>, same as last time</>)}
       </p>
 
+      {/* Claude's explanation (Week 9 Task 2, E5), in the shared panel with Regenerate (Week 10 Task 2). */}
       <div className="mt-4 rounded-lg border border-purple-100 bg-purple-50/40 px-3 py-2">
-        <p className="flex items-center gap-1 text-xs font-medium text-purple-700">
-          <Sparkles size={12} aria-hidden="true" /> AI explanation
-        </p>
-        <Explanation insight={insight} productionOrderId={current.productionOrderId} />
+        <AiInsightPanel
+          insight={insight}
+          type="COST_VARIANCE"
+          referenceId={current.productionOrderId}
+          canGenerate={canExplain}
+          title="AI explanation"
+          empty="No explanation yet."
+          firstLabel="Explain this batch"
+          writing="Claude is explaining this batch…"
+          checkHint="Check it against the figures above."
+          costHint="Costs less than a cent."
+        >
+          <p className="whitespace-pre-wrap text-sm text-gray-800">{insight?.content}</p>
+        </AiInsightPanel>
       </div>
 
       {ingredients.length > 0 && (

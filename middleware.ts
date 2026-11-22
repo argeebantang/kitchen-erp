@@ -101,9 +101,9 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Week 9 Task 1 (D10): the Test connection button on AI Settings spends
   // real money. Each AI feature's own endpoint gets its own guard.
   { path: '/api/ai/test',           roles: ['ADMIN'] },
-  // Week 9 Task 2 (E6): Explain this batch / Try again — the roles that read
-  // production orders (the /production guard above).
-  { path: '/api/ai/cost-variance',  roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+  // Ask for / regenerate any AI insight (Week 10 Task 2; replaces Week 9's
+  // /api/ai/cost-variance) — each type narrows its roles in AiInsightService.
+  { path: '/api/ai/insights',       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   // Week 9 Task 3 (F4): the dashboard assistant — ASSISTANT_ROLES in
   // services/assistant.service.ts. Its database login cannot narrow rows to
   // one branch, so roles that see only part of the data wait for that.

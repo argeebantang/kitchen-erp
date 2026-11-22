@@ -151,6 +151,30 @@ export function weekStartOf(date: string): string {
   return addDays(date, -((day + 6) % 7))
 }
 
+/** An ISO week key such as 2026-W48 (Week 10 Task 2: the weekly AI reports). */
+export const WEEK_KEY_PATTERN = /^(\d{4})-W(0[1-9]|[1-4]\d|5[0-3])$/
+
+/**
+ * The ISO week a business date falls in, "2026-W48": weeks run Monday to
+ * Sunday, and week 1 is the one holding the year's first Thursday — so a
+ * week belongs to the year of its Thursday.
+ */
+export function isoWeekKey(date: string): string {
+  const thursday = addDays(weekStartOf(date), 3)
+  const year = Number(thursday.slice(0, 4))
+  const firstThursday = addDays(weekStartOf(`${year}-01-04`), 3)
+  const week = 1 + Math.round((Date.parse(`${thursday}T00:00:00Z`) - Date.parse(`${firstThursday}T00:00:00Z`)) / (7 * 86_400_000))
+  return `${year}-W${String(week).padStart(2, '0')}`
+}
+
+/** The Monday of an ISO week key; null for a malformed key or a week the year does not have. */
+export function weekKeyStart(key: string): string | null {
+  const match = WEEK_KEY_PATTERN.exec(key)
+  if (!match) return null
+  const monday = addDays(weekStartOf(`${match[1]}-01-04`), (Number(match[2]) - 1) * 7)
+  return isoWeekKey(monday) === key ? monday : null
+}
+
 /** A date label for charts and tables: "Nov 10". */
 export function shortDateLabel(date: string): string {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'UTC' })

@@ -21,6 +21,7 @@ import { CompletionReview } from '@/components/production/CompletionReview'
 import { CompletionStock } from '@/components/production/CompletionStock'
 import { CostingCard } from '@/components/production/CostingCard'
 import { CostVarianceCard } from '@/components/production/CostVarianceCard'
+import { AiInsightService } from '@/services/ai-insight.service'
 import { CostVarianceService } from '@/services/cost-variance.service'
 import { AutoRefresh } from '@/components/ui/AutoRefresh'
 import { StatusTimeline } from '@/components/production/StatusTimeline'
@@ -232,7 +233,7 @@ export default async function ProductionOrderDetailPage({ params }: PageProps) {
 
       {/* Week 6 Task 3: what the run costs, from estimate to recorded. */}
       {order.costing && <CostingCard costing={order.costing} />}
-      {costComparison && <CostVarianceCard comparison={costComparison} insight={costInsight} />}
+      {costComparison && <CostVarianceCard comparison={costComparison} insight={costInsight} canExplain={AiInsightService.canGenerate('COST_VARIANCE', session.role)} />}
       {/* While Claude writes it (Week 9 Task 2, E5): a few seconds, then it appears. */}
       {costInsight?.status === 'PENDING' && <AutoRefresh seconds={5} />}
 

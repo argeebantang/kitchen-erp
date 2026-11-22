@@ -169,6 +169,8 @@ enum AiFeature {
   COST_VARIANCE
   /// Feature 2 (Week 9 Task 3): the dashboard assistant — one row per round of a question.
   ASSISTANT
+  /// Feature 3 (Week 10 Task 2): the weekly waste pattern report.
+  WASTE_PATTERN
 }
 
 /// How a Claude API call ended (D4).
@@ -189,6 +191,8 @@ enum AiCallOutcome {
 /// adds the waste, reorder, demand and supplier insights.
 enum AiInsightType {
   COST_VARIANCE
+  /// Feature 3 (Week 10 Task 2): one report per ISO week, referenceType 'Week', referenceId '2026-W48'.
+  WASTE_PATTERN
 }
 
 /// PENDING → READY | FAILED. A FAILED one can be asked for again (back to
