@@ -22,6 +22,8 @@ class WriteOffConflict extends Error {}
 export type WriteOffListFilters = {
   status?: WriteOffStatus
   reason?: WriteOffReason
+  /** Where the lot was (Week 10 Task 2 follow-up). */
+  branchId?: string
   skip?: number
   take?: number
 }
@@ -84,6 +86,7 @@ export const WriteOffRepository = {
     const where: Prisma.WriteOffWhereInput = {}
     if (filters.status) where.status = filters.status
     if (filters.reason) where.reason = filters.reason
+    if (filters.branchId) where.branchId = filters.branchId
 
     const [rows, total, approved] = await prisma.$transaction([
       prisma.writeOff.findMany({

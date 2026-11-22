@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { addDays, businessDayRange, isoWeekKey, todayIsoDate, weekKeyStart } from '@/lib/dates'
 import { AI_JOB_OPTIONS, getAiQueue, WASTE_PATTERN_REPORT, type WastePatternJob } from '@/lib/queue'
 import { AiInsightRepository, type AiInsightReference } from '@/repositories/ai-insight.repository'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { WasteReportRepository, type WasteWindow } from '@/repositories/waste-report.repository'
 import { AiService, toInsightDto, type AiInsightDto } from '@/services/ai.service'
 
@@ -74,6 +75,9 @@ export type WasteBranchFact = {
   /** The good it wrote off most of, by value. */
   biggestGood: string
   biggestGoodValue: string
+  previousWrittenOffValue: string
+  /** % change of the value written off against the previous 30 days. */
+  changePct: string | null
 }
 
 export type WasteRouteFact = {
@@ -150,7 +154,12 @@ export function windowsFor(week: string): { from: string; to: string; current: W
   return { from, to: addDays(monday, -1), current: window(from, monday), previous: window(previousFrom, from) }
 }
 
-async function facts(week: string): Promise<WasteFacts | null> {
+/**
+ * The week's figures (`facts`, what Claude is given and stored with the
+ * report) and every branch-and-good row in the same order (`allRows`, W1…Wn:
+ * `facts.rows` is the first WASTE_ROWS of them), for the card's branch filter.
+ */
+async function figures(week: string): Promise<{ facts: WasteFacts; allRows: WasteRowFact[] } | null> {
   const windows = windowsFor(week)
   if (!windows) return null
   const { current, previous } = windows
@@ -195,7 +204,7 @@ async function facts(week: string): Promise<WasteFacts | null> {
   const days = new Prisma.Decimal(WASTE_WINDOW_DAYS)
 
   const sorted = [...pairs.entries()].sort(([, a], [, b]) => b.value.comparedTo(a.value))
-  const rows: WasteRowFact[] = sorted.slice(0, WASTE_ROWS).map(([key, pair], index) => {
+  const allRows: WasteRowFact[] = sorted.map(([key, pair], index) => {
     const outlet  = pair.branchType === 'OUTLET'
     const cameIn  = flowOf.get(key)?.inKg ?? zero
     const soldKg  = soldOf.get(key) ?? zero
@@ -222,7 +231,11 @@ async function facts(week: string): Promise<WasteFacts | null> {
     }
   })
 
+  const rows = allRows.slice(0, WASTE_ROWS)
+
   // Per branch, all its goods together.
+  const previousValueByBranch = new Map<string, Prisma.Decimal>()
+  for (const row of previousWriteOffs) previousValueByBranch.set(row.branchId, (previousValueByBranch.get(row.branchId) ?? zero).add(row.value))
   const cameInByBranch = new Map<string, Prisma.Decimal>()
   for (const flow of flows) cameInByBranch.set(flow.branchId, (cameInByBranch.get(flow.branchId) ?? zero).add(flow.inKg ?? zero))
   type BranchTotal = { branch: string; branchType: string; kg: Prisma.Decimal; value: Prisma.Decimal; writeOffs: number; biggest: { good: string; value: Prisma.Decimal } }
@@ -240,6 +253,7 @@ async function facts(week: string): Promise<WasteFacts | null> {
     .sort(([, a], [, b]) => b.value.comparedTo(a.value))
     .map(([branchId, total], index) => {
       const cameIn = cameInByBranch.get(branchId) ?? zero
+      const before = previousValueByBranch.get(branchId) ?? zero
       return {
         id: `B${index + 1}`,
         branch: total.branch,
@@ -252,6 +266,8 @@ async function facts(week: string): Promise<WasteFacts | null> {
         wastePctOfCameIn: pct(total.kg, cameIn),
         biggestGood: total.biggest.good,
         biggestGoodValue: php(total.biggest.value),
+        previousWrittenOffValue: php(before),
+        changePct: change(total.value, before),
       }
     })
 
@@ -264,7 +280,7 @@ async function facts(week: string): Promise<WasteFacts | null> {
   const transitValue    = routes.reduce((sum, route) => sum.add(route.lostValue ?? zero), zero)
   const lostValue       = writtenOffValue.add(transitValue)
 
-  return {
+  const facts: WasteFacts = {
     week, from: windows.from, to: windows.to, days: WASTE_WINDOW_DAYS, currency: 'PHP',
     totals: {
       writtenOffKg: kg(writtenOffKg),
@@ -298,6 +314,11 @@ async function facts(week: string): Promise<WasteFacts | null> {
       into: row.outputName,
     })),
   }
+  return { facts, allRows }
+}
+
+async function facts(week: string): Promise<WasteFacts | null> {
+  return (await figures(week))?.facts ?? null
 }
 
 // ─── Claude's findings ────────────────────────────────────────────────────────
@@ -479,19 +500,94 @@ async function giveUp(week: string, error: string): Promise<void> {
   await AiInsightRepository.fail(reference(week), { error })
 }
 
+/** The card narrowed to one branch (Week 10 Task 2 follow-up); null for every branch. */
+export type WasteScope = {
+  branchId: string
+  branch: string
+  sharePctOfWrittenOff: string | null
+  wastePctOfCameIn: string | null
+} | null
+
 export type WasteDashboardDto = {
   week: string
+  /** The week's figures — narrowed to the branch when `scope` is set. */
   facts: WasteFacts
   insight: AiInsightDto | null
+  /** Claude's report — with a scope, only the findings that cite one of the branch's rows. */
   report: WasteReportContent | null
+  /** How many findings the whole report has, to say "2 of 5". */
+  totalFindings: number
+  scope: WasteScope
+  branchOptions: { id: string; name: string }[]
 }
 
-/** The dashboard card: this week's report (the 30 days before Monday) and its figures, worked out now. */
-async function dashboard(today = todayIsoDate()): Promise<WasteDashboardDto> {
-  const week = isoWeekKey(today)
-  const [figures, row] = await Promise.all([facts(week), AiInsightRepository.find(reference(week))])
+/**
+ * The figures of one branch, out of the week's: its own row in each table,
+ * every one of its goods (not only the overall top rows), the routes to or
+ * from it, and totals that are its own. Production cost is not split by
+ * branch, so the share of it is left out; the share of all written off and
+ * the waste as a % of what came in take its place.
+ */
+function scoped(all: WasteFacts, allRows: WasteRowFact[], branchName: string): WasteFacts {
+  const branch = all.branches.find(b => b.branch === branchName)
+  const routes = all.routes.filter(route => route.route.split(' → ').includes(branchName))
+  const transit = routes.reduce((sum, route) => sum.add(route.lostValue), zero)
+  const writtenOff = new Prisma.Decimal(branch?.writtenOffValue ?? '0')
+  return {
+    ...all,
+    totals: {
+      writtenOffKg: branch?.writtenOffKg ?? '0.00',
+      writtenOffValue: php(writtenOff),
+      lostInTransitValue: php(transit),
+      lostValue: php(writtenOff.add(transit)),
+      productionCost: '',
+      lostPctOfProductionCost: null,
+      previousWrittenOffValue: branch?.previousWrittenOffValue ?? '0.00',
+      writtenOffChangePct: branch?.changePct ?? null,
+    },
+    branches: branch ? [branch] : [],
+    rows: allRows.filter(row => row.branch === branchName),
+    otherRows: 0,
+    routes,
+    recovered: all.recovered.filter(row => row.kitchen === branchName),
+  }
+}
+
+/**
+ * The dashboard card: this week's report (the 30 days before Monday) and its
+ * figures, worked out now — for every branch, or narrowed to one.
+ */
+async function dashboard(options: { branchId?: string; today?: string } = {}): Promise<WasteDashboardDto> {
+  const week = isoWeekKey(options.today ?? todayIsoDate())
+  const [computed, row, branches] = await Promise.all([
+    figures(week), AiInsightRepository.find(reference(week)), BranchRepository.findAllActiveWithType(),
+  ])
   const insight = row ? toInsightDto(row) : null
-  return { week, facts: figures!, insight, report: parseReport(insight?.content ?? null) }
+  const report  = parseReport(insight?.content ?? null)
+  const branchOptions = branches.map(b => ({ id: b.id, name: b.name }))
+  const selected = branches.find(b => b.id === options.branchId)
+
+  if (!computed || !selected) {
+    return { week, facts: computed!.facts, insight, report, totalFindings: report?.findings.length ?? 0, scope: null, branchOptions }
+  }
+
+  const facts = scoped(computed.facts, computed.allRows, selected.name)
+  const ids = new Set([...facts.branches, ...facts.rows, ...facts.routes, ...facts.recovered].map(r => r.id))
+  const branchFact = facts.branches[0]
+  return {
+    week,
+    facts,
+    insight,
+    report: report ? { ...report, findings: report.findings.filter(f => f.figureIds.some(id => ids.has(id))) } : null,
+    totalFindings: report?.findings.length ?? 0,
+    scope: {
+      branchId: selected.id,
+      branch: selected.name,
+      sharePctOfWrittenOff: branchFact?.sharePctOfWrittenOff ?? null,
+      wastePctOfCameIn: branchFact?.wastePctOfCameIn ?? null,
+    },
+    branchOptions,
+  }
 }
 
 export const WastePatternService = {

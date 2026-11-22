@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
@@ -17,7 +18,7 @@ import { WriteOffReasonBadge } from '@/components/inventory/WriteOffReasonBadge'
 const PAGE_SIZE = 50
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; reason?: string; page?: string }>
+  searchParams: Promise<{ status?: string; reason?: string; branch?: string; page?: string }>
 }
 
 /**
@@ -31,21 +32,25 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
   const canWriteOff = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
   // Unknown filter values are ignored rather than an error, so a stale link still opens.
-  const { status: statusParam = '', reason: reasonParam = '', page: pageParam } = await searchParams
+  const { status: statusParam = '', reason: reasonParam = '', branch: branchParam = '', page: pageParam } = await searchParams
   const status = isWriteOffStatus(statusParam) ? statusParam : undefined
   const reason = isWriteOffReason(reasonParam) ? reasonParam : undefined
   const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
+  // Week 10 Task 2 follow-up: by branch too. An unknown branch matches nothing, like the schedule's.
+  const branches = await BranchRepository.findAllActiveWithType()
+  const branchId = branchParam || undefined
 
   const { writeOffs, total, approvedValue } = await WriteOffService.list({
-    status, reason, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+    status, reason, branchId, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
   })
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const filtered  = status !== undefined || reason !== undefined
+  const filtered  = status !== undefined || reason !== undefined || branchId !== undefined
 
   const pageHref = (target: number) => {
     const query = new URLSearchParams()
     if (status) query.set('status', status)
     if (reason) query.set('reason', reason)
+    if (branchId) query.set('branch', branchId)
     if (target > 1) query.set('page', String(target))
     const text = query.toString()
     return text ? `/inventory/write-offs?${text}` : '/inventory/write-offs'
@@ -99,6 +104,13 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
             {WRITE_OFF_REASONS.map(option => (
               <option key={option.value} value={option.value}>{option.label}</option>
             ))}
+          </select>
+        </label>
+        <label className="block min-w-48">
+          <span className="mb-1 block text-xs font-medium text-gray-500">Branch</span>
+          <select name="branch" defaultValue={branchId ?? ''} className={inputClass}>
+            <option value="">All branches</option>
+            {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         </label>
         <button type="submit" className={primaryButtonClass}>Apply</button>

@@ -3,6 +3,7 @@ import { formatPeso, trimDecimal } from '@/lib/format'
 // Type-only: rendered on the server, for the dashboard.
 import type { WasteDashboardDto, WasteFacts, WasteFinding } from '@/services/waste-pattern.service'
 import { AiInsightPanel } from '@/components/ai/AiInsightPanel'
+import { inputClass, secondaryButtonClass } from '@/components/ui/form'
 
 const PRIORITY_STYLES: Record<WasteFinding['priority'], string> = {
   high:   'border-red-200 bg-red-50 text-red-700',
@@ -41,16 +42,30 @@ function figureLabel(facts: WasteFacts, id: string): string | null {
  * can be checked against them.
  */
 export function WasteReportCard({ data, canGenerate }: { data: WasteDashboardDto; canGenerate: boolean }) {
-  const { facts, insight, report } = data
+  const { facts, insight, report, scope } = data
   const { totals } = facts
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-base font-semibold text-gray-800">Waste — last {facts.days} days</h3>
-        <p className="text-xs text-gray-400">
-          {shortDateLabel(facts.from)} – {shortDateLabel(facts.to)} · report {facts.week}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-base font-semibold text-gray-800">
+            Waste — last {facts.days} days{scope && <span className="text-purple-700"> · {scope.branch}</span>}
+          </h3>
+          <p className="text-xs text-gray-400">
+            {shortDateLabel(facts.from)} – {shortDateLabel(facts.to)} · report {facts.week}
+          </p>
+        </div>
+        {/* A GET form: the branch lives in the URL, like the other pages' filters (Week 10 Task 2 follow-up). */}
+        <form method="get" className="flex items-center gap-2">
+          <div className="w-56">
+            <select name="wasteBranch" defaultValue={scope?.branchId ?? ''} className={inputClass} aria-label="Branch">
+              <option value="">All branches</option>
+              {data.branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            </select>
+          </div>
+          <button type="submit" className={secondaryButtonClass}>Show</button>
+        </form>
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
@@ -58,7 +73,9 @@ export function WasteReportCard({ data, canGenerate }: { data: WasteDashboardDto
           <p className="text-xs uppercase tracking-wide text-gray-500">Lost</p>
           <p className="text-lg font-semibold text-red-700">{formatPeso(totals.lostValue)}</p>
           <p className="text-xs text-gray-500">
-            {totals.lostPctOfProductionCost ? `${totals.lostPctOfProductionCost}% of ${formatPeso(totals.productionCost)} produced` : 'nothing produced'}
+            {scope
+              ? `${scope.sharePctOfWrittenOff ?? '0'}% of all written off · ${scope.wastePctOfCameIn ?? '—'}% of what came in`
+              : totals.lostPctOfProductionCost ? `${totals.lostPctOfProductionCost}% of ${formatPeso(totals.productionCost)} produced` : 'nothing produced'}
           </p>
         </div>
         <div className="rounded-lg bg-gray-50 px-3 py-2">
@@ -94,8 +111,15 @@ export function WasteReportCard({ data, canGenerate }: { data: WasteDashboardDto
         >
           {report && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-800">{report.summary}</p>
-              {report.findings.length === 0 && <p className="text-sm text-gray-500">No pattern worth acting on.</p>}
+              <p className="text-sm text-gray-800">{scope && <span className="font-medium">All branches: </span>}{report.summary}</p>
+              {scope && (
+                <p className="text-xs text-gray-500">
+                  {report.findings.length === 0
+                    ? `None of this week's ${data.totalFindings} findings is about ${scope.branch}.`
+                    : `${report.findings.length} of ${data.totalFindings} findings are about ${scope.branch}.`}
+                </p>
+              )}
+              {!scope && report.findings.length === 0 && <p className="text-sm text-gray-500">No pattern worth acting on.</p>}
               <ol className="space-y-2">
                 {report.findings.map((finding, index) => (
                   <li key={index} className="rounded-lg border border-gray-200 bg-white px-3 py-2">
@@ -155,7 +179,9 @@ export function WasteReportCard({ data, canGenerate }: { data: WasteDashboardDto
             </tbody>
           </table>
 
-          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">By branch and good — the costliest {facts.rows.length}</p>
+          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">
+            {scope ? `${scope.branch}, by good` : `By branch and good — the costliest ${facts.rows.length}`}
+          </p>
           <table className="mt-1 w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-gray-400">
               <tr>

@@ -141,6 +141,27 @@ Checked: the six branch totals equal an independent SQL sum per branch (count, k
 Commissary has ₱22,475.59 (35.8 %), Pasig ₱18,259.55, Main ₱14,566.45, Alabang ₱3,646.99, Cubao ₱2,202.98 and Makati
 ₱1,687.49. A regenerated report led with Las Piñas and Pasig, and all 50 numbers it quoted are in the facts ($0.023).
 
+## Follow-up (2026-11-23): a branch filter
+
+Owner: "what i mean is a filter" — chosen: both places.
+
+- **Dashboard → Waste card: a Branch picker** (`?wasteBranch=<branch id>`, a GET form like the other pages' filters).
+  With a branch chosen, the card shows that branch only:
+  - Its totals: written off, lost in transit on the routes to or from it, its share of everything written off, and
+    its waste as a % of what came in. Production cost is not split by branch, so that share is left out.
+  - **All** of its goods (`allRows`: every branch-and-good row in the same W1…Wn order; Claude is still given the
+    top 12), its route rows, and its conversions.
+  - Only the AI findings that cite one of its rows, with "n of 5 findings are about …". The summary stays and is
+    labelled "All branches".
+  - An unknown branch shows every branch.
+- **Inventory → Write-offs: a Branch filter** next to Status and Reason (`?branch=<id>`; `WriteOffListFilters.branchId`).
+  The two totals at the top follow it.
+- Branch rows gain the previous 30 days' value and change.
+
+Checked: scoped to each of the six branches, the totals equal the per-branch SQL sums and the goods listed equal
+the branch's distinct goods written off (3–4 each). Las Piñas + Failed quality on Write-offs: 18 rows, ₱5,914.86, as
+in SQL; Las Piñas alone: 77, ₱43,455.69; an unknown branch: none.
+
 ## Risks, assumptions, follow-ups
 
 - **The findings are Claude's.** The figures beside each one are the check. A Regenerate can word, group and order them

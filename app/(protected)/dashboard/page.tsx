@@ -23,11 +23,17 @@ const stats: Stat[] = [
   { label: 'Low Stock Alerts',  icon: AlertTriangle,  accent: 'text-red-600 bg-red-50' },
 ]
 
-export default async function DashboardPage() {
+type PageProps = {
+  // ?wasteBranch= narrows the Waste card to one branch (Week 10 Task 2 follow-up).
+  searchParams: Promise<{ wasteBranch?: string }>
+}
+
+export default async function DashboardPage({ searchParams }: PageProps) {
   const session = await getSession()
+  const { wasteBranch } = await searchParams
   const roleLabel = session?.role.replace(/_/g, ' ').toLowerCase()
   // Week 10 Task 2: the KitchenAI insights the role may read (figures are free; only Generate / Regenerate cost).
-  const waste = session && WASTE_REPORT_ROLES.includes(session.role) ? await WastePatternService.dashboard() : null
+  const waste = session && WASTE_REPORT_ROLES.includes(session.role) ? await WastePatternService.dashboard({ branchId: wasteBranch }) : null
 
   return (
     <div>
