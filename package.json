@@ -9,7 +9,8 @@
     "lint": "next lint",
     "worker": "tsx watch --env-file=.env worker/index.ts",
     "worker:start": "tsx --env-file=.env worker/index.ts",
-    "job": "tsx --env-file=.env scripts/run-job.ts"
+    "job": "tsx --env-file=.env scripts/run-job.ts",
+    "seed:history": "tsx --env-file=.env prisma/history/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.9.0",

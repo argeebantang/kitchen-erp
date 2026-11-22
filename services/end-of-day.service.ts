@@ -6,6 +6,7 @@ import { ProductionOrderRepository } from '@/repositories/production-order.repos
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { StockTransferRepository } from '@/repositories/stock-transfer.repository'
+import { OutletSaleRepository } from '@/repositories/outlet-sale.repository'
 import { SOURCE_PAGES, type SourceDocumentDto } from '@/services/inventory.service'
 
 /**
@@ -36,6 +37,8 @@ export type EndOfDayRowDto = {
   convertedIn: EndOfDayFigureDto
   convertedOut: EndOfDayFigureDto
   writtenOff: EndOfDayFigureDto
+  /** What an outlet recorded as sold (Week 10 Task 1). */
+  sold: EndOfDayFigureDto
   /** Transfers to and from branches — from Week 8; zero until then. */
   distributed: EndOfDayFigureDto
   /** Movements that fit none of the flows above — zero unless something new writes the ledger. */
@@ -80,7 +83,7 @@ export type EndOfDayDto = {
   isToday: boolean
   rows: EndOfDayRowDto[]
   /** Pesos across every row, by figure. */
-  totals: Record<'opening' | 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'distributed' | 'closing', string>
+  totals: Record<'opening' | 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'sold' | 'distributed' | 'closing', string>
   movementCount: number
   documents: EndOfDayDocumentDto[]
 }
@@ -119,7 +122,7 @@ export const EndOfDayService = {
     ])
     const levelOf = new Map(levels.map(level => [`${level.finishedGoodId}:${level.branchId}`, level.quantity]))
 
-    const sums = { opening: zero, produced: zero, convertedIn: zero, convertedOut: zero, writtenOff: zero, distributed: zero, closing: zero }
+    const sums = { opening: zero, produced: zero, convertedIn: zero, convertedOut: zero, writtenOff: zero, sold: zero, distributed: zero, closing: zero }
     const dtos = rows
       // A good with nothing on the books before or during the day, and nothing
       // left, has nothing to say about this day.
@@ -127,7 +130,7 @@ export const EndOfDayService = {
       .map<EndOfDayRowDto>(row => {
         // The named flows only: a movement that fits none of them lands in
         // `other` and breaks this, which is the point of the check.
-        const flows = [row.producedQty, row.convertedInQty, row.convertedOutQty, row.writtenOffQty, row.distributedQty]
+        const flows = [row.producedQty, row.convertedInQty, row.convertedOutQty, row.writtenOffQty, row.soldQty, row.distributedQty]
         const expected = flows.reduce<Prisma.Decimal>((sum, flow) => sum.add(flow ?? zero), row.openingQty ?? zero)
         const closing  = row.closingQty ?? zero
         sums.opening      = sums.opening.add(row.openingValue ?? zero)
@@ -135,6 +138,7 @@ export const EndOfDayService = {
         sums.convertedIn  = sums.convertedIn.add(row.convertedInValue ?? zero)
         sums.convertedOut = sums.convertedOut.add(row.convertedOutValue ?? zero)
         sums.writtenOff   = sums.writtenOff.add(row.writtenOffValue ?? zero)
+        sums.sold         = sums.sold.add(row.soldValue ?? zero)
         sums.distributed  = sums.distributed.add(row.distributedValue ?? zero)
         sums.closing      = sums.closing.add(row.closingValue ?? zero)
         const level = levelOf.get(`${row.finishedGoodId}:${row.branchId}`) ?? zero
@@ -150,6 +154,7 @@ export const EndOfDayService = {
           convertedIn:      figure(row.convertedInQty, row.convertedInValue),
           convertedOut:     figure(row.convertedOutQty, row.convertedOutValue),
           writtenOff:       figure(row.writtenOffQty, row.writtenOffValue),
+          sold:             figure(row.soldQty, row.soldValue),
           distributed:      figure(row.distributedQty, row.distributedValue),
           other:            figure(row.otherQty, row.otherValue),
           closing:          figure(row.closingQty, row.closingValue),
@@ -161,17 +166,19 @@ export const EndOfDayService = {
 
     // Document numbers: one query per document type for the whole day.
     const idsOf = (type: string) => [...new Set(documentRows.filter(row => row.referenceType === type).map(row => row.referenceId))]
-    const [productionNumbers, conversionNumbers, writeOffNumbers, transferNumbers] = await Promise.all([
+    const [productionNumbers, conversionNumbers, writeOffNumbers, transferNumbers, saleNumbers] = await Promise.all([
       ProductionOrderRepository.numbersByIds(idsOf('ProductionOrder')),
       ConversionOrderRepository.numbersByIds(idsOf('ConversionOrder')),
       WriteOffRepository.numbersByIds(idsOf('WriteOff')),
       StockTransferRepository.numbersByIds(idsOf('StockTransfer')),
+      OutletSaleRepository.numbersByIds(idsOf('OutletSale')),
     ])
     const numbers = new Map<string, Map<string, string>>([
       ['ProductionOrder', productionNumbers],
       ['ConversionOrder', conversionNumbers],
       ['WriteOff',        writeOffNumbers],
       ['StockTransfer',   transferNumbers],
+      ['OutletSale',      saleNumbers],
     ])
     const documents = documentRows.map<EndOfDayDocumentDto>(row => {
       const page = SOURCE_PAGES[row.referenceType]
@@ -206,6 +213,7 @@ export const EndOfDayService = {
         convertedIn:  toDecimalString(sums.convertedIn),
         convertedOut: toDecimalString(sums.convertedOut),
         writtenOff:   toDecimalString(sums.writtenOff),
+        sold:         toDecimalString(sums.sold),
         distributed:  toDecimalString(sums.distributed),
         closing:      toDecimalString(sums.closing),
       },

@@ -292,7 +292,7 @@ const zero = new Prisma.Decimal(0)
  * unexpired lots and other transfers from the branch. Nothing is reserved;
  * approval re-checks under a lock (Task 3).
  */
-async function availabilityAt(
+export async function availabilityAt(
   finishedGoodId: string,
   branchId: string,
   now: Date,

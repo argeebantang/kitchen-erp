@@ -209,6 +209,7 @@ const runQuery = defineTool({
     '"ConversionOrder": id, orderNumber, finishedGoodId (made), sourceFinishedGoodId (made from), branchId, status [PENDING_APPROVAL, APPROVED, REJECTED], sourceQty, outputQty, sourceCost, conversionCost, costPerUnit, createdAt.',
     '"StockTransfer" (finished goods sent from the commissary to a branch): id, transferNumber, fromBranchId, toBranchId, status [PENDING_APPROVAL, APPROVED (in transit), RECEIVED, REJECTED], varianceValue, varianceReason, createdAt, receivedAt. "StockTransferItem": stockTransferId, finishedGoodId, quantity.',
     '"WriteOff": writeOffNumber, lotId, branchId, status [PENDING_APPROVAL, APPROVED, REJECTED], quantity, reason [EXPIRED, SPOILED, DAMAGED, FAILED_QUALITY, OTHER], unitCost, totalCost, createdAt.',
+    '"OutletSale" (what an outlet sold on a day, recorded at closing): id, saleNumber, branchId, soldOn (the business date, midnight UTC), submittedById, totalAmount (takings at selling price), totalCost (cost of the goods sold), createdAt. "OutletSaleItem": outletSaleId, finishedGoodId, quantity, unitPrice, amount.',
     '"Approval": referenceType (\'PurchaseRequest\', \'PurchaseOrder\', \'ReceivingReport\', \'ProductionOrder\', \'ProductionCompletion\', \'ConversionOrder\', \'WriteOff\'), referenceId, approverId, decision (\'APPROVED\', \'REJECTED\'), remarks, decidedAt.',
     'Not readable: AI usage, notifications, users\' email addresses and passwords. A permission error means the data is not available to you; say so rather than trying other tables.',
   ].join('\n'),

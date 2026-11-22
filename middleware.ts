@@ -84,6 +84,11 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/inventory/requests',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
   { path: '/inventory/requests/new', roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/api/stock-requests',     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
+  // Outlet daily sales (Week 10 Task 1): the outlet's manager records them; the
+  // kitchen and accounting read them.
+  { path: '/inventory/sales',          roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
+  { path: '/inventory/sales/new',      roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  { path: '/api/outlet-sales',         roles: ['ADMIN', 'BRANCH_MANAGER'] },
   { path: '/api/transfers',           roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
   // Write-offs (Week 7 Task 2, W7): production records them, accounting reads
   // them and decides through /api/approvals.

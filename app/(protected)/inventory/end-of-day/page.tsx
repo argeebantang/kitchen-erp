@@ -14,7 +14,7 @@ type PageProps = {
 
 /**
  * End of Day (Week 7 Task 4, E3): one business day of finished goods per
- * branch — opening, produced, converted in and out, written off, distributed,
+ * branch — opening, produced, converted in and out, written off, sold (Week 10), distributed,
  * closing — from the ledger. Every signed-in role, like Finished Goods.
  */
 export default async function EndOfDayPage({ searchParams }: PageProps) {
@@ -45,7 +45,7 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">End of Day</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Finished goods for one day, per branch: what was there in the morning, what was produced, converted, written off
+          Finished goods for one day, per branch: what was there in the morning, what was produced, converted, written off, sold
           and distributed, and what is left — from the stock ledger, at each lot&apos;s cost. A movement counts on the day
           accounting approved it, which is when it reached the books.
         </p>
@@ -116,6 +116,7 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
                   <th className="px-4 py-3 text-right font-medium">Converted in</th>
                   <th className="px-4 py-3 text-right font-medium">Converted out</th>
                   <th className="px-4 py-3 text-right font-medium">Written off</th>
+                  <th className="px-4 py-3 text-right font-medium" title="Recorded by the outlet at closing">Sold</th>
                   <th className="px-4 py-3 text-right font-medium" title="Transfers between branches — Week 8">Distributed</th>
                   <th className="px-4 py-3 text-right font-medium">Closing</th>
                   <th className="px-4 py-3 font-medium">Check</th>
@@ -133,6 +134,7 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
                     <Cell figure={row.convertedIn} unit={row.unitAbbreviation} />
                     <Cell figure={row.convertedOut} unit={row.unitAbbreviation} />
                     <Cell figure={row.writtenOff} unit={row.unitAbbreviation} />
+                    <Cell figure={row.sold} unit={row.unitAbbreviation} />
                     <Cell figure={row.distributed} unit={row.unitAbbreviation} />
                     <Cell figure={row.closing} unit={row.unitAbbreviation} plain bold />
                     <td className="px-4 py-3">
@@ -155,6 +157,7 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
                   <TotalCell value={day.totals.convertedIn} signed />
                   <TotalCell value={day.totals.convertedOut} signed />
                   <TotalCell value={day.totals.writtenOff} signed />
+                  <TotalCell value={day.totals.sold} signed />
                   <TotalCell value={day.totals.distributed} signed />
                   <TotalCell value={day.totals.closing} bold />
                   <td />
@@ -163,8 +166,8 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
             </table>
           </div>
           <p className="mt-2 text-xs text-gray-400">
-            Distributed is transfers between branches, which arrive with Week 8. Sales are not recorded, so closing is what the
-            books say is left, not a count.
+            Distributed is transfers between branches, returns included. Sold is what each outlet recorded at closing (Daily
+            Sales). Closing is what the books say is left, not a count.
           </p>
 
           <Documents documents={day.documents} />
@@ -179,6 +182,7 @@ const FLOW_LABELS: Record<EndOfDayDocumentDto['flow'], { label: string; classNam
   convertedIn:  { label: 'Converted in',  className: 'bg-emerald-50 text-emerald-700' },
   convertedOut: { label: 'Converted out', className: 'bg-amber-50 text-amber-700' },
   writtenOff:   { label: 'Written off',   className: 'bg-red-50 text-red-700' },
+  sold:         { label: 'Sold',          className: 'bg-violet-50 text-violet-700' },
   distributed:  { label: 'Distributed',   className: 'bg-sky-50 text-sky-700' },
   other:        { label: 'Unrecognised',  className: 'bg-red-100 text-red-700' },
 }
