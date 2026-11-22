@@ -22,8 +22,15 @@ export function BranchTransfers({ branch, transfers }: Pick<BranchInventoryDto, 
         </div>
         {/* Week 9 Task 9: an outlet sends unsold goods back to a kitchen — its manager, or an admin. */}
         {/* Week 9 Task 10: the same people ask a kitchen for stock. */}
+        {/* Week 10 Task 1: and record the day's sales at closing. */}
         {canReturn && (
           <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/inventory/sales/new?branch=${branch.id}`}
+              className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-600"
+            >
+              Record today&apos;s sales
+            </Link>
             <Link
               href={`/inventory/requests/new?from=${branch.id}`}
               className="rounded-lg bg-orange-500 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-600"

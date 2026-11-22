@@ -246,6 +246,7 @@ model User {
   submittedStockTransfers   StockTransfer[]          @relation("StockTransferSubmitter")
   receivedStockTransfers    StockTransfer[]          @relation("StockTransferReceiver")
   submittedStockRequests    StockRequest[]           @relation("StockRequestSubmitter")
+  submittedOutletSales      OutletSale[]             @relation("OutletSaleSubmitter")
   decidedStockRequests      StockRequest[]           @relation("StockRequestDecider")
   productionStatusChanges   ProductionStatusChange[]
   notifications             Notification[]
@@ -290,6 +291,7 @@ model Branch {
   finishedGoodMovements FinishedGoodMovement[]
   conversionOrders      ConversionOrder[]
   writeOffs             WriteOff[]
+  outletSales           OutletSale[]
 }
 
 // ─── CATEGORIES & UNITS ───────────────────────────────────────────────────────
@@ -405,6 +407,7 @@ model FinishedGood {
   lots              FinishedGoodLot[]
   transferItems     StockTransferItem[]
   stockRequestItems StockRequestItem[]
+  outletSaleItems   OutletSaleItem[]
 }
 
 // ─── BOM ─────────────────────────────────────────────────────────────────────
@@ -1008,6 +1011,56 @@ model ConversionOrder {
 
   @@index([status])
   @@index([branchId])
+}
+
+// ─── OUTLET SALES ────────────────────────────────────────────────────────────
+
+/// What an outlet sold on one business day (Week 10 Task 1): its manager
+/// records it at closing, SLS-000001 from sls_number_seq. There is no
+/// approval, like a return: recording it takes the goods out of the outlet's
+/// lots at once, soonest expiry first and never an expired lot (OUT
+/// movements, referenceType 'OutletSale'). One per outlet per day.
+model OutletSale {
+  id            String           @id @default(cuid())
+  saleNumber    String           @unique
+  /// An active OUTLET, run by the submitter (or any, for an ADMIN).
+  branchId      String
+  branch        Branch           @relation(fields: [branchId], references: [id])
+  /// The business day the goods were sold — midnight UTC of the date, like
+  /// ProductionOrder.plannedDate. Today or yesterday when recorded.
+  soldOn        DateTime
+  submittedById String
+  submittedBy   User             @relation("OutletSaleSubmitter", fields: [submittedById], references: [id])
+  notes         String?
+  /// Σ line amounts: the takings at the selling prices of the day. Pesos.
+  totalAmount   Decimal
+  /// What the goods sold had cost: Σ quantity × each lot's recorded cost per
+  /// unit, recorded when it is saved and never recomputed. Pesos, unrounded.
+  totalCost     Decimal
+  createdAt     DateTime         @default(now())
+
+  items OutletSaleItem[]
+
+  @@unique([branchId, soldOn])
+  @@index([soldOn])
+}
+
+/// One finished good on a day's sales (one line per good).
+model OutletSaleItem {
+  id             String       @id @default(cuid())
+  outletSaleId   String
+  outletSale     OutletSale   @relation(fields: [outletSaleId], references: [id], onDelete: Cascade)
+  finishedGoodId String
+  finishedGood   FinishedGood @relation(fields: [finishedGoodId], references: [id])
+  /// Sold, in the good's unit; > 0.
+  quantity       Decimal
+  /// FinishedGood.sellingPrice when recorded, so a later price change does not
+  /// rewrite the day's takings.
+  unitPrice      Decimal
+  /// quantity × unitPrice.
+  amount         Decimal
+
+  @@unique([outletSaleId, finishedGoodId])
 }
 
 // ─── WRITE-OFFS ──────────────────────────────────────────────────────────────

@@ -177,6 +177,14 @@ Week 8 Tasks 2–4. A Transfer Order sends finished goods from an active commiss
 
 What a line may take: the sender's unexpired stock of that good less what pending conversions, pending write-offs of its unexpired lots and other pending transfers from the branch have claimed. The submitter is the caller. Pages: `/inventory/transfers` (status, branch and arrival — `short=1`, arrived short — filters, a Short ₱X badge and the lost-in-transit total for the filters; a BRANCH_MANAGER sees only the branch they manage), `/inventory/transfers/new` (ADMIN, PRODUCTION_MANAGER), `/inventory/transfers/[id]` (404 for a branch manager it does not concern) — read through `StockTransferService`.
 
+## Daily sales
+
+Week 10 Task 1 (`docs/2026-11-22-week10-history-data.md`). What an outlet sold on a day, recorded at closing. No approval.
+
+| Method | Path | Body / query | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/outlet-sales` | `branchId` (the outlet), `soldOn` (YYYY-MM-DD: today or yesterday, Manila), `notes?` (≤ 1000), `lines[]` (1–30) of `finishedGoodId`, `quantity` (decimal string) | 201 `{ sale: { id, saleNumber } }` — `SLS-000001`; the goods leave the outlet's lots soonest expiry first (never expired), each line priced at the good's selling price | Not ADMIN / BRANCH_MANAGER → middleware redirect to `/unauthorized`; 404 a branch manager naming an outlet they do not run; 400 a kitchen, another day, no lines, a good twice, quantity ≤ 0, unknown good; 409 more than the outlet has unexpired and unclaimed (each good named), or the day already recorded |
+
 ## Branch Inventory
 
 Week 8 Task 5. The pages (`/inventory/branches`, `/inventory/branches/[code]`) read through `BranchInventoryService`; this is their live-update stream.

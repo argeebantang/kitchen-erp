@@ -286,7 +286,7 @@ export const NotificationService = {
     }
     const flowNames = [
       ['produced', 'produced'], ['convertedIn', 'converted in'], ['convertedOut', 'converted out'],
-      ['writtenOff', 'written off'], ['distributed', 'distributed'],
+      ['writtenOff', 'written off'], ['sold', 'sold'], ['distributed', 'distributed'],
     ] as const
     const moved = day.rows.filter(row => row.movementCount > 0)
     const severalBranches = new Set(day.rows.map(row => row.branchName)).size > 1

@@ -18,7 +18,8 @@ import {
   Moon,
   Store,
   Coins,
-  Sparkles
+  Sparkles,
+  Receipt
 } from 'lucide-react'
 
 export type NavItem = {
@@ -71,6 +72,7 @@ export const navigation: NavGroup[] = [
       { label: 'End of Day',   href: '/inventory/end-of-day', icon: Moon,      roles: [] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'] },
       { label: 'Stock Requests', href: '/inventory/requests', icon: ClipboardList, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
+      { label: 'Daily Sales', href: '/inventory/sales', icon: Receipt, roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
     ],
   },
   {

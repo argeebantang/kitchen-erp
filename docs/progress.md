@@ -537,6 +537,27 @@ Several central kitchens; outlets never cook, hold no raw materials, order from 
       Migration `20261121120000_stock_requests` (34 models). The multi-kitchen plan is complete.
 
 ### Week 10 — KitchenAI Predictive Features
+Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
+1. history data, plus outlet daily sales
+2. F3 Waste Pattern Detector, with a shared AI badge and Regenerate
+3. F6 Supplier Performance
+4. F4 Reorder Recommender (also: the stock map stops showing outlets' raw materials)
+5. F5 Demand Forecaster, with the Holiday table
+6. F7 Decision Simulator
+7. consistency sweep
+
+- [x] History data + outlet daily sales — **done 2026-11-23** (`docs/2026-11-22-week10-history-data.md`, Task 1).
+      - **`npm run seed:history`** (`prisma/history/`): 90 days ending yesterday, about 45 s, through the app's own
+        ledger writes. It covers purchasing (PR → PO → RR), outlet stock requests, production runs (costed, with lots),
+        deliveries, daily sales, returns, conversions and write-offs.
+      - Two more kitchens (Pasig, Las Piñas), three outlets (Cubao, Makati, Alabang), history staff
+        (`@history.kitchen.com`) and two more suppliers.
+      - Built-in patterns are the answer key for F3–F6. `--clean` removes exactly what it added and refuses if your
+        data depends on it.
+      - **Daily Sales** (`SLS-000001`): an outlet's manager records what sold at closing. No approval; the goods leave
+        soonest expiry first; takings, cost of goods and margin; End of Day gains **Sold**. Migration
+        `20261122120000_outlet_sales` (35 models; readable by `kitchen_ai_reader`). Until now sold goods stayed on the
+        outlet's books.
 - [ ] Waste Pattern Detector (weekly BullMQ job)
 - [ ] Reorder Recommender — surfaces inline on the Week 4 stock map (click a location → AI suggestion → one-click Create Purchase Order)
 - [ ] Demand Forecaster
@@ -576,6 +597,8 @@ were considered and deliberately dropped.
 - [ ] CI/CD to main
 - [ ] PWA setup
 - [ ] UI polish (loading/empty/error states)
-- [ ] Realistic seed data (3 branches, 30 days history)
+- [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
+      3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
+      the demo.
 - [ ] README + architecture diagram
 - [ ] Demo video + LinkedIn post

@@ -188,7 +188,7 @@ const plan = {
       weeks_detail: [
         {
           week: "Week 9",
-          status: "next",
+          status: "done",
           title: "KitchenAI — Core Intelligence",
           tag: "ai",
           tasks: [
@@ -220,9 +220,12 @@ const plan = {
         },
         {
           week: "Week 10",
+          status: "next",
           title: "KitchenAI — Predictive Features",
           tag: "ai",
           tasks: [
+            { t: "History data for the AI features (pulled forward from Week 12): npm run seed:history — 90 days at 3 kitchens and 3 outlets, from purchase requests to write-offs, with built-in patterns for F3–F6 to find; --clean removes it", done: true },
+            { t: "Outlet daily sales (SLS-000001): the outlet's manager records what sold at closing — goods leave soonest-expiry first, takings / cost / margin, a Sold column on End of Day (sold goods used to stay on the outlet's books)", done: true },
             "FEATURE 3 — Waste Pattern Detector: BullMQ weekly job that sends last 30 days of write-off data to Claude. Claude identifies patterns per branch per item and writes actionable recommendations. Shown on head office dashboard.",
             "FEATURE 4 — Reorder Recommender: when stock drops below reorder point, instead of just alerting, Claude analyzes average daily consumption + supplier lead time + upcoming production orders and recommends exact order quantity and deadline. Surfaces inline when a 🟡/🔴 location is clicked on the Week 4 stock map, with a 'Create Purchase Order' button that applies the recommendation directly.",
             "FEATURE 5 — Demand Forecaster: kitchen supervisor opens production planning screen. Claude looks at historical production by day of week and upcoming calendar (holidays) and suggests how many batches to produce today.",
@@ -258,7 +261,8 @@ const plan = {
             "GitHub Actions CI/CD: test → build → deploy on merge to main",
             "PWA setup: installable on mobile with offline indicator",
             "UI polish: loading states, empty states, error states on every screen",
-            "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
+            { t: "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
+              partial: "Pulled forward to Week 10 Task 1: npm run seed:history generates 90 days at 3 kitchens and 3 outlets (purchasing, production, outlet orders, deliveries, sales, waste). Item names and prices are the seed's; tune the volumes for the demo here." },
             "README: setup guide, architecture diagram, module overview, screenshots",
             "Loom video: 5-minute walkthrough — show the AI features prominently",
             "LinkedIn post with demo video and GitHub link",

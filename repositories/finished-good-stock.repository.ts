@@ -79,7 +79,7 @@ export function planFefoTakes(lots: LotOnHand[], required: Prisma.Decimal, now: 
 }
 
 /** A named end-of-day flow (Week 7 Task 4, E1). */
-export type DayFlow = 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'distributed'
+export type DayFlow = 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'sold' | 'distributed'
 
 /**
  * Which ledger movements make each end-of-day flow — the one place this is
@@ -91,6 +91,8 @@ const DAY_FLOWS: [DayFlow, Prisma.Sql][] = [
   ['convertedIn',  Prisma.sql`m.type = 'IN' AND m."referenceType" = 'ConversionOrder'`],
   ['convertedOut', Prisma.sql`m.type = 'OUT' AND m."referenceType" = 'ConversionOrder'`],
   ['writtenOff',   Prisma.sql`m.type = 'WASTE' AND m."referenceType" = 'WriteOff'`],
+  // An outlet's day of sales (Week 10 Task 1).
+  ['sold',         Prisma.sql`m.type = 'OUT' AND m."referenceType" = 'OutletSale'`],
   // Transfers between branches arrive with Week 8.
   ['distributed',  Prisma.sql`m.type = 'TRANSFER'`],
 ]
@@ -252,6 +254,7 @@ export const FinishedGoodStockRepository = {
     convertedInQty: Prisma.Decimal | null; convertedInValue: Prisma.Decimal | null
     convertedOutQty: Prisma.Decimal | null; convertedOutValue: Prisma.Decimal | null
     writtenOffQty: Prisma.Decimal | null; writtenOffValue: Prisma.Decimal | null
+    soldQty: Prisma.Decimal | null; soldValue: Prisma.Decimal | null
     distributedQty: Prisma.Decimal | null; distributedValue: Prisma.Decimal | null
     otherQty: Prisma.Decimal | null; otherValue: Prisma.Decimal | null
     closingQty: Prisma.Decimal | null; closingValue: Prisma.Decimal | null

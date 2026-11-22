@@ -144,6 +144,12 @@ export const SOURCE_PAGES: Record<string, { roles: string[]; href: (id: string) 
     roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'],
     href:  id => `/inventory/transfers/${id}`,
   },
+  // An outlet's day of sales (Week 10 Task 1) — on the End of Day page. A
+  // branch manager can open their own outlet's.
+  OutletSale: {
+    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'],
+    href:  id => `/inventory/sales/${id}`,
+  },
 }
 
 /** The Finished Goods page's expiry filter (Week 7 Task 3, X2): a query-string value and the status it shows. */
