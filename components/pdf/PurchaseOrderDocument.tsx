@@ -90,6 +90,8 @@ export function PurchaseOrderDocument({ po }: { po: PurchaseOrderDetailDto }) {
           </View>
           <View style={styles.block}>
             <Text style={styles.blockLabel}>Delivery</Text>
+            {po.deliverTo && <Text style={[styles.blockLine, styles.strong]}>Deliver to: {po.deliverTo.name}</Text>}
+            {po.deliverTo?.address && <Text style={styles.blockLine}>{po.deliverTo.address}</Text>}
             <Text style={styles.blockLine}>
               Expected: {po.expectedDelivery?.slice(0, 10) ?? 'not set'}
             </Text>

@@ -36,6 +36,14 @@ export type ReceivingFormDto = {
   /** Set when a DRAFT or PENDING report already exists on this order. */
   openReport: { id: string; rrNumber: string } | null
   branches: { id: string; name: string }[]
+  /** The kitchen the order is for (Week 10 Task 4); null when not set. */
+  deliverTo: { id: string; name: string } | null
+  /**
+   * What the form starts on: the order's kitchen while it is an active
+   * kitchen, else the first kitchen (Main Commissary). Still changeable —
+   * the report records where the delivery actually arrived.
+   */
+  defaultBranchId: string | null
   lines: ReceivingLineDto[]
 }
 
@@ -503,6 +511,8 @@ export const ReceivingReportService = {
           balances.some(line => line.outstanding.greaterThan(0)),
         openReport,
         branches,
+        deliverTo:       po.deliverTo && { id: po.deliverTo.id, name: po.deliverTo.name },
+        defaultBranchId: branches.find(branch => branch.id === po.deliverToId)?.id ?? branches[0]?.id ?? null,
         lines: balances.map(({ item, alreadyReceived, outstanding }) => ({
           purchaseOrderItemId: item.id,
           materialCode:        item.material.code,

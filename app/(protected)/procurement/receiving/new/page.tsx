@@ -30,8 +30,10 @@ export default async function NewReceivingReportPage({ searchParams }: PageProps
 
       <h1 className="text-2xl font-bold text-gray-800">Receive delivery</h1>
       <p className="mb-6 mt-1 text-sm text-gray-400">
-        <span className="font-mono">{form.poNumber}</span> from {form.supplierName ?? 'no supplier'}. Count what
-        arrived on every line; anything refused at the door goes under Rejected.
+        <span className="font-mono">{form.poNumber}</span> from {form.supplierName ?? 'no supplier'}
+        {form.deliverTo ? <>, ordered for <span className="font-medium text-gray-600">{form.deliverTo.name}</span></> : ''}. Count what
+        arrived on every line; anything refused at the door goes under Rejected. If it arrived at another kitchen, pick
+        that one.
       </p>
 
       {/* The service refuses all three cases too; these explain why up front. */}
@@ -53,7 +55,7 @@ export default async function NewReceivingReportPage({ searchParams }: PageProps
           branches={form.branches}
           today={todayIsoDate()}
           lines={form.lines}
-          initial={{ branchId: form.branches[0].id, receivedAt: todayIsoDate(), notes: '' }}
+          initial={{ branchId: form.defaultBranchId ?? form.branches[0].id, receivedAt: todayIsoDate(), notes: '' }}
         />
       )}
     </div>

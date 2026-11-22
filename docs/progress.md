@@ -574,14 +574,18 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         lead time (Task 3), expected use over lead time + 7 days' cover, + reorder point − on hand − on order.
       - **Worked out by the system:** expected use is summed day by day (the larger of the average and that day's
         scheduled runs), so a big run counts. On order means open requests and orders whose notes name the kitchen;
-        purchase requests have no "deliver to" yet (follow-up).
+        purchase requests now name their kitchen (below).
       - **Create purchase request →** opens the form pre-filled (`?reorder=`); saving makes a DRAFT for the usual
         approval. **Why this order** (AI badge): Explain / Regenerate, about $0.0055. The panel says when the figures
         have moved since the text was written.
       - The alerts table gains **Recommended order**.
       - **Fix (owner, Task 1):** the stock map, Branch Inventory and the daily low-stock summary cover kitchens only.
         That removed 57 outlet "Out of stock" alerts; outlets show "Raw materials: None held".
-      - Migration `20261123150000_reorder_recommendation` (enum values only).
+      - **Deliver to (4.5, owner 2026-11-23):** a purchase request names the kitchen the materials are for
+        (required). The purchase order and its PDF carry it, receiving starts on it, the assistant's draft asks for it,
+        and the Reorder Recommender counts what is on order per kitchen from it. Old documents were backfilled from
+        their deliveries and notes.
+      - Migrations `20261123150000_reorder_recommendation` (enum values only) and `20261123160000_purchase_deliver_to`.
 - [ ] Demand Forecaster
 - [x] Supplier Performance Analyzer (monthly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-supplier-performance.md`, Task 3).
       - **Dashboard → KitchenAI insights → Suppliers — <month>** (ADMIN, ACCOUNTING, PROCUREMENT_MANAGER, VIEWER), with

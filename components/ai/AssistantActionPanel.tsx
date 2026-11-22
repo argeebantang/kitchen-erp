@@ -57,6 +57,7 @@ function PurchaseRequestDraft({ draft }: { draft: PurchaseRequestDraftDto }) {
         </tbody>
       </table>
       <p className="mt-1.5 text-xs text-gray-500">
+        {draft.deliverToName && <>For {draft.deliverToName} · </>}
         Estimated total {draft.estimatedTotal === null ? '— (a material has no reference price)' : formatPeso(draft.estimatedTotal)}
         {draft.neededBy && <> · Needed by {shortDateLabel(draft.neededBy)}</>}
       </p>

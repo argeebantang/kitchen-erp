@@ -307,6 +307,8 @@ export type PendingCompletionDto = ProductionOrderSummaryDto & {
 export type ShortfallRequestDto = {
   productionOrderId: string
   orderNumber: string
+  /** The order's kitchen: the materials are delivered there (Week 10 Task 4). */
+  deliverToId: string
   /** The production date: the materials are needed by then. */
   neededBy: string
   notes: string
@@ -1003,6 +1005,7 @@ export const ProductionOrderService = {
     return {
       productionOrderId: order.id,
       orderNumber:       order.orderNumber,
+      deliverToId:       order.branchId,
       neededBy:          order.plannedDate,
       notes:             `Shortfall for ${order.orderNumber} — ${order.finishedGoodName} ${trimDecimal(order.plannedQty)} ${order.unitAbbreviation} on ${order.plannedDate} at ${order.branchName}`,
       lines,

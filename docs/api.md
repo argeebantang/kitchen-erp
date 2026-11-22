@@ -92,7 +92,7 @@ Conversion BOMs (Week 7 Task 1): a `CONVERSION` recipe names the finished good i
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/purchase-requests` | `notes?`, `neededBy?`, `items[]` of `materialId`, `quantity`, `estimatedUnitCost?`, `notes?` (≥ 1) | 201 `{ purchaseRequest }` as `DRAFT`, numbered `PR-000001` | 400, 401 |
+| POST | `/api/purchase-requests` | `deliverToId` (the kitchen the materials are for: an active central kitchen — required since Week 10 Task 4), `notes?`, `neededBy?`, `items[]` of `materialId`, `quantity`, `estimatedUnitCost?`, `notes?` (≥ 1) | 201 `{ purchaseRequest }` as `DRAFT`, numbered `PR-000001`; the detail carries `deliverTo { id, name } \| null` (null only on old requests) | 400 (incl. a missing kitchen or an outlet), 401 |
 | POST | `/api/purchase-requests/[id]/submit` | — | 200 `{ purchaseRequest }` → `PENDING_APPROVAL`; enqueues the approver notification | 401, 403 not the requester (ADMIN excepted), 404, 409 not a draft |
 
 ## Purchase orders
@@ -230,6 +230,8 @@ Week 10 Task 2 (see `docs/2026-11-23-week10-waste-pattern-detector.md`). One end
 | POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN` · `SUPPLIER_PERFORMANCE` · `REORDER_RECOMMENDATION`), `referenceId` (a production order id, an ISO week such as `2026-W48`, a month such as `2026-10` that has ended, or a stock position `<branchId>:<materialId>`), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER; `SUPPLIER_PERFORMANCE`: ADMIN, ACCOUNTING, PROCUREMENT_MANAGER; `REORDER_RECOMMENDATION`: ADMIN, PROCUREMENT_MANAGER, PRODUCTION_MANAGER); 404 unknown order; 409 an order not completed and costed, or a stock position that is not a kitchen material at or below its reorder point (400 if malformed) |
 
 Guard: ADMIN, ACCOUNTING, PRODUCTION_MANAGER, PROCUREMENT_MANAGER (others → `/unauthorized`). The monthly supplier review is also asked for by `supplier-performance-monthly` (the 1st, 06:00).
+
+Purchase orders carry the kitchen too (`deliverTo { id, name, address }` in the detail and on the PDF), copied from the request when it is approved. The receiving form starts on it.
 
 The Reorder Recommender (Week 10 Task 4, `docs/2026-11-23-week10-reorder-recommender.md`) has no endpoint of its own: Stock Levels and Branch Inventory compute it in the Server Component (`ReorderService.forAlerts`), and `/procurement/requests/new?reorder=<branchId>:<materialId>` pre-fills the purchase request form from it (worked out again when it opens; an unknown or covered position gives the empty form).
 

@@ -26,8 +26,8 @@ export type OpenPurchaseLine = {
   status: string
   materialId: string
   quantity: Prisma.Decimal
-  /** The document's notes and, for an order, its request's — where the kitchen is named. */
-  notes: string[]
+  /** The kitchen it is for: the document's deliverToId (an order's, else its request's); null when not set. */
+  deliverToId: string | null
   /** YYYY-MM-DD: the order's promised delivery, or the request's needed-by. */
   expected: string | null
 }
@@ -67,7 +67,7 @@ export const ReorderRepository = {
         where:  { materialId: { in: materialIds }, purchaseRequest: { status: { in: OPEN_REQUEST_STATUSES } } },
         select: {
           materialId: true, quantity: true,
-          purchaseRequest: { select: { id: true, prNumber: true, status: true, notes: true, neededBy: true } },
+          purchaseRequest: { select: { id: true, prNumber: true, status: true, deliverToId: true, neededBy: true } },
         },
       }),
       prisma.purchaseOrderItem.findMany({
@@ -76,8 +76,8 @@ export const ReorderRepository = {
           materialId: true, quantity: true,
           purchaseOrder: {
             select: {
-              id: true, poNumber: true, status: true, notes: true, expectedDelivery: true,
-              purchaseRequest: { select: { notes: true } },
+              id: true, poNumber: true, status: true, deliverToId: true, expectedDelivery: true,
+              purchaseRequest: { select: { deliverToId: true } },
             },
           },
         },
@@ -88,14 +88,13 @@ export const ReorderRepository = {
       ...requestLines.map<OpenPurchaseLine>(line => ({
         kind: 'PR', documentId: line.purchaseRequest.id, number: line.purchaseRequest.prNumber,
         status: line.purchaseRequest.status, materialId: line.materialId, quantity: line.quantity,
-        notes: [line.purchaseRequest.notes].filter((note): note is string => Boolean(note)),
+        deliverToId: line.purchaseRequest.deliverToId,
         expected: dateOf(line.purchaseRequest.neededBy),
       })),
       ...orderLines.map<OpenPurchaseLine>(line => ({
         kind: 'PO', documentId: line.purchaseOrder.id, number: line.purchaseOrder.poNumber,
         status: line.purchaseOrder.status, materialId: line.materialId, quantity: line.quantity,
-        notes: [line.purchaseOrder.notes, line.purchaseOrder.purchaseRequest?.notes]
-          .filter((note): note is string => Boolean(note)),
+        deliverToId: line.purchaseOrder.deliverToId ?? line.purchaseOrder.purchaseRequest?.deliverToId ?? null,
         expected: dateOf(line.purchaseOrder.expectedDelivery),
       })),
     ]

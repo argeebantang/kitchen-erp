@@ -199,8 +199,8 @@ const runQuery = defineTool({
     '"FinishedGood" (cooked products): id, code, name, unitId, sellingPrice, shelfLifeHours, isActive.',
     '"BOM" (recipe versions): id, finishedGoodId, kind [PRODUCTION, CONVERSION], version, isActive, batchSize, batchUnitId, sourceFinishedGoodId, sourceQuantity. "BOMItem": bomId, materialId, quantity (per batch of batchSize), unitId.',
     '"Supplier": id, name, contactName, email, phone, address, isActive.',
-    '"PurchaseRequest": id, prNumber, requestedById, status [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO], neededBy, createdAt. "PurchaseRequestItem": purchaseRequestId, materialId, quantity, estimatedUnitCost.',
-    '"PurchaseOrder": id, poNumber, purchaseRequestId, supplierId, status [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, SENT, PARTIALLY_RECEIVED, FULLY_RECEIVED, CANCELLED], totalAmount, expectedDelivery, createdAt. "PurchaseOrderItem": id, purchaseOrderId, materialId, quantity, unitCost, totalCost.',
+    '"PurchaseRequest": id, prNumber, requestedById, status [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, CONVERTED_TO_PO], neededBy, deliverToId (→ Branch: the kitchen it is for; null on a few old requests), createdAt. "PurchaseRequestItem": purchaseRequestId, materialId, quantity, estimatedUnitCost.',
+    '"PurchaseOrder": id, poNumber, purchaseRequestId, supplierId, status [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED, SENT, PARTIALLY_RECEIVED, FULLY_RECEIVED, CANCELLED], totalAmount, expectedDelivery, deliverToId (→ Branch: the kitchen it is for, from its request), createdAt. "PurchaseOrderItem": id, purchaseOrderId, materialId, quantity, unitCost, totalCost.',
     '"ReceivingReport" (deliveries counted in): id, rrNumber, purchaseOrderId, branchId, receivedById, status [DRAFT, PENDING_APPROVAL, APPROVED, REJECTED], receivedAt. "ReceivingReportItem": receivingReportId, purchaseOrderItemId, materialId, orderedQuantity, expectedQuantity, receivedQuantity, rejectedQuantity, unitCost. Only APPROVED reports added stock.',
     '"InventoryLevel": materialId, branchId, quantity — current raw-material stock per branch.',
     '"StockMovement" (raw-material ledger): materialId, branchId, type [IN, OUT, ADJUSTMENT, TRANSFER, WASTE], quantity (signed: + in, − out), unitCost, referenceType, referenceId, createdAt.',
@@ -260,6 +260,7 @@ const DraftPurchaseRequestInput = z.object({
   }).strict()).min(1).max(DRAFT_MAX_LINES),
   neededBy: isoDate.optional(),
   notes:    z.string().trim().max(500).optional(),
+  kitchen:  z.string().trim().min(1).max(100).optional(),
 }).strict()
 
 const draftPurchaseRequest = defineTool({
@@ -269,6 +270,7 @@ const draftPurchaseRequest = defineTool({
     'Use it only when the user asks to order, buy or request materials. One draft per question, with every material on it.',
     'Name each material as the user did (in English, as materials are named in the system); the server finds it. If a name matches several materials or none, you get the candidates: ask the user which one, then draft again.',
     'quantity is in the material\'s own unit; unit is the unit the user gave (e.g. kg). If it is not the material\'s unit you get an error: ask the user for the quantity in that unit, never convert.',
+    'The materials are delivered to a central kitchen; there can be several, and outlets hold no raw materials. Pass the kitchen as the user named it; leave it out if they did not say, and if there is more than one kitchen you get the list back: ask the user which one, then draft again. Never pick a kitchen yourself.',
     'Each line is priced at the material\'s current reference price. Returns the draft as saved.',
   ].join(' '),
   inputSchema: {
@@ -291,6 +293,7 @@ const draftPurchaseRequest = defineTool({
       },
       neededBy: { type: 'string', format: 'date', description: 'When it is needed, YYYY-MM-DD, today or later. Only if the user said.' },
       notes:    { type: 'string', description: 'A note for the approver, at most 500 characters. Only if the user gave one.' },
+      kitchen:  { type: 'string', description: 'The central kitchen the materials are for, as the user named it. Only if the user said.' },
     },
     required: ['items'],
     additionalProperties: false,

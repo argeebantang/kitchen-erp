@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session'
 import { MaterialService } from '@/services/material.service'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { ReorderService } from '@/services/reorder.service'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { shortDateLabel } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
 import { PurchaseRequestForm, type PurchaseRequestFormInitial } from '@/components/procurement/PurchaseRequestForm'
@@ -33,8 +34,9 @@ export default async function NewPurchaseRequestPage({ searchParams }: PageProps
   // ?reorder=<branchId>:<materialId> pre-fills the Reorder Recommender's order
   // from the stock map (Week 10 Task 4, P8), worked out again now — every
   // role allowed here may open it. Nothing is created until Save.
-  const [{ materials }, shortfall, reorderPrefill] = await Promise.all([
+  const [{ materials }, kitchens, shortfall, reorderPrefill] = await Promise.all([
     MaterialService.list({ take: 200 }),
+    BranchRepository.findActiveKitchens(),
     productionOrder && canReadProduction ? ProductionOrderService.shortfallRequest(productionOrder) : null,
     !productionOrder && reorder ? ReorderService.purchaseRequestPrefill(reorder) : null,
   ])
@@ -44,7 +46,12 @@ export default async function NewPurchaseRequestPage({ searchParams }: PageProps
   const offered = new Set(materials.map(material => material.id))
   const prefill = shortfall ?? reorderPrefill
   const initial: PurchaseRequestFormInitial | undefined = prefill
-    ? { neededBy: prefill.neededBy, notes: prefill.notes, lines: prefill.lines.filter(line => offered.has(line.materialId)) }
+    ? {
+        deliverToId: prefill.deliverToId,
+        neededBy:    prefill.neededBy,
+        notes:       prefill.notes,
+        lines:       prefill.lines.filter(line => offered.has(line.materialId)),
+      }
     : undefined
   const rec = reorderPrefill?.recommendation
 
@@ -76,12 +83,12 @@ export default async function NewPurchaseRequestPage({ searchParams }: PageProps
         <p className="mb-6 rounded-xl border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-900">
           Pre-filled with KitchenAI&apos;s reorder for <span className="font-medium">{rec.branchName}</span>:{' '}
           {trimDecimal(rec.recommendedQty)} {rec.unit} of {rec.materialName}, order by {shortDateLabel(rec.orderBy)}
-          {rec.runOutDate && <>, needed by {shortDateLabel(rec.neededBy)}</>}. Keep the kitchen&apos;s name in the notes —
-          the stock map reads it to count this request as on order there. Change anything you need, then save.
+          {rec.runOutDate && <>, needed by {shortDateLabel(rec.neededBy)}</>}. Once saved, the stock map counts it as on order
+          for that kitchen. Change anything you need, then save.
         </p>
       )}
 
-      <PurchaseRequestForm materials={materials} initial={initial} />
+      <PurchaseRequestForm materials={materials} kitchens={kitchens} initial={initial} />
     </div>
   )
 }

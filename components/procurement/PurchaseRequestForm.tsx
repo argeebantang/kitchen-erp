@@ -31,17 +31,23 @@ function emptyLine(): Line {
 
 /** Starting values, e.g. a production order's shortfall. Every field stays editable. */
 export type PurchaseRequestFormInitial = {
+  /** The kitchen it is for; '' to make the requester choose. */
+  deliverToId: string
   neededBy: string
   notes: string
   lines: { materialId: string; quantity: string }[]
 }
 
 export function PurchaseRequestForm({
-  materials, initial,
+  materials, kitchens, initial,
 }: {
   materials: MaterialDto[]
+  /** Active central kitchens — where a purchase can be delivered (Week 10 Task 4). */
+  kitchens: { id: string; name: string }[]
   initial?: PurchaseRequestFormInitial
 }) {
+  // With one kitchen there is nothing to choose; with several, the requester must say which.
+  const [deliverToId, setDeliverToId] = useState(initial?.deliverToId || (kitchens.length === 1 ? kitchens[0].id : ''))
   const [neededBy, setNeededBy] = useState(initial?.neededBy ?? '')
   const [notes, setNotes]       = useState(initial?.notes ?? '')
   const [lines, setLines]       = useState<Line[]>(() =>
@@ -94,7 +100,14 @@ export function PurchaseRequestForm({
       return
     }
 
+    if (!deliverToId) {
+      setError('Choose the kitchen the materials are for.')
+      setSubmitting(false)
+      return
+    }
+
     const payload = {
+      deliverToId,
       neededBy: neededBy || null,
       notes:    notes || null,
       items: filled.map(line => ({ materialId: line.materialId, quantity: line.quantity })),
@@ -128,6 +141,12 @@ export function PurchaseRequestForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Deliver to">
+          <select value={deliverToId} onChange={event => setDeliverToId(event.target.value)} className={inputClass} required>
+            <option value="">Choose a kitchen…</option>
+            {kitchens.map(kitchen => <option key={kitchen.id} value={kitchen.id}>{kitchen.name}</option>)}
+          </select>
+        </Field>
         <Field label="Needed by">
           <input
             type="date"

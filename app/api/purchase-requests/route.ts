@@ -9,6 +9,8 @@ const PositiveDecimalString = z
 const CreatePurchaseRequestSchema = z.object({
   notes:    z.string().trim().max(1000).nullish(),
   neededBy: z.string().date().nullish(),
+  // The kitchen the materials are for (Week 10 Task 4); the service checks it is an active central kitchen.
+  deliverToId: z.string().cuid(),
   items: z
     .array(
       z.object({

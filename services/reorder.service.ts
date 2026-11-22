@@ -3,7 +3,6 @@ import { addDays, businessDayRange, shortDateLabel, todayIsoDate } from '@/lib/d
 import { trimDecimal } from '@/lib/format'
 import { AI_JOB_OPTIONS, REORDER_EXPLAIN, getAiQueue, type ReorderJob } from '@/lib/queue'
 import { AiInsightRepository, type AiInsightReference } from '@/repositories/ai-insight.repository'
-import { BranchRepository } from '@/repositories/branch.repository'
 import { ReorderRepository, type OpenPurchaseLine } from '@/repositories/reorder.repository'
 import { AiService, toInsightDto, type AiInsightDto } from '@/services/ai.service'
 import { InventoryService, reorderAlerts, type ReorderAlertDto } from '@/services/inventory.service'
@@ -94,10 +93,10 @@ export type ReorderRecommendationDto = {
   /** Runs at this kitchen up to the horizon that will take this material, overdue ones first. */
   scheduled: ReorderScheduledRunDto[]
   scheduledTotal: string
-  /** Open requests and orders naming this kitchen: counted. */
+  /** Open requests and orders for this kitchen (their "Deliver to"): counted. */
   onOrder: ReorderPurchaseLineDto[]
   onOrderTotal: string
-  /** Open requests and orders for this material naming no kitchen: shown, not counted. */
+  /** Open requests and orders for this material with no kitchen set (made before the field): shown, not counted. */
   unassigned: ReorderPurchaseLineDto[]
   unassignedTotal: string
   supplier: { id: string; name: string; from: 'order' | 'price' } | null
@@ -147,18 +146,6 @@ function qty(value: Prisma.Decimal): string {
   return trimDecimal(value.toDecimalPlaces(3).toFixed(3))
 }
 
-/**
- * The kitchen an open request or order is for. Purchase requests have no
- * "deliver to" yet, so the kitchen is read from the notes ("For Las Piñas
- * Commissary — …", "Reorder for Main Commissary — KitchenAI"): exactly one
- * kitchen named, or none.
- */
-function kitchenNamed(line: OpenPurchaseLine, kitchens: { id: string; name: string }[]): string | null {
-  const text = line.notes.join(' ').toLowerCase()
-  const named = kitchens.filter(kitchen => text.includes(kitchen.name.toLowerCase()))
-  return named.length === 1 ? named[0].id : null
-}
-
 function lineDto(line: OpenPurchaseLine): ReorderPurchaseLineDto {
   return {
     kind: line.kind, documentId: line.documentId, number: line.number, status: line.status,
@@ -179,7 +166,6 @@ function figuresMoved(facts: Prisma.JsonValue | null, rec: ReorderRecommendation
 
 type Inputs = {
   today: string
-  kitchens: { id: string; name: string }[]
   used: Map<string, Prisma.Decimal>
   scheduled: ScheduledUse[]
   open: OpenPurchaseLine[]
@@ -223,8 +209,8 @@ function recommend(alert: ReorderAlertDto, inputs: Inputs): Omit<ReorderRecommen
   }
 
   const lines = inputs.open.filter(line => line.materialId === alert.materialId)
-  const mine = lines.filter(line => kitchenNamed(line, inputs.kitchens) === alert.branchId)
-  const unassigned = lines.filter(line => kitchenNamed(line, inputs.kitchens) === null)
+  const mine = lines.filter(line => line.deliverToId === alert.branchId)
+  const unassigned = lines.filter(line => line.deliverToId === null)
   const sum = (rows: OpenPurchaseLine[]) => rows.reduce((total, line) => total.add(line.quantity), ZERO)
   const onOrderTotal = sum(mine)
 
@@ -280,8 +266,7 @@ async function inputsFor(alerts: ReorderAlertDto[]): Promise<Inputs> {
   const window = { start: businessDayRange(addDays(today, -USAGE_DAYS)).start, end: businessDayRange(today).start }
   const month = lastCompleteMonth(today)
 
-  const [kitchens, usage, open, suppliers, leadTimes, monthFacts] = await Promise.all([
-    BranchRepository.findActiveKitchens(),
+  const [usage, open, suppliers, leadTimes, monthFacts] = await Promise.all([
     ReorderRepository.usage(branchIds, materialIds, window),
     ReorderRepository.openPurchaseLines(materialIds),
     ReorderRepository.suppliers(materialIds),
@@ -294,7 +279,6 @@ async function inputsFor(alerts: ReorderAlertDto[]): Promise<Inputs> {
 
   return {
     today,
-    kitchens,
     used: new Map(usage.map(row => [positionKey(row.branchId, row.materialId), row.used])),
     scheduled,
     open,
@@ -345,16 +329,17 @@ async function forPosition(position: string): Promise<ReorderRecommendationDto |
 }
 
 /**
- * The purchase request pre-fill (P8): the recommended quantity, needed by the
- * day it runs out, and a note naming the kitchen — which is also how a later
- * recommendation knows this request is on order for it. Null when there is
- * nothing to order; the page then shows the empty form.
+ * The purchase request pre-fill (P8): the kitchen, the recommended quantity,
+ * needed by the day it runs out. Once saved, its "Deliver to" is how a later
+ * recommendation counts it as on order here. Null when there is nothing to
+ * order; the page then shows the empty form.
  */
 async function purchaseRequestPrefill(position: string) {
   const rec = await forPosition(position)
   if (!rec || !rec.orderNeeded) return null
   return {
     recommendation: rec,
+    deliverToId: rec.branchId,
     neededBy: rec.neededBy < rec.today ? rec.today : rec.neededBy,
     notes:    `Reorder for ${rec.branchName} — KitchenAI: ${rec.recommendedQty} ${rec.unit} ${rec.materialName}, order by ${shortDateLabel(rec.orderBy)}`,
     lines:    [{ materialId: rec.materialId, quantity: rec.recommendedQty }],
@@ -405,7 +390,7 @@ function explanationFacts(rec: ReorderRecommendationDto) {
       : `the scheduled runs on ${rec.scheduleDays} ${rec.scheduleDays === 1 ? 'day' : 'days'} where they need more than the daily average, the daily average on the other ${rec.horizonDays - rec.scheduleDays}`,
     onOrderForThisKitchen: rec.onOrder.map(line => `${line.number} (${line.status}): ${line.quantity} ${unit}`),
     onOrderTotal:  `${rec.onOrderTotal} ${unit}`,
-    openWithNoKitchenNamed: rec.unassigned.length > 0
+    openWithNoKitchenSet: rec.unassigned.length > 0
       ? `${rec.unassignedTotal} ${unit} on ${rec.unassigned.map(line => line.number).join(', ')} — not counted`
       : null,
     recommendedOrder: rec.orderNeeded ? `${rec.recommendedQty} ${unit}` : 'none: on hand and on order cover the horizon',
@@ -422,7 +407,7 @@ Write 3 to 5 sentences, under 120 words, in plain text with no headings, lists o
 - Start with the recommendation: how much to order and by when, or that no order is needed.
 - Say why in figures: the daily use, the lead time and where it comes from, the cover days, the safety stock (reorder point), scheduled runs if they drive it, and what is already on order.
 - If even an order today arrives after it runs out, say so plainly and by how many days.
-- Mention a risk only if the figures show it: the supplier flagged short or late last month (then suggest ordering early or a little extra), runs that are overdue, or open requests that name no kitchen and so were not counted.
+- Mention a risk only if the figures show it: the supplier flagged short or late last month (then suggest ordering early or a little extra), runs that are overdue, or open requests with no kitchen set and so not counted.
 Do not suggest causes the figures do not show.`
 
 async function request(position: string, requestedById: string | null, options: { regenerate?: boolean } = {}): Promise<ReorderResult<{ queued: boolean }>> {

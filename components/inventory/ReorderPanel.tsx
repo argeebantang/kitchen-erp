@@ -129,8 +129,8 @@ export function ReorderPanel({ rec, canExplain, canRequest }: { rec: ReorderReco
 
       {rec.unassigned.length > 0 && (
         <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-xs text-amber-800">
-          {amount(rec.unassignedTotal)} is on {rec.unassigned.map(line => line.number).join(', ')}, which name no kitchen, so it is
-          not counted. If it is for {rec.branchName}, order less.
+          {amount(rec.unassignedTotal)} is on {rec.unassigned.map(line => line.number).join(', ')}, which {rec.unassigned.length === 1 ? 'has' : 'have'} no
+          kitchen set (made before &quot;Deliver to&quot;), so it is not counted. If it is for {rec.branchName}, order less.
         </p>
       )}
 

@@ -55,6 +55,7 @@ export default async function PurchaseRequestListPage() {
               <tr>
                 <th className="px-4 py-3 font-medium">Number</th>
                 <th className="px-4 py-3 font-medium">Requested by</th>
+                <th className="px-4 py-3 font-medium">Deliver to</th>
                 <th className="px-4 py-3 font-medium">Lines</th>
                 <th className="px-4 py-3 font-medium">Est. total</th>
                 <th className="px-4 py-3 font-medium">Needed by</th>
@@ -73,6 +74,7 @@ export default async function PurchaseRequestListPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-gray-700">{row.requesterName}</td>
+                  <td className="px-4 py-3 text-gray-500">{row.deliverToName ?? '—'}</td>
                   <td className="px-4 py-3 text-gray-500">{row.lineCount}</td>
                   <td className="px-4 py-3 text-gray-700">
                     {row.estimatedTotal === null
