@@ -391,9 +391,15 @@ export const InventoryService = {
   },
 
   /**
-   * The stock map: every active material at every active branch, grouped by
+   * The stock map: every active material at every active kitchen, grouped by
    * category in the order the repository returns them. A missing level row is
    * zero stock — a material never received must show red, not disappear.
+   *
+   * Kitchens only (Week 10 Task 4): outlets hold no raw materials — they get
+   * finished goods from a kitchen (Week 9 Task 8) — so their tiles were all
+   * "Out of stock" and buried the kitchens' real alerts, on this page, on
+   * Branch Inventory and in the daily low-stock summary. An outlet asked for
+   * by `branchId` gives an empty list.
    *
    * Filters narrow the branches and the tiles shown, but a branch's counts
    * always cover all its materials, so they still read as the whole picture.
@@ -401,7 +407,7 @@ export const InventoryService = {
    */
   async stockMap(filters: StockMapFilters = {}): Promise<BranchStockDto[]> {
     const [branches, { materials, levels }] = await Promise.all([
-      BranchRepository.findAllActive(),
+      BranchRepository.findActiveKitchens(),
       InventoryRepository.stockPositions(),
     ])
 

@@ -26,7 +26,13 @@ export function BranchHeadline({ headline, compact = false }: { headline: Branch
         : expiringLots > 0 ? `${expiringLots === 1 ? 'lot' : 'lots'} within 48 h` : 'no lot expires within 48 h',
       tone:  expiredLots > 0 ? 'text-red-700' : expiringLots > 0 ? 'text-amber-700' : 'text-emerald-700',
     },
-    {
+    materials === null ? {
+      // An outlet holds no raw materials (Week 10 Task 4).
+      label: 'Raw materials',
+      value: 'None held',
+      note:  'an outlet gets cooked goods from a kitchen',
+      tone:  'text-gray-500',
+    } : {
       label: 'Raw materials',
       value: materials.out > 0 ? `${materials.out} out` : materials.low > 0 ? `${materials.low} low` : 'All stocked',
       note:  materials.out > 0

@@ -29,6 +29,19 @@ export const AiInsightRepository = {
   },
 
   /**
+   * Several insights of one type at once, with the facts they were written
+   * from — for a page that shows many (the stock map's reorder tiles, Week 10
+   * Task 4) and checks whether the figures have moved since.
+   */
+  async findMany(type: AiInsightType, referenceType: string, referenceIds: string[]) {
+    if (referenceIds.length === 0) return []
+    return prisma.aiInsight.findMany({
+      where:  { type, referenceType, referenceId: { in: referenceIds } },
+      select: { ...insightSelect, referenceId: true, facts: true },
+    })
+  },
+
+  /**
    * Asks for an insight: creates it PENDING, or puts a FAILED one back to
    * PENDING. False when one is already PENDING or READY — the caller then
    * queues nothing, so two clicks or a retry cannot produce two calls.

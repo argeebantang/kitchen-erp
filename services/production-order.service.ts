@@ -869,6 +869,20 @@ async function validateOrder(input: CreateProductionOrderServiceInput): Promise<
   }
 }
 
+/** One scheduled run's need for one material (Week 10 Task 4, Feature 4). */
+export type ScheduledUse = {
+  orderId: string
+  orderNumber: string
+  branchId: string
+  /** YYYY-MM-DD. */
+  plannedDate: string
+  status: ProductionStatus
+  finishedGoodName: string
+  materialId: string
+  /** What the run will take out of stock when it is signed off, in the material's unit. */
+  quantity: Prisma.Decimal
+}
+
 export const ProductionOrderService = {
   /**
    * No viewer scoping, like receiving reports: production is planned for the
@@ -948,6 +962,29 @@ export const ProductionOrderService = {
    * empty form — when the order is unknown, past the point of ordering, or
    * short of nothing. Nothing is created here; the requester reviews and saves.
    */
+  /**
+   * What the runs scheduled at these kitchens up to `until` (YYYY-MM-DD) will
+   * take out of stock, per run and material — the same quantities their
+   * sign-off deducts (consumptionByMaterial). Submitted, approved, cooking or
+   * awaiting sign-off, overdue ones included; drafts are not plans yet.
+   */
+  async scheduledUse(branchIds: string[], until: string): Promise<ScheduledUse[]> {
+    if (branchIds.length === 0) return []
+    const orders = await ProductionOrderRepository.findScheduledAtBranches(branchIds, new Date(`${until}T00:00:00Z`))
+    return orders.flatMap(order =>
+      [...consumptionByMaterial(order.bom, order.batchWeight, order.plannedQty).entries()].map(([materialId, line]) => ({
+        orderId:          order.id,
+        orderNumber:      order.orderNumber,
+        branchId:         order.branchId,
+        plannedDate:      order.plannedDate.toISOString().slice(0, 10),
+        status:           order.status,
+        finishedGoodName: order.finishedGood.name,
+        materialId,
+        quantity:         line.quantity,
+      })),
+    )
+  },
+
   async shortfallRequest(id: string): Promise<ShortfallRequestDto | null> {
     const result = await ProductionOrderService.getById(id)
     if (!result.success) return null

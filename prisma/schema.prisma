@@ -173,6 +173,8 @@ enum AiFeature {
   WASTE_PATTERN
   /// Feature 6 (Week 10 Task 3): the monthly supplier performance report.
   SUPPLIER_PERFORMANCE
+  /// Feature 4 (Week 10 Task 4): why a kitchen should reorder a material, how much and by when.
+  REORDER_RECOMMENDATION
 }
 
 /// How a Claude API call ended (D4).
@@ -197,6 +199,8 @@ enum AiInsightType {
   WASTE_PATTERN
   /// Feature 6 (Week 10 Task 3): one report per month, referenceType 'Month', referenceId '2026-10'.
   SUPPLIER_PERFORMANCE
+  /// Feature 4 (Week 10 Task 4): one per kitchen and material, referenceType 'StockPosition', referenceId '<branchId>:<materialId>'.
+  REORDER_RECOMMENDATION
 }
 
 /// PENDING → READY | FAILED. A FAILED one can be asked for again (back to

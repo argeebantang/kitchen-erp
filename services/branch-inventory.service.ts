@@ -35,7 +35,8 @@ export type BranchHeadlineDto = {
   expiredLots: number
   /** Lots with stock expiring within 48 h — use these first. */
   expiringLots: number
-  materials: { out: number; low: number; total: number }
+  /** Null at an outlet: outlets hold no raw materials (Week 10 Task 4). */
+  materials: { out: number; low: number; total: number } | null
   /** Transfers in transit to this branch. */
   arriving: number
 }
@@ -66,7 +67,7 @@ export type BranchInventoryDto = {
   goods: BranchGoodDto[]
   /** More lots than Finished Goods lists at once; the figures cover the lots shown. */
   truncated: boolean
-  /** This branch's raw materials, as on Stock Levels. */
+  /** This branch's raw materials, as on Stock Levels; null at an outlet, which holds none. */
   materials: BranchStockDto | null
   /**
    * In transit to it and awaiting approval; `canOpen` — the viewer may open a
@@ -120,8 +121,9 @@ function finishedGoodsHeadline(lots: FinishedGoodLotDto[]): Pick<BranchHeadlineD
   }
 }
 
+/** Null for a branch the stock map leaves out — an outlet. */
 function materialsHeadline(stock: BranchStockDto | undefined): BranchHeadlineDto['materials'] {
-  if (!stock) return { out: 0, low: 0, total: 0 }
+  if (!stock) return null
   const total = Object.values(stock.counts).reduce((sum, count) => sum + count, 0)
   return { out: stock.counts.OUT, low: stock.counts.LOW, total }
 }

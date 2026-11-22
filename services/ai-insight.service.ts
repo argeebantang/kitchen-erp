@@ -2,6 +2,7 @@ import { AiInsightType } from '@prisma/client'
 import { CostVarianceService } from '@/services/cost-variance.service'
 import { WastePatternService } from '@/services/waste-pattern.service'
 import { SupplierPerformanceService } from '@/services/supplier-performance.service'
+import { REORDER_GENERATE_ROLES, ReorderService } from '@/services/reorder.service'
 
 /**
  * Every stored AI insight type, in one place (Week 10 Task 2, P6): who may see
@@ -39,6 +40,11 @@ const HANDLERS: Partial<Record<AiInsightType, InsightHandler>> = {
   [AiInsightType.SUPPLIER_PERFORMANCE]: {
     generateRoles: ['ADMIN', 'ACCOUNTING', 'PROCUREMENT_MANAGER'],
     request: (month, userId, options) => SupplierPerformanceService.request(month, userId, options),
+  },
+  // Feature 4 (Week 10 Task 4): one kitchen's reorder of one material, by position ('<branchId>:<materialId>').
+  [AiInsightType.REORDER_RECOMMENDATION]: {
+    generateRoles: REORDER_GENERATE_ROLES,
+    request: (position, userId, options) => ReorderService.request(position, userId, options),
   },
 }
 

@@ -10,6 +10,8 @@ import {
   SUPPLIER_PERFORMANCE_MONTHLY,
   SUPPLIER_PERFORMANCE_REPORT,
   type SupplierPerformanceJob,
+  REORDER_EXPLAIN,
+  type ReorderJob,
   type WastePatternJob,
   CONVERSION_ORDER_DECIDED,
   CONVERSION_ORDER_SUBMITTED,
@@ -46,6 +48,8 @@ import { NotificationService } from '@/services/notification.service'
 import { CostVarianceService } from '@/services/cost-variance.service'
 import { WastePatternService } from '@/services/waste-pattern.service'
 import { lastCompleteMonth, SupplierPerformanceService } from '@/services/supplier-performance.service'
+import { ReorderService } from '@/services/reorder.service'
+
 /**
  * Background job consumer — a SEPARATE PROCESS from the Next.js app.
  *
@@ -279,10 +283,21 @@ async function handleSupplierPerformanceMonthly() {
   console.log(`  → ${month} ${result.success ? (result.data.queued ? 'queued' : 'already asked for') : `refused: ${result.error}`}`)
 }
 
+/** A reorder explanation (Week 10 Task 4): same retry rule. */
+async function handleReorderExplain(job: Job<ReorderJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await ReorderService.explain(job.data.position, {
+    userId:      job.data.requestedById,
+    lastAttempt: job.attemptsMade + 1 >= attempts,
+  })
+  console.log(`  → ${job.data.position} ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('the AI service is busy or unreachable — will retry')
+}
+
 // A second worker, on its own queue, so a slow Claude call never holds up a
 // notification. Two at once: a burst of approvals does not queue up for
 // long, and Anthropic's rate limits are far above that.
-const aiWorker = new Worker<CostVarianceJob | WastePatternJob | SupplierPerformanceJob>(
+const aiWorker = new Worker<CostVarianceJob | WastePatternJob | SupplierPerformanceJob | ReorderJob>(
   AI_QUEUE,
   async job => {
     console.log(`[worker:ai] job ${job.id} (${job.name})`)
@@ -297,6 +312,8 @@ const aiWorker = new Worker<CostVarianceJob | WastePatternJob | SupplierPerforma
         return handleSupplierPerformanceReport(job as Job<SupplierPerformanceJob>)
       case SUPPLIER_PERFORMANCE_MONTHLY:
         return handleSupplierPerformanceMonthly()
+      case REORDER_EXPLAIN:
+        return handleReorderExplain(job as Job<ReorderJob>)
       default:
         throw new Error(`Unknown job name: ${job.name}`)
     }
@@ -314,6 +331,7 @@ aiWorker.on('failed', (job, err) => {
     job.name === COST_VARIANCE_EXPLAIN ? CostVarianceService.giveUp((job.data as CostVarianceJob).productionOrderId, 'Could not write the explanation. Try again.')
     : job.name === WASTE_PATTERN_REPORT ? WastePatternService.giveUp((job.data as WastePatternJob).week, 'Could not write the report. Try again.')
     : job.name === SUPPLIER_PERFORMANCE_REPORT ? SupplierPerformanceService.giveUp((job.data as SupplierPerformanceJob).month, 'Could not write the report. Try again.')
+    : job.name === REORDER_EXPLAIN ? ReorderService.giveUp((job.data as ReorderJob).position, 'Could not write the explanation. Try again.')
     : null
   marked?.catch(giveUpError => console.error(`[worker:ai] could not mark the insight failed: ${giveUpError.message}`))
 })

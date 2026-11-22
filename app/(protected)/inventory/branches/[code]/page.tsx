@@ -5,7 +5,8 @@ import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
 import { BranchInventoryService } from '@/services/branch-inventory.service'
-import { FINISHED_GOOD_LOT_LIMIT } from '@/services/inventory.service'
+import { FINISHED_GOOD_LOT_LIMIT, reorderAlerts } from '@/services/inventory.service'
+import { PURCHASE_REQUEST_ROLES, REORDER_GENERATE_ROLES, ReorderService } from '@/services/reorder.service'
 import { BranchHeadline } from '@/components/inventory/BranchHeadline'
 import { BranchTransfers } from '@/components/inventory/BranchTransfers'
 import { StockMap } from '@/components/inventory/StockMap'
@@ -30,6 +31,11 @@ export default async function BranchInventoryPage({ params }: PageProps) {
   const inventory = await BranchInventoryService.forBranch(code, { userId: session.userId, role: session.role })
   if (!inventory) notFound()
   const { branch, headline, goods, truncated, materials, transfers } = inventory
+  const reorder = {
+    recommendations: materials ? await ReorderService.forAlerts(reorderAlerts([materials])) : {},
+    canExplain:      REORDER_GENERATE_ROLES.includes(session.role),
+    canRequest:      PURCHASE_REQUEST_ROLES.includes(session.role),
+  }
   // A branch manager sees only their own branch, so the index would bring them straight back here.
   const showBack = session.role !== 'BRANCH_MANAGER'
   const renderedAt = new Date().toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', timeStyle: 'medium' })
@@ -37,8 +43,11 @@ export default async function BranchInventoryPage({ params }: PageProps) {
   const links = [
     { label: 'Finished Goods', href: `/inventory/finished-goods?branch=${branch.id}` },
     { label: 'End of Day',     href: `/inventory/end-of-day?branch=${branch.id}` },
-    { label: 'Stock Levels',   href: `/inventory/stock?branch=${branch.id}` },
-    { label: 'Stock Ledger',   href: `/inventory/ledger?branch=${branch.id}` },
+    // Raw-material pages: only a kitchen holds any (Week 10 Task 4).
+    ...(materials ? [
+      { label: 'Stock Levels', href: `/inventory/stock?branch=${branch.id}` },
+      { label: 'Stock Ledger', href: `/inventory/ledger?branch=${branch.id}` },
+    ] : []),
     ...(transfers.canOpen ? [{ label: 'Transfers', href: `/inventory/transfers?branch=${branch.id}` }] : []),
   ]
 
@@ -169,17 +178,17 @@ export default async function BranchInventoryPage({ params }: PageProps) {
         )}
       </section>
 
-      <section className="mt-8">
-        <h2 className="mb-1 text-lg font-semibold text-gray-800">Raw materials</h2>
-        <p className="mb-3 text-sm text-gray-400">Against each material&apos;s reorder point, as on Stock Levels. Click a tile for its details.</p>
-        {materials ? (
-          <StockMap branches={[materials]} />
-        ) : (
-          <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-400">
-            No active materials.
-          </div>
-        )}
-      </section>
+      {/* Only a kitchen holds raw materials (Week 10 Task 4); an outlet's headline says so. */}
+      {materials && (
+        <section className="mt-8">
+          <h2 className="mb-1 text-lg font-semibold text-gray-800">Raw materials</h2>
+          <p className="mb-3 text-sm text-gray-400">
+            Against each material&apos;s reorder point, as on Stock Levels. Click a tile for its details — a 🔴 or 🟡 one
+            shows how much to reorder and by when.
+          </p>
+          <StockMap branches={[materials]} reorder={reorder} />
+        </section>
+      )}
     </div>
   )
 }
