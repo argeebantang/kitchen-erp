@@ -80,6 +80,8 @@ export default async function PurchaseOrderDetailPage({ params }: PageProps) {
         </div>
         <p className="mt-1 text-sm text-gray-400">
           Created {po.createdAt.slice(0, 10)}
+          {' · for '}
+          {po.deliverTo ? <span className="font-medium text-gray-700">{po.deliverTo.name}</span> : 'kitchen not set'}
           {po.prNumber && po.purchaseRequestId && (
             <>
               {' · from '}

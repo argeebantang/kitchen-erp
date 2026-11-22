@@ -35,6 +35,8 @@ export type PurchaseOrderDetailDto = {
   purchaseRequestId: string | null
   submittedById: string | null
   prNumber: string | null
+  /** The kitchen it is for, from its request (Week 10 Task 4); null on an old order whose kitchen is unknown. */
+  deliverTo: { id: string; name: string; address: string | null } | null
   expectedDelivery: string | null
   notes: string | null
   totalAmount: string
@@ -90,6 +92,7 @@ async function toDetailDto(po: PurchaseOrderWithDetail): Promise<PurchaseOrderDe
     purchaseRequestId: po.purchaseRequestId,
     submittedById:     po.submittedById,
     prNumber:          po.purchaseRequest?.prNumber ?? null,
+    deliverTo:         po.deliverTo,
     expectedDelivery:  po.expectedDelivery?.toISOString() ?? null,
     notes:             po.notes,
     totalAmount:       toDecimalString(po.totalAmount),

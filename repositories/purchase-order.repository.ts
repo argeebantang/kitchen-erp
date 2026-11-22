@@ -9,6 +9,8 @@ export type PurchaseOrderLineInput = {
 
 export type CreateDraftFromRequestInput = {
   purchaseRequestId: string
+  /** The request's kitchen, copied onto the order (Week 10 Task 4). */
+  deliverToId: string | null
   lines: PurchaseOrderLineInput[]
 }
 
@@ -72,6 +74,7 @@ export const PurchaseOrderRepository = {
       data: {
         poNumber,
         purchaseRequestId: input.purchaseRequestId,
+        deliverToId:       input.deliverToId,
         supplierId:        null,
         status:            POStatus.DRAFT,
         totalAmount,
@@ -215,6 +218,7 @@ export const PurchaseOrderRepository = {
 const detailInclude = {
   supplier:        { select: { id: true, name: true, email: true, phone: true, address: true } },
   purchaseRequest: { select: { id: true, prNumber: true } },
+  deliverTo:       { select: { id: true, name: true, address: true } },
   items: {
     include: {
       material: {

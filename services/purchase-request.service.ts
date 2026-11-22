@@ -8,6 +8,7 @@ import {
 import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
+import { BranchRepository } from '@/repositories/branch.repository'
 import { getNotificationQueue, PR_SUBMITTED, type PrSubmittedJob } from '@/lib/queue'
 import { type PurchaseOrderLineInput } from '@/repositories/purchase-order.repository'
 
@@ -39,6 +40,8 @@ export type PurchaseRequestDetailDto = {
   requesterName: string
   notes: string | null
   neededBy: string | null
+  /** The kitchen it is for (Week 10 Task 4); null on an old request whose kitchen is unknown. */
+  deliverTo: { id: string; name: string } | null
   createdAt: string
   updatedAt: string
   lines: PurchaseRequestLineDto[]
@@ -58,11 +61,14 @@ export type PurchaseRequestSummaryDto = {
   lineCount: number
   estimatedTotal: string | null
   neededBy: string | null
+  deliverToName: string | null
   createdAt: string
 }
 
 export type CreatePurchaseRequestServiceInput = {
   requestedById: string
+  /** The kitchen it is for: an active central kitchen (Week 10 Task 4). */
+  deliverToId: string
   notes?: string | null
   neededBy?: string | null
   items: {
@@ -116,6 +122,7 @@ async function toDetailDto(pr: PurchaseRequestWithDetail): Promise<PurchaseReque
     requesterName: pr.requester.name,
     notes:         pr.notes,
     neededBy:      pr.neededBy?.toISOString() ?? null,
+    deliverTo:     pr.deliverTo,
     createdAt:     pr.createdAt.toISOString(),
     updatedAt:     pr.updatedAt.toISOString(),
     lines: pr.items.map(item => ({
@@ -249,6 +256,7 @@ export const PurchaseRequestService = {
           lineCount:      pr.items.length,
           estimatedTotal: estimated === null ? null : toDecimalString(estimated),
           neededBy:       pr.neededBy?.toISOString() ?? null,
+          deliverToName:  pr.deliverTo?.name ?? null,
           createdAt:      pr.createdAt.toISOString(),
         }
       }),
@@ -394,6 +402,7 @@ export const PurchaseRequestService = {
       decision,
       remarks,
       purchaseOrderLines,
+      deliverToId: pr.deliverToId,
     })
 
 
@@ -414,6 +423,14 @@ export const PurchaseRequestService = {
   ): Promise<PurchaseRequestResult<PurchaseRequestDetailDto>> {
     if (input.items.length === 0) {
       return { success: false, error: 'A purchase request needs at least one line', status: 400 }
+    }
+
+    // Where the delivery should arrive: only a central kitchen holds raw
+    // materials (Week 9 Task 8). Checked here, not only in the route, because
+    // the assistant's Confirm creates requests through this method too.
+    const kitchens = await BranchRepository.findActiveKitchens()
+    if (!kitchens.some(kitchen => kitchen.id === input.deliverToId)) {
+      return { success: false, error: 'Choose the kitchen the materials are for (an active central kitchen)', status: 400 }
     }
 
     const materialIds = input.items.map(item => item.materialId)
@@ -448,6 +465,7 @@ export const PurchaseRequestService = {
 
     const pr = await PurchaseRequestRepository.create({
       requestedById: input.requestedById,
+      deliverToId:   input.deliverToId,
       notes:         input.notes ?? null,
       neededBy:      input.neededBy ? new Date(input.neededBy) : null,
       items: input.items.map(item => ({

@@ -46,6 +46,8 @@ export const AI_FEATURES: Record<AiFeature, AiFeatureSettings> = {
   WASTE_PATTERN:   { label: 'Waste pattern detector', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
   // A month of deliveries per supplier, as structured findings (Week 10 Task 3).
   SUPPLIER_PERFORMANCE: { label: 'Supplier performance', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
+  // Why a kitchen should reorder a material, how much and by when — figures from the code (Week 10 Task 4).
+  REORDER_RECOMMENDATION: { label: 'Reorder recommender', model: AI_MODEL, effort: 'low', maxTokens: 2000 },
 }
 
 /** USD per million tokens. Writes are the 5-minute cache rate (1.25 × input). */

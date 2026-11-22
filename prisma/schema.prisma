@@ -173,6 +173,8 @@ enum AiFeature {
   WASTE_PATTERN
   /// Feature 6 (Week 10 Task 3): the monthly supplier performance report.
   SUPPLIER_PERFORMANCE
+  /// Feature 4 (Week 10 Task 4): why a kitchen should reorder a material, how much and by when.
+  REORDER_RECOMMENDATION
 }
 
 /// How a Claude API call ended (D4).
@@ -197,6 +199,8 @@ enum AiInsightType {
   WASTE_PATTERN
   /// Feature 6 (Week 10 Task 3): one report per month, referenceType 'Month', referenceId '2026-10'.
   SUPPLIER_PERFORMANCE
+  /// Feature 4 (Week 10 Task 4): one per kitchen and material, referenceType 'StockPosition', referenceId '<branchId>:<materialId>'.
+  REORDER_RECOMMENDATION
 }
 
 /// PENDING → READY | FAILED. A FAILED one can be asked for again (back to
@@ -293,6 +297,8 @@ model Branch {
   stockRequestsOut      StockRequest[]         @relation("StockRequestOutlet")
   stockRequestsIn       StockRequest[]         @relation("StockRequestKitchen")
   productionOrders      ProductionOrder[]
+  purchaseRequestsTo    PurchaseRequest[]      @relation("PurchaseRequestDeliverTo")
+  purchaseOrdersTo      PurchaseOrder[]        @relation("PurchaseOrderDeliverTo")
   receivingReports      ReceivingReport[]
   stockMovements        StockMovement[]
   finishedGoodLevels    FinishedGoodLevel[]
@@ -485,20 +491,20 @@ model BOMItem {
 // ─── SUPPLIERS ───────────────────────────────────────────────────────────────
 
 model Supplier {
-  id          String   @id @default(cuid())
-  name        String
-  contactName String?
-  email       String?
-  phone       String?
-  address     String?
-  taxId       String?
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  email        String?
+  phone        String?
+  address      String?
+  taxId        String?
   /// Days the supplier promises from an approved order to delivery (Week 10
   /// Task 3). Null = not set: the Reorder Recommender then uses the lead time
   /// measured from deliveries, or a default (SupplierService.leadTimes).
   leadTimeDays Int?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   purchaseOrders PurchaseOrder[]
   itemPrices     ItemPrice[]
@@ -514,6 +520,11 @@ model PurchaseRequest {
   status        PRStatus  @default(DRAFT)
   notes         String?
   neededBy      DateTime?
+  /// The kitchen the materials are for — where the delivery should arrive
+  /// (Week 10 Task 4). Required on every new request; null only on a request
+  /// made before it existed whose kitchen could not be worked out.
+  deliverToId   String?
+  deliverTo     Branch?   @relation("PurchaseRequestDeliverTo", fields: [deliverToId], references: [id])
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -522,6 +533,7 @@ model PurchaseRequest {
 
   @@index([status])
   @@index([requestedById])
+  @@index([deliverToId])
 }
 
 model PurchaseRequestItem {
@@ -552,6 +564,11 @@ model PurchaseOrder {
   totalAmount       Decimal          @default(0)
   expectedDelivery  DateTime?
   notes             String?
+  /// The kitchen it is for, copied from its request when the request is
+  /// approved (Week 10 Task 4). Receiving defaults to it; where the delivery
+  /// actually arrived is the receiving report's branchId.
+  deliverToId       String?
+  deliverTo         Branch?          @relation("PurchaseOrderDeliverTo", fields: [deliverToId], references: [id])
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
@@ -561,6 +578,7 @@ model PurchaseOrder {
   @@index([status])
   @@index([supplierId])
   @@index([purchaseRequestId])
+  @@index([deliverToId])
 }
 
 model PurchaseOrderItem {
@@ -1033,23 +1051,23 @@ model ConversionOrder {
 /// lots at once, soonest expiry first and never an expired lot (OUT
 /// movements, referenceType 'OutletSale'). One per outlet per day.
 model OutletSale {
-  id            String           @id @default(cuid())
-  saleNumber    String           @unique
+  id            String   @id @default(cuid())
+  saleNumber    String   @unique
   /// An active OUTLET, run by the submitter (or any, for an ADMIN).
   branchId      String
-  branch        Branch           @relation(fields: [branchId], references: [id])
+  branch        Branch   @relation(fields: [branchId], references: [id])
   /// The business day the goods were sold — midnight UTC of the date, like
   /// ProductionOrder.plannedDate. Today or yesterday when recorded.
   soldOn        DateTime
   submittedById String
-  submittedBy   User             @relation("OutletSaleSubmitter", fields: [submittedById], references: [id])
+  submittedBy   User     @relation("OutletSaleSubmitter", fields: [submittedById], references: [id])
   notes         String?
   /// Σ line amounts: the takings at the selling prices of the day. Pesos.
   totalAmount   Decimal
   /// What the goods sold had cost: Σ quantity × each lot's recorded cost per
   /// unit, recorded when it is saved and never recomputed. Pesos, unrounded.
   totalCost     Decimal
-  createdAt     DateTime         @default(now())
+  createdAt     DateTime @default(now())
 
   items OutletSaleItem[]
 

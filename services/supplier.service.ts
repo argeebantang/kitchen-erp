@@ -76,6 +76,11 @@ export const SupplierService = {
     return new Map(suppliers.map(supplier => [supplier.id, leadTimeOf(supplier.leadTimeDays, measuredBy.get(supplier.id))]))
   },
 
+  /** The lead time for a material with no supplier on record: the default. */
+  defaultLeadTime(): SupplierLeadTime {
+    return leadTimeOf(null, undefined)
+  },
+
   /** Sets or clears the promised lead time: whole days, 1 to MAX_LEAD_TIME_DAYS. */
   async setLeadTime(id: string, leadTimeDays: number | null): Promise<SupplierResult<{ id: string; leadTimeDays: number | null }>> {
     if (leadTimeDays !== null && (!Number.isInteger(leadTimeDays) || leadTimeDays < 1 || leadTimeDays > MAX_LEAD_TIME_DAYS)) {

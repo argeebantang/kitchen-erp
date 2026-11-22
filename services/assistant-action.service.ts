@@ -55,6 +55,8 @@ export type PurchaseRequestDraftDto = {
   /** YYYY-MM-DD. */
   neededBy: string | null
   notes: string | null
+  /** The kitchen it is for (Week 10 Task 4); null on a draft saved before the field existed. */
+  deliverToName: string | null
 }
 
 /** One ingredient of a drafted run, with the stock check as it was when drafted. */
@@ -126,6 +128,9 @@ const PurchaseRequestDraftSchema = z.object({
   })).min(1),
   neededBy: z.string().nullable(),
   notes:    z.string().nullable(),
+  // Week 10 Task 4. Optional so a draft saved just before can still be read (and refused at Confirm).
+  deliverToId:   z.string().optional(),
+  deliverToName: z.string().optional(),
 })
 
 type PurchaseRequestDraft = z.infer<typeof PurchaseRequestDraftSchema>
@@ -156,6 +161,8 @@ type ProductionOrderDraft = z.infer<typeof ProductionOrderDraftSchema>
 
 export type PurchaseRequestDraftInput = {
   items: { material: string; quantity: number; unit: string }[]
+  /** The central kitchen the materials are for, as the user named it; optional when only one is active. */
+  kitchen?: string
   neededBy?: string
   notes?: string
 }
@@ -185,26 +192,32 @@ const KITCHEN_FILLER = new Set(['kitchen', 'kitchens', 'commissary', 'central', 
 type Kitchen = { id: string; name: string }
 type KitchenMatch = { ok: true; kitchen: Kitchen } | { ok: false; error: string }
 
+/** What the kitchen is wanted for: cooking a run, or receiving a purchase (Week 10 Task 4). */
+type KitchenPurpose = 'cook' | 'receive'
+
 /**
- * The central kitchen a run is planned at (Week 9 Task 7, K1–K3): production
- * happens only at commissaries, and there can be several. The one the user
- * named (exact name or code, or the only kitchen containing every word); the
- * only active one when the user named none; otherwise an error listing the
- * kitchens, for Claude to ask which. Naming an outlet is refused: outlets do
- * not cook.
+ * The central kitchen a run is planned at (Week 9 Task 7, K1–K3), or a
+ * purchase request is for (Week 10 Task 4): only commissaries cook and hold
+ * raw materials, and there can be several. The one the user named (exact name
+ * or code, or the only kitchen containing every word); the only active one
+ * when the user named none; otherwise an error listing the kitchens, for
+ * Claude to ask which. Naming an outlet is refused.
  */
-async function matchKitchen(term: string | undefined): Promise<KitchenMatch> {
+async function matchKitchen(term: string | undefined, purpose: KitchenPurpose = 'cook'): Promise<KitchenMatch> {
   const branches = await BranchRepository.findAllActiveWithType()
   const kitchens = branches.filter(branch => branch.type === BranchType.COMMISSARY)
   const kitchenList = kitchens.map(kitchen => kitchen.name).join(', ')
   const [onlyKitchen] = kitchens
-  if (!onlyKitchen) return { ok: false, error: 'There is no active central kitchen to cook in. Tell the user.' }
+  if (!onlyKitchen) {
+    return { ok: false, error: `There is no active central kitchen to ${purpose === 'cook' ? 'cook in' : 'deliver to'}. Tell the user.` }
+  }
 
   const words = wordsOf(term ?? '').filter(word => !KITCHEN_FILLER.has(word))
   if (words.length === 0) {
+    const question = purpose === 'cook' ? 'which kitchen will cook it' : 'which kitchen the materials are for'
     return kitchens.length === 1
       ? { ok: true, kitchen: onlyKitchen }
-      : { ok: false, error: `There are ${kitchens.length} central kitchens: ${kitchenList}. Ask the user which kitchen will cook it.` }
+      : { ok: false, error: `There are ${kitchens.length} central kitchens: ${kitchenList}. Ask the user ${question}.` }
   }
 
   const wanted = (term ?? '').trim().toLowerCase()
@@ -222,7 +235,12 @@ async function matchKitchen(term: string | undefined): Promise<KitchenMatch> {
   }
   const outlet = match ?? branches.find(branch => branch.type === BranchType.OUTLET && containsAll(branch))
   if (outlet) {
-    return { ok: false, error: `${outlet.name} is an outlet, and outlets do not cook. Runs are planned at a central kitchen: ${kitchenList}. Ask the user which one.` }
+    return {
+      ok: false,
+      error: purpose === 'cook'
+        ? `${outlet.name} is an outlet, and outlets do not cook. Runs are planned at a central kitchen: ${kitchenList}. Ask the user which one.`
+        : `${outlet.name} is an outlet, and outlets hold no raw materials. Purchases are delivered to a central kitchen: ${kitchenList}. Ask the user which one.`,
+    }
   }
   return { ok: false, error: `No central kitchen is called "${term}". The kitchens are: ${kitchenList}. Ask the user which one.` }
 }
@@ -281,7 +299,13 @@ function purchaseRequestDraftDto(draft: PurchaseRequestDraft): PurchaseRequestDr
       lineTotal:         lineTotal === null ? null : toDecimalString(lineTotal),
     }
   })
-  return { lines, estimatedTotal: total === null ? null : toDecimalString(total), neededBy: draft.neededBy, notes: draft.notes }
+  return {
+    lines,
+    estimatedTotal: total === null ? null : toDecimalString(total),
+    neededBy:       draft.neededBy,
+    notes:          draft.notes,
+    deliverToName:  draft.deliverToName ?? null,
+  }
 }
 
 /**
@@ -299,8 +323,11 @@ async function draftPurchaseRequest(input: PurchaseRequestDraftInput, context: D
     return { ok: false, error: `neededBy ${input.neededBy} is in the past. Ask the user when they need it.` }
   }
 
-  const matched = await Promise.all(input.items.map(item => matchByName(item.material, 'material', MaterialRepository.searchActive)))
-  const errors: string[] = []
+  const [matched, kitchenMatch] = await Promise.all([
+    Promise.all(input.items.map(item => matchByName(item.material, 'material', MaterialRepository.searchActive))),
+    matchKitchen(input.kitchen, 'receive'),
+  ])
+  const errors: string[] = kitchenMatch.ok ? [] : [kitchenMatch.error]
   const lines: { material: MaterialWithRelations; quantity: number }[] = []
   input.items.forEach((item, index) => {
     const match = matched[index]
@@ -333,6 +360,9 @@ async function draftPurchaseRequest(input: PurchaseRequestDraftInput, context: D
     }),
     neededBy: input.neededBy ?? null,
     notes:    input.notes?.trim() || null,
+    // errors is empty here, so the kitchen matched.
+    deliverToId:   kitchenMatch.ok ? kitchenMatch.kitchen.id : undefined,
+    deliverToName: kitchenMatch.ok ? kitchenMatch.kitchen.name : undefined,
   }
 
   const stored = await AiQueryRepository.proposeAction(context.queryId, AiActionType.PURCHASE_REQUEST, draft)
@@ -355,6 +385,7 @@ async function draftPurchaseRequest(input: PurchaseRequestDraftInput, context: D
       estimatedTotal: dto.estimatedTotal,
       neededBy:       dto.neededBy,
       notes:          dto.notes,
+      deliverTo:      dto.deliverToName,
     },
   }
 }
@@ -519,8 +550,12 @@ async function createDocument(row: AiActionRow, viewer: { userId: string; role: 
       const parsed = PurchaseRequestDraftSchema.safeParse(row.actionDraft)
       if (!parsed.success) return unreadable
       const draft = parsed.data
+      if (!draft.deliverToId) {
+        return { ok: false, error: 'This draft does not say which kitchen it is for. Ask again for a new one.', status: 422 }
+      }
       const result = await PurchaseRequestService.create({
         requestedById: row.userId,
+        deliverToId:   draft.deliverToId,
         neededBy:      draft.neededBy,
         notes:         draft.notes,
         // The price shown on the draft is the one saved, so what was confirmed is what is created.

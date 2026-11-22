@@ -6,16 +6,21 @@ import { trimDecimal } from '@/lib/format'
 import { Modal } from '@/components/ui/Modal'
 import { STATUS_STYLES, STOCK_STATUSES, StockTile } from '@/components/inventory/StockTile'
 import type { BranchStockDto, StockTileDto } from '@/services/inventory.service'
+import type { ReorderRecommendationDto } from '@/services/reorder.service'
+import { ReorderPanel, type ReorderPermissions } from '@/components/inventory/ReorderPanel'
 
 /** Ids, not the tile itself, so an open popup shows fresh figures after a refresh. */
 type Selected = { branchId: string; materialId: string }
 
+/** The Reorder Recommender's figures for the 🔴/🟡 tiles, keyed '<branchId>:<materialId>', and what the viewer may do. */
+export type StockMapReorder = ReorderPermissions & { recommendations: Record<string, ReorderRecommendationDto> }
+
 /**
  * The branch panels and their tiles. A Client Component only so a tile can be
- * clicked open: the panel is where Week 10's reorder suggestion and "Create
- * Purchase Order" will go.
+ * clicked open: a 🔴/🟡 tile's popup carries its reorder recommendation
+ * (Week 10 Task 4).
  */
-export function StockMap({ branches }: { branches: BranchStockDto[] }) {
+export function StockMap({ branches, reorder }: { branches: BranchStockDto[]; reorder?: StockMapReorder }) {
   const [selected, setSelected] = useState<Selected | null>(null)
   // Gone after a refresh (filtered out, material deactivated) → no popup.
   const openBranch = selected && branches.find(branch => branch.branchId === selected.branchId)
@@ -74,15 +79,24 @@ export function StockMap({ branches }: { branches: BranchStockDto[] }) {
           branchId={openBranch.branchId}
           branchName={openBranch.branchName}
           onClose={() => setSelected(null)}
+          recommendation={reorder?.recommendations[`${openBranch.branchId}:${openTile.materialId}`] ?? null}
+          permissions={reorder ?? { canExplain: false, canRequest: false }}
         />
       )}
     </>
   )
 }
 
-type StockDetailProps = { tile: StockTileDto; branchId: string; branchName: string; onClose: () => void }
+type StockDetailProps = {
+  tile: StockTileDto
+  branchId: string
+  branchName: string
+  onClose: () => void
+  recommendation: ReorderRecommendationDto | null
+  permissions: ReorderPermissions
+}
 
-function StockDetail({ tile, branchId, branchName, onClose }: StockDetailProps) {
+function StockDetail({ tile, branchId, branchName, onClose, recommendation, permissions }: StockDetailProps) {
   const style = STATUS_STYLES[tile.status]
   const unit = tile.unitAbbreviation
   const ledgerHref = `/inventory/ledger?${new URLSearchParams({ material: tile.materialId, branch: branchId })}`
@@ -117,6 +131,10 @@ function StockDetail({ tile, branchId, branchName, onClose }: StockDetailProps) 
             : 'No movements yet'}
         </dd>
       </dl>
+
+      {recommendation && (
+        <ReorderPanel rec={recommendation} canExplain={permissions.canExplain} canRequest={permissions.canRequest} />
+      )}
 
       <div className="mt-5 flex justify-end border-t border-gray-100 pt-4">
         <Link href={ledgerHref} className="text-sm font-medium text-orange-600 hover:underline">

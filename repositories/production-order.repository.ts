@@ -240,6 +240,30 @@ export const ProductionOrderRepository = {
   },
 
   /**
+   * Runs at these kitchens that will still take stock — submitted, approved,
+   * cooking or awaiting sign-off — planned on or before `until` (a stored
+   * plannedDate, midnight UTC of the day). Overdue ones are included: their
+   * ingredients have not left the shelf yet. For the Reorder Recommender
+   * (Week 10 Task 4); bounded like findCommittedAtBranch.
+   */
+  async findScheduledAtBranches(branchIds: string[], until: Date) {
+    return prisma.productionOrder.findMany({
+      where: {
+        branchId:    { in: branchIds },
+        status:      { in: [ProductionStatus.PENDING_APPROVAL, ...COMMITTING_STATUSES] },
+        plannedDate: { lte: until },
+      },
+      select: {
+        id: true, orderNumber: true, branchId: true, plannedDate: true, status: true,
+        batchWeight: true, plannedQty: true,
+        finishedGood: { select: { name: true } },
+        bom: { include: bomDetailInclude },
+      },
+      orderBy: [{ plannedDate: 'asc' }, { orderNumber: 'asc' }],
+    })
+  },
+
+  /**
    * Inserts a DRAFT order numbered PRD-000001 from prd_number_seq. nextval()
    * runs inside the same transaction as the insert, so a failed insert burns a
    * number (gaps are fine) but two saves can never share one.

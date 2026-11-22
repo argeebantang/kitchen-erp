@@ -14,6 +14,8 @@ export type PurchaseRequestLineInput = {
 
 export type CreatePurchaseRequestInput = {
   requestedById: string
+  /** The kitchen it is for (Week 10 Task 4). */
+  deliverToId: string
   notes?: string | null
   neededBy?: Date | null
   items: PurchaseRequestLineInput[]
@@ -47,6 +49,7 @@ export type PurchaseRequestListFilters = {
  */
 const detailInclude = {
   requester: { select: { id: true, name: true, email: true, role: true } },
+  deliverTo: { select: { id: true, name: true } },
   items: {
     include: {
       material: {
@@ -77,6 +80,7 @@ export type PurchaseRequestWithDetail = Prisma.PurchaseRequestGetPayload<{
  */
 const summaryInclude = {
   requester: { select: { id: true, name: true } },
+  deliverTo: { select: { name: true } },
   items:     { select: { quantity: true, estimatedUnitCost: true } },
 } satisfies Prisma.PurchaseRequestInclude
 
@@ -194,6 +198,8 @@ export const PurchaseRequestRepository = {
     decision: string
     remarks?: string | null
     purchaseOrderLines?: PurchaseOrderLineInput[]
+    /** Copied onto the purchase order it becomes. */
+    deliverToId?: string | null
   }): Promise<PurchaseRequestWithDetail> {
     return prisma.$transaction(async tx => {
       // NOTE: tx, not prisma. Inside this callback `tx` is the transactional
@@ -215,6 +221,7 @@ export const PurchaseRequestRepository = {
       if (input.purchaseOrderLines) {
         await PurchaseOrderRepository.createDraftFromRequest(tx, {
           purchaseRequestId: input.id,
+          deliverToId:       input.deliverToId ?? null,
           lines:             input.purchaseOrderLines,
         })
       }
@@ -243,6 +250,7 @@ export const PurchaseRequestRepository = {
       data: {
         prNumber,
         requestedById: input.requestedById,
+        deliverToId:   input.deliverToId,
         status:        PRStatus.DRAFT,
         notes:         input.notes ?? null,
         neededBy:      input.neededBy ?? null,

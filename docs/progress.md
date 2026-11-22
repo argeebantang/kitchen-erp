@@ -568,7 +568,24 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
       - One report per ISO week (insight `WASTE_PATTERN` / `'Week'` / `'2026-W48'`). **`waste-pattern-weekly`**
         (Mondays 06:00) on the `ai` queue (`AI_SCHEDULED_JOBS`), plus Generate / Regenerate.
       - Migration `20261123090000_ai_waste_pattern`.
-- [ ] Reorder Recommender — surfaces inline on the Week 4 stock map (click a location → AI suggestion → one-click Create Purchase Order)
+- [x] Reorder Recommender — surfaces inline on the Week 4 stock map — **done 2026-11-23** (`docs/2026-11-23-week10-reorder-recommender.md`, Task 4).
+      - **A 🔴/🟡 tile's popup** (Stock Levels, a kitchen's Branch Inventory page): "Order 16 kg by Nov 23 (today)", when
+        it runs short, and a warning when even today is too late. Also the working: daily use (30 days), supplier and
+        lead time (Task 3), expected use over lead time + 7 days' cover, + reorder point − on hand − on order.
+      - **Worked out by the system:** expected use is summed day by day (the larger of the average and that day's
+        scheduled runs), so a big run counts. On order means open requests and orders whose notes name the kitchen;
+        purchase requests now name their kitchen (below).
+      - **Create purchase request →** opens the form pre-filled (`?reorder=`); saving makes a DRAFT for the usual
+        approval. **Why this order** (AI badge): Explain / Regenerate, about $0.0055. The panel says when the figures
+        have moved since the text was written.
+      - The alerts table gains **Recommended order**.
+      - **Fix (owner, Task 1):** the stock map, Branch Inventory and the daily low-stock summary cover kitchens only.
+        That removed 57 outlet "Out of stock" alerts; outlets show "Raw materials: None held".
+      - **Deliver to (4.5, owner 2026-11-23):** a purchase request names the kitchen the materials are for
+        (required). The purchase order and its PDF carry it, receiving starts on it, the assistant's draft asks for it,
+        and the Reorder Recommender counts what is on order per kitchen from it. Old documents were backfilled from
+        their deliveries and notes.
+      - Migrations `20261123150000_reorder_recommendation` (enum values only) and `20261123160000_purchase_deliver_to`.
 - [ ] Demand Forecaster
 - [x] Supplier Performance Analyzer (monthly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-supplier-performance.md`, Task 3).
       - **Dashboard → KitchenAI insights → Suppliers — <month>** (ADMIN, ACCOUNTING, PROCUREMENT_MANAGER, VIEWER), with
@@ -589,7 +606,8 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
         "regenerate failed").
       - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
-      - On Feature 1 (cost explanation) and Feature 3 so far. Task 7 sweeps the rest.
+      - On Feature 1 (cost explanation), Feature 3, Feature 6 and Feature 4 (the stock map popup) so far. Task 7 sweeps
+        the rest.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

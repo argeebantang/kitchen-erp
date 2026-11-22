@@ -56,6 +56,8 @@ export default async function PurchaseRequestDetailPage({ params }: PageProps) {
           </div>
           <p className="mt-1 text-sm text-gray-400">
             Raised by {pr.requesterName} on {pr.createdAt.slice(0, 10)}
+            {' · for '}
+            {pr.deliverTo ? <span className="font-medium text-gray-700">{pr.deliverTo.name}</span> : 'kitchen not set'}
             {pr.neededBy && ` · needed by ${pr.neededBy.slice(0, 10)}`}
           </p>
         </div>

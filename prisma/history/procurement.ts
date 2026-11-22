@@ -143,6 +143,7 @@ async function purchase(
         prNumber,
         requestedById: cast.staff.production,
         status:        PRStatus.CONVERTED_TO_PO,
+        deliverToId:   kitchen.id,
         notes:         `For ${kitchen.name} — ${WEEKDAY_NAMES[weekday(date)]} order, ${supplier.name}`,
         neededBy:      dateOnly(promised),
         createdAt:     raisedAt,
@@ -166,6 +167,7 @@ async function purchase(
       data: {
         poNumber,
         purchaseRequestId: request.id,
+        deliverToId:       kitchen.id,
         supplierId:        supplier.id,
         submittedById:     cast.staff.procurement,
         status:            POStatus.SENT,
