@@ -17,6 +17,11 @@ function signedPct(value: string | null): string {
 
 /** One figure a finding rests on, as the code worked it out — so the text can be checked against it. */
 function figureLabel(facts: WasteFacts, id: string): string | null {
+  const branch = facts.branches.find(b => b.id === id)
+  if (branch) {
+    return `${branch.branch}: ${formatPeso(branch.writtenOffValue)} written off`
+      + (branch.sharePctOfWrittenOff ? `, ${branch.sharePctOfWrittenOff}% of all` : '')
+  }
   const row = facts.rows.find(r => r.id === id)
   if (row) {
     return `${row.branch} · ${row.good}: ${trimDecimal(row.writtenOffKg)} ${row.unit} written off (${formatPeso(row.writtenOffValue)})`
@@ -118,7 +123,40 @@ export function WasteReportCard({ data, canGenerate }: { data: WasteDashboardDto
       <details className="mt-4" open>
         <summary className="cursor-pointer text-sm font-medium text-gray-700">The figures (worked out by the system)</summary>
         <div className="mt-2 overflow-x-auto">
-          <table className="w-full text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">By branch</p>
+          <table className="mt-1 w-full text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-gray-400">
+              <tr>
+                <th className="py-1.5 pr-2 font-medium">#</th>
+                <th className="py-1.5 pr-3 font-medium">Branch</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Written off</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Share of all</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Write-offs</th>
+                <th className="py-1.5 pr-3 text-right font-medium">Of what came in</th>
+                <th className="py-1.5 font-medium">Most of it</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {facts.branches.map(branch => (
+                <tr key={branch.id} className="align-top">
+                  <td className="py-1.5 pr-2 font-mono text-xs text-gray-400">{branch.id}</td>
+                  <td className="py-1.5 pr-3 text-gray-800">
+                    {branch.branch} <span className="text-xs text-gray-400">{branch.branchType}</span>
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-gray-800">
+                    {formatPeso(branch.writtenOffValue)}<span className="block text-xs text-gray-500">{trimDecimal(branch.writtenOffKg)} kg</span>
+                  </td>
+                  <td className="py-1.5 pr-3 text-right text-gray-600">{branch.sharePctOfWrittenOff === null ? '—' : `${branch.sharePctOfWrittenOff}%`}</td>
+                  <td className="py-1.5 pr-3 text-right text-gray-600">{branch.writeOffs}</td>
+                  <td className="py-1.5 pr-3 text-right text-gray-600">{branch.wastePctOfCameIn === null ? '—' : `${branch.wastePctOfCameIn}%`}</td>
+                  <td className="py-1.5 text-gray-600">{branch.biggestGood} <span className="text-xs text-gray-400">{formatPeso(branch.biggestGoodValue)}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-gray-500">By branch and good — the costliest {facts.rows.length}</p>
+          <table className="mt-1 w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-gray-400">
               <tr>
                 <th className="py-1.5 pr-2 font-medium">#</th>

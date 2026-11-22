@@ -58,6 +58,24 @@ export type WasteRowFact = {
   changePct: string | null
 }
 
+/** One branch's write-offs, all goods together (all of them, not only the rows below). */
+export type WasteBranchFact = {
+  id: string
+  branch: string
+  branchType: 'kitchen' | 'outlet'
+  writeOffs: number
+  writtenOffKg: string
+  writtenOffValue: string
+  /** This branch's share of everything written off, by value. */
+  sharePctOfWrittenOff: string | null
+  /** Delivered in (an outlet) or made (a kitchen), every good. */
+  cameInKg: string
+  wastePctOfCameIn: string | null
+  /** The good it wrote off most of, by value. */
+  biggestGood: string
+  biggestGoodValue: string
+}
+
 export type WasteRouteFact = {
   id: string
   route: string
@@ -98,6 +116,8 @@ export type WasteFacts = {
     /** % change of the value written off against the previous 30 days. */
     writtenOffChangePct: string | null
   }
+  /** Each branch's total, the costliest first (B1…). */
+  branches: WasteBranchFact[]
   rows: WasteRowFact[]
   /** Branch-and-good pairs with write-offs not in `rows` (smaller ones). */
   otherRows: number
@@ -202,6 +222,39 @@ async function facts(week: string): Promise<WasteFacts | null> {
     }
   })
 
+  // Per branch, all its goods together.
+  const cameInByBranch = new Map<string, Prisma.Decimal>()
+  for (const flow of flows) cameInByBranch.set(flow.branchId, (cameInByBranch.get(flow.branchId) ?? zero).add(flow.inKg ?? zero))
+  type BranchTotal = { branch: string; branchType: string; kg: Prisma.Decimal; value: Prisma.Decimal; writeOffs: number; biggest: { good: string; value: Prisma.Decimal } }
+  const byBranch = new Map<string, BranchTotal>()
+  for (const pair of pairs.values()) {
+    const total = byBranch.get(pair.branchId) ?? { branch: pair.branch, branchType: pair.branchType, kg: zero, value: zero, writeOffs: 0, biggest: { good: pair.good, value: zero } }
+    total.kg = total.kg.add(pair.kg)
+    total.value = total.value.add(pair.value)
+    total.writeOffs += pair.writeOffs
+    if (pair.value.greaterThan(total.biggest.value)) total.biggest = { good: pair.good, value: pair.value }
+    byBranch.set(pair.branchId, total)
+  }
+  const allWrittenOff = [...byBranch.values()].reduce((sum, total) => sum.add(total.value), zero)
+  const branchFacts: WasteBranchFact[] = [...byBranch.entries()]
+    .sort(([, a], [, b]) => b.value.comparedTo(a.value))
+    .map(([branchId, total], index) => {
+      const cameIn = cameInByBranch.get(branchId) ?? zero
+      return {
+        id: `B${index + 1}`,
+        branch: total.branch,
+        branchType: total.branchType === 'OUTLET' ? 'outlet' : 'kitchen',
+        writeOffs: total.writeOffs,
+        writtenOffKg: kg(total.kg),
+        writtenOffValue: php(total.value),
+        sharePctOfWrittenOff: pct(total.value, allWrittenOff),
+        cameInKg: kg(cameIn),
+        wastePctOfCameIn: pct(total.kg, cameIn),
+        biggestGood: total.biggest.good,
+        biggestGoodValue: php(total.biggest.value),
+      }
+    })
+
   const lostRoutes = routes
     .filter(route => Number(route.withLoss) > 0)
     .sort((a, b) => (b.lostValue ?? zero).comparedTo(a.lostValue ?? zero))
@@ -223,6 +276,7 @@ async function facts(week: string): Promise<WasteFacts | null> {
       previousWrittenOffValue: php(previousValue),
       writtenOffChangePct: change(writtenOffValue, previousValue),
     },
+    branches: branchFacts,
     rows,
     otherRows: Math.max(0, pairs.size - rows.length),
     routes: lostRoutes.map((route, index) => ({
@@ -265,7 +319,7 @@ const REPORT_SCHEMA = {
   additionalProperties: false,
   required: ['summary', 'findings'],
   properties: {
-    summary: { type: 'string', description: 'Two sentences: what was lost in total and where most of it is.' },
+    summary: { type: 'string', description: 'Two sentences: what was lost in total, and which branch and goods most of it is at.' },
     findings: {
       type: 'array',
       description: `At most ${MAX_FINDINGS}, the costliest first.`,
@@ -274,7 +328,7 @@ const REPORT_SCHEMA = {
         additionalProperties: false,
         required: ['figureIds', 'title', 'pattern', 'recommendation', 'priority'],
         properties: {
-          figureIds:      { type: 'array', items: { type: 'string' }, description: 'Ids of the rows it rests on, e.g. ["W1"] or ["T1"].' },
+          figureIds:      { type: 'array', items: { type: 'string' }, description: 'Ids of the rows it rests on, e.g. ["W1"], ["B2", "W4"] or ["T1"].' },
           title:          { type: 'string', description: 'Branch and good, a few words.' },
           pattern:        { type: 'string', description: 'What keeps happening, one or two sentences quoting the figures as given.' },
           recommendation: { type: 'string', description: 'One concrete action for this week: who does what.' },
@@ -302,6 +356,7 @@ The figures are in <figures>, worked out by the system. Each row has an id:
 - W rows: one branch's write-offs of one finished good — kg and ₱, by reason, on how many days — with what came in (delivered to an outlet, or made at a kitchen), what an outlet sold and returned, the waste as a % of what came in, daily averages, and the previous 30 days.
 - T rows: delivery routes that lost goods in transit.
 - C rows: conversions — unsold goods made into another dish. That is recovered, not waste.
+- B rows: each branch's total written off, all goods together, its share of everything written off, and the good it wasted most of.
 
 Find the patterns worth acting on, at most ${MAX_FINDINGS}, the costliest first. A pattern repeats or has a cause: the same good written off at the same branch on many days; an outlet that takes in more than it sells; one reason that keeps coming back (expiry, spoilage, damage, a failed quality check); a route that keeps losing goods; waste that grew against the previous 30 days. Leave out small one-off losses.
 
@@ -314,7 +369,7 @@ For each finding:
 - recommendation: one concrete thing to do this week, and who does it (the outlet's manager, the kitchen, procurement). If it involves a quantity, use one of the given figures — for example an average daily sold — never a number you worked out.
 - priority: high, medium or low, by how much is lost and how often.
 
-summary: two sentences — the total lost and where most of it is.
+summary: two sentences — the total lost, and the branch (B rows) and goods where most of it is.
 
 Never calculate: no sums, differences, percentages or averages of your own. Use only the figures given.`
 
@@ -406,7 +461,7 @@ async function write(week: string, options: { userId: string | null; lastAttempt
     await AiInsightRepository.fail(ref, { error: 'The AI returned a report that could not be read.', facts: factsJson, prompt, aiCallId: result.data.callId })
     return 'FAILED'
   }
-  const ids = new Set([...figures.rows, ...figures.routes, ...figures.recovered].map(row => row.id))
+  const ids = new Set([...figures.branches, ...figures.rows, ...figures.routes, ...figures.recovered].map(row => row.id))
   const findings = report.findings
     .map(finding => ({ ...finding, figureIds: finding.figureIds.filter(id => ids.has(id)) }))
     .filter(finding => finding.figureIds.length > 0)

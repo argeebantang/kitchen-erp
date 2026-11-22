@@ -126,6 +126,21 @@ What Claude checked (2026-11-23):
   a background call.
 - **Checks:** `tsc`, `eslint`, no schema drift.
 
+## Follow-up (2026-11-23): waste per branch
+
+Owner: "there is no write offs or waste per branch?" The card showed waste per branch *and good* (W rows), but no total
+per branch, so which branch wastes the most was not visible at a glance.
+
+- `WastePatternService.facts` adds `branches` (B1…, the costliest first): one row per branch over **all** its
+  write-offs, not only the top 12 pairs. Each row has the number of write-offs, kg and ₱, its share of everything
+  written off, the waste as a % of what came in (all goods), and the good it wasted most of.
+- The card's figures start with a **By branch** table; findings can cite B rows.
+- Claude is told about B rows, and the summary names the branch where most of the waste is.
+
+Checked: the six branch totals equal an independent SQL sum per branch (count, kg, ₱). For 2026-W48, Las Piñas
+Commissary has ₱22,475.59 (35.8 %), Pasig ₱18,259.55, Main ₱14,566.45, Alabang ₱3,646.99, Cubao ₱2,202.98 and Makati
+₱1,687.49. A regenerated report led with Las Piñas and Pasig, and all 50 numbers it quoted are in the facts ($0.023).
+
 ## Risks, assumptions, follow-ups
 
 - **The findings are Claude's.** The figures beside each one are the check. A Regenerate can word, group and order them
