@@ -92,3 +92,16 @@ export function formatSignedPeso(value: string): string {
   if (amount === '₱0.00') return `±${amount}`
   return value.startsWith('-') ? `−${amount}` : `+${amount}`
 }
+
+/**
+ * How long something has waited, from milliseconds: "40 min", "5 h",
+ * "1 d 3 h" — the approvals inbox and its reminders (Week 11).
+ */
+export function formatWaited(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000))
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} h`
+  const days = Math.floor(hours / 24)
+  return hours % 24 === 0 ? `${days} d` : `${days} d ${hours % 24} h`
+}

@@ -19,6 +19,7 @@ import {
   CONVERSION_ORDER_SUBMITTED,
   DAILY_JOBS,
   END_OF_DAY_SUMMARY,
+  APPROVAL_ESCALATION,
   EXPIRY_CHECK,
   getNotificationQueue,
   LOW_STOCK_CHECK,
@@ -206,6 +207,13 @@ async function handleEndOfDaySummary() {
     : `  → ${date}: ${movements} movement(s); wrote ${written} notification(s)`)
 }
 
+async function handleApprovalEscalation() {
+  const { overdue, reminded, written } = await NotificationService.notifyOverdueApprovals()
+  console.log(overdue === 0
+    ? '  → nothing waiting 24 h or more'
+    : `  → ${overdue} overdue; ${reminded} reminder(s) due → wrote ${written} notification(s)`)
+}
+
 async function handleStockReconciliation() {
   const date = todayIsoDate()
   const { mismatches, written } = await NotificationService.notifyStockMismatches(date)
@@ -270,6 +278,8 @@ const worker = new Worker(
         return handleExpiryCheck()
       case END_OF_DAY_SUMMARY:
         return handleEndOfDaySummary()
+      case APPROVAL_ESCALATION:
+        return handleApprovalEscalation()
       default:
         // Throwing marks the job FAILED rather than quietly completing it, so an
         // unrecognised job name is visible instead of vanishing.

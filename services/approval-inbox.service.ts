@@ -72,6 +72,8 @@ export type ApprovalItemDto = {
   amountPer: string | null
   flags: ApprovalFlagDto[]
   submittedByName: string | null
+  /** Who submitted, counted or reported it — nobody decides their own (Task 3's reminders skip them too). */
+  submittedById: string | null
   /** The viewer submitted, counted or reported it — the service refuses their decision, so the row offers none. */
   mine: boolean
   /** ISO; null for a document submitted before submittedAt existed. */
@@ -127,6 +129,7 @@ export const ApprovalInboxService = {
         amountPer:       null,
         flags:           row.estimatedTotal === null ? [{ tone: 'warn', label: 'Not priced' }] : [],
         submittedByName: row.requesterName,
+        submittedById:   row.requestedById,
         mine:            row.requestedById === viewer.userId,
         pendingSince:    row.submittedAt,
       })),
@@ -147,6 +150,7 @@ export const ApprovalInboxService = {
         amountPer:       null,
         flags:           [],
         submittedByName: row.submittedByName,
+        submittedById:   row.submittedById,
         mine:            row.submittedById === viewer.userId,
         pendingSince:    row.submittedAt,
       })),
@@ -166,6 +170,7 @@ export const ApprovalInboxService = {
           ? [{ tone: 'warn', label: `${row.varianceLineCount} ${row.varianceLineCount === 1 ? 'line differs' : 'lines differ'} from the order` }]
           : [{ tone: 'ok', label: 'As ordered' }],
         submittedByName: row.receivedByName,
+        submittedById:   row.receivedById,
         mine:            row.receivedById === viewer.userId,
         pendingSince:    row.submittedAt,
       })),
@@ -186,6 +191,7 @@ export const ApprovalInboxService = {
           ? [{ tone: 'ok', label: 'In stock' }]
           : [{ tone: 'bad', label: `Short · ${row.shortCount} of ${row.ingredientCount}` }],
         submittedByName: row.submittedByName,
+        submittedById:   row.submittedById,
         mine:            row.submittedById === viewer.userId,
         pendingSince:    row.pendingSince,
       })),
@@ -209,6 +215,7 @@ export const ApprovalInboxService = {
             : { tone: 'bad' as const, label: `${row.negativeCount} of ${row.ingredientCount} go negative` },
         ],
         submittedByName: row.completedByName,
+        submittedById:   row.completedById,
         mine:            row.completedById === viewer.userId,
         pendingSince:    row.pendingSince,
       })),
@@ -234,6 +241,7 @@ export const ApprovalInboxService = {
               : { tone: 'warn' as const, label: `${row.negativeCount} of ${row.ingredientCount} go negative` },
         ],
         submittedByName: row.submittedByName,
+        submittedById:   row.submittedById,
         mine:            row.submittedById === viewer.userId,
         pendingSince:    row.createdAt,
       })),
@@ -251,6 +259,7 @@ export const ApprovalInboxService = {
         amountPer:       null,
         flags:           row.enough ? [{ tone: 'ok', label: 'Lot holds it' }] : [{ tone: 'bad', label: 'Lot short' }],
         submittedByName: row.submittedByName,
+        submittedById:   row.submittedById,
         mine:            row.submittedById === viewer.userId,
         pendingSince:    row.createdAt,
       })),
@@ -269,6 +278,7 @@ export const ApprovalInboxService = {
         amountPer:       null,
         flags:           row.allEnough ? [{ tone: 'ok', label: 'In stock' }] : [{ tone: 'bad', label: 'Short' }],
         submittedByName: row.submittedByName,
+        submittedById:   row.submittedById,
         mine:            row.submittedById === viewer.userId,
         pendingSince:    row.createdAt,
       })),

@@ -105,6 +105,13 @@ export const EXPIRY_CHECK = 'expiry-check'
 export const END_OF_DAY_SUMMARY = 'end-of-day-summary'
 
 /**
+ * The overdue sweep (Week 11 Task 3): hourly, 07:00–21:00 Manila, remind the
+ * approvers of anything waiting 24 h or more — again at 48 h, 72 h… No
+ * payload: it reads the inbox when it runs.
+ */
+export const APPROVAL_ESCALATION = 'approval-escalation'
+
+/**
  * AI work (Week 9 Task 2, E4) has its own queue: a Claude call takes seconds,
  * longer when retried, and on the notifications queue every notification
  * behind it would wait.
@@ -179,6 +186,7 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
   { name: STOCK_RECONCILIATION, pattern: '0 6 * * *' },
   { name: EXPIRY_CHECK,         pattern: '0 6 * * *' }, // before service: what to sell, convert or write off first
   { name: END_OF_DAY_SUMMARY,   pattern: '0 21 * * *' }, // 21:00, after the kitchen closes (Week 7 Task 4)
+  { name: APPROVAL_ESCALATION,  pattern: '0 7-21 * * *' }, // hourly 07:00–21:00, no reminders at night (Week 11 Task 3)
 ]
 
 /**

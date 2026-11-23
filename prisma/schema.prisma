@@ -281,6 +281,7 @@ model User {
   decidedStockRequests      StockRequest[]           @relation("StockRequestDecider")
   productionStatusChanges   ProductionStatusChange[]
   emailLogs                 EmailLog[]
+  approvalReminders         ApprovalReminder[]
   notifications             Notification[]
   receivingReports          ReceivingReport[]        @relation("ReceivingReportReceiver")
   aiCalls                   AiCall[]
@@ -1207,6 +1208,24 @@ model Notification {
   emailLogs     EmailLog[]
 
   @@index([userId, readAt])
+}
+
+/// One overdue reminder (Week 11 Task 3): this approver was reminded that
+/// this document had waited `tier` × 24 hours. The hourly sweep reminds each
+/// approver once per tier — at 24 h, 48 h, 72 h… — and the unique key is what
+/// makes that hold even if two runs overlap: a run claims its rows first
+/// (INSERT … ON CONFLICT DO NOTHING) and notifies only about the rows it got.
+/// `referenceType` / `referenceId` as in Approval (not a foreign key).
+model ApprovalReminder {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceType String
+  referenceId   String
+  tier          Int
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, referenceType, referenceId, tier])
 }
 
 /// What happened to an email (Week 11 Task 2).
