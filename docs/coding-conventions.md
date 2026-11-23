@@ -77,6 +77,9 @@
 * Light theme only. Pages fill the content area — no `max-w-*` page wrappers.
 * Reuse `components/ui/form.tsx` (`Field`, `inputClass`, button classes), `StatusBadge`, `DecisionHistory`, `ApprovalActions` before writing new ones.
 * Money on screen uses `formatPeso` (`₱`); in PDFs it prints as `PHP 1,420.00`.
+* A new folder with sub-pages under `app/(protected)/` gets a `loading.tsx` re-exporting `PageSkeleton` — without it, navigating inside that folder shows nothing until the page arrives (docs/architecture.md, "Page states").
+* "Nothing here" — an empty list, a record not available — uses `EmptyState` (`components/ui/states.tsx`). A not-found message never says whether the record exists.
+* Error screens show `ErrorState` (`components/ui/ErrorState.tsx`): a plain message, Try again, the digest as a reference. Never render `error.message` to the user.
 
 ## Refactoring
 

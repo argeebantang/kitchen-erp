@@ -259,12 +259,14 @@ const plan = {
           title: "Deploy, Polish & Portfolio",
           tag: null,
           tasks: [
-            "Deploy to AWS: EC2 for API, RDS for PostgreSQL, S3 for file storage",
-            "GitHub Actions CI/CD: test → build → deploy on merge to main",
+            // Order changed 2026-11-23 (owner): polish first, deploy after — the screens are finished before they go live.
+            { t: "UI polish: loading states, empty states, error states on every screen",
+              partial: "Task 1 (2026-11-23): every screen has a loading skeleton, an error screen with Try again (the sidebar stays), and not-found pages for unknown links. Task 2 next: empty states and form errors, screen by screen." },
             "PWA setup: installable on mobile with offline indicator",
-            "UI polish: loading states, empty states, error states on every screen",
             { t: "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
               partial: "Pulled forward to Week 10 Task 1: npm run seed:history generates 90 days at 3 kitchens and 3 outlets (purchasing, production, outlet orders, deliveries, sales, waste). Item names and prices are the seed's; tune the volumes for the demo here." },
+            "Deploy to AWS: EC2 for API, RDS for PostgreSQL, S3 for file storage",
+            "GitHub Actions CI/CD: test → build → deploy on merge to main",
             "README: setup guide, architecture diagram, module overview, screenshots",
             "Loom video: 5-minute walkthrough — show the AI features prominently",
             "LinkedIn post with demo video and GitHub link",
