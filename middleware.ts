@@ -107,6 +107,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Week 9 Task 1 (D10): the Test connection button on AI Settings spends
   // real money. Each AI feature's own endpoint gets its own guard.
   { path: '/api/ai/test',           roles: ['ADMIN'] },
+  // Week 11 Task 2: Admin → Email — the test email and who gets emails.
+  { path: '/api/email',             roles: ['ADMIN'] },
   // Ask for / regenerate any AI insight (Week 10 Task 2; replaces Week 9's
   // /api/ai/cost-variance) — each type narrows its roles in AiInsightService.
   { path: '/api/ai/insights',       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'PROCUREMENT_MANAGER'] },

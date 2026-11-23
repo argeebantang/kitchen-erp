@@ -46,6 +46,13 @@ export const config = {
   // Week 9 Task 10: stock requests for a day are due by this time (Manila) the
   // day before; later ones are accepted but flagged Late.
   stockRequestCutoff: timeEnv('STOCK_REQUEST_CUTOFF', '15:00'),
+  // Optional (Week 11 Task 2): email through Resend. Without a key every email
+  // is skipped (EmailLog SKIPPED) and the in-app bell works as before.
+  resendApiKey:       process.env.RESEND_API_KEY || null,
+  // Who emails come from. Until a domain is verified in Resend, only its
+  // onboarding sender works, and it delivers only to the Resend account's own
+  // address.
+  emailFrom:          process.env.EMAIL_FROM || 'KitchenERP <onboarding@resend.dev>',
   nodeEnv:      process.env.NODE_ENV ?? 'development',
   isProd:       process.env.NODE_ENV === 'production',
   isDev:        process.env.NODE_ENV !== 'production',

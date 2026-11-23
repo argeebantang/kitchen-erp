@@ -65,4 +65,22 @@ export const UserRepository = {
       orderBy: { name: 'asc' },
     })
   },
+
+  /** Everyone with their notification address, for Admin → Email (Week 11 Task 2). Admins first, then by role and name. */
+  async listWithNotificationEmail() {
+    return prisma.user.findMany({
+      select:  { ...safeUserSelect, notificationEmail: true },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    })
+  },
+
+  /** Where this user's emails go; null stops them. Returns false when there is no such user. */
+  async setNotificationEmail(id: string, notificationEmail: string | null): Promise<boolean> {
+    const { count } = await prisma.user.updateMany({ where: { id }, data: { notificationEmail } })
+    return count === 1
+  },
+
+  async findNotificationEmail(id: string): Promise<{ name: string; notificationEmail: string | null } | null> {
+    return prisma.user.findUnique({ where: { id }, select: { name: true, notificationEmail: true } })
+  },
 }

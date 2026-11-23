@@ -677,10 +677,17 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
         uses its status log.
       - **Fix:** two approvers approving the same purchase request at once created two purchase orders; the
         decision now moves the status first with `PENDING_APPROVAL` in the `WHERE` (the second gets 409).
-- [~] Notification bell + email (Resend) — **bell done 2026-11-07**, pulled forward
+- [x] Notification bell + email (Resend) — **bell done 2026-11-07**, pulled forward
       (`docs/2026-11-07-notification-bell.md`): unread badge and latest 15 in the top bar,
       pushed live (Redis pub/sub → Server-Sent Events → `EventSource`), mark one / all read.
-      Email via Resend still to do here.
+      **Email: Task 2, 2026-11-23** (`docs/2026-11-23-week11-email-resend.md`):
+      - Approval requests, decisions and the end-of-day summary are also emailed, through Resend (plain `fetch`), from
+        a separate `email` queue (2 a second, 3 attempts, idempotent per notification). The bell never waits for it.
+      - Only to `User.notificationEmail` (new), never the login email. Admin → Email sets it per user, shows whether
+        Resend is set up, sends a test, and lists the latest 50 emails from `EmailLog` (new): sent, skipped, failed.
+      - Without `RESEND_API_KEY` every email is logged SKIPPED and nothing else changes.
+      - New notifications: a purchase order or receiving report waiting for approval (to the approvers), and a
+        purchase request, order or receiving report decided (to whoever submitted it) — they told nobody before.
 - [ ] Escalation job (24h+ pending)
 - [ ] 5 reports with CSV/PDF export
 - [ ] End-of-day branch snapshot report

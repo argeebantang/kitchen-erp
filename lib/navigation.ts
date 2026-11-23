@@ -20,6 +20,7 @@ import {
   Coins,
   CalendarCheck,
   Sparkles,
+  Mail,
   Receipt
 } from 'lucide-react'
 
@@ -93,6 +94,8 @@ export const navigation: NavGroup[] = [
       { label: 'Master Data', href: '/admin/master', icon: Settings, roles: ['ADMIN'] },
       // Week 9 Task 1: the Claude connection, models and AI spend.
       { label: 'AI Settings', href: '/admin/ai',     icon: Sparkles, roles: ['ADMIN'] },
+      // Week 11 Task 2: Resend, who gets emails, and what went out.
+      { label: 'Email',       href: '/admin/email',  icon: Mail,     roles: ['ADMIN'] },
     ],
   },
 ]

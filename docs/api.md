@@ -30,6 +30,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/stock-requests` (incl. `/[id]/plan`, `/[id]/decline`) | all | ADMIN, PRODUCTION_MANAGER, BRANCH_MANAGER — creating re-checks ADMIN / BRANCH_MANAGER (and the outlet) in the service, planning and declining ADMIN / PRODUCTION_MANAGER |
 | `/api/transfers` (incl. `/preview`, `/returns`, `/[id]/receive`) | all | ADMIN, PRODUCTION_MANAGER, BRANCH_MANAGER — creating and previewing a delivery re-check ADMIN / PRODUCTION_MANAGER in the route (403); `/returns` and `?kind=return` re-check ADMIN / BRANCH_MANAGER, the service the outlet; receiving checks the branch (a return: production) in the service |
 | `/api/ai/test` | all | ADMIN — spends real money; each AI feature's endpoint gets its own guard |
+| `/api/email` (incl. `/test`, `/recipients/[userId]`) | all | ADMIN — Admin → Email (Week 11 Task 2) |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | `/api/branches` (incl. `/deactivate`, `/reactivate`) | POST, PUT, PATCH, DELETE | ADMIN |
@@ -286,7 +287,18 @@ ADMIN, ACCOUNTING, PRODUCTION_MANAGER (middleware; others → `/unauthorized`). 
 | GET | `/api/notifications/stream` | — | 200 `text/event-stream`, held open: `retry: 5000`, an `event: notifications` (`data: {}`) whenever the caller's notifications change, `: ping` every 25 s | 401, 503 Redis unavailable |
 | POST | `/api/notifications/read` | `{ id }` or `{ all: true }` | 200 `{ updated }` — how many of the caller's unread notifications were marked; 0 if already read or not theirs | 400, 401 |
 
-Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `ConversionOrder` → the conversion, `WriteOff` → the write-off, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`, `ExpiryCheck` → `/inventory/finished-goods`, `EndOfDaySummary` → `/inventory/end-of-day?date=<the date>`), null when there is no page. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
+Every signed-in user, no role guard: each call only ever touches the caller's own notifications (`x-user-id` in every `WHERE`). The stream's event carries nothing — the client reloads `GET /api/notifications` on it. `href` comes from `referenceType` (`PurchaseRequest` → the request, `ProductionOrder` → the order, `ProductionOrderShortfall` → `/procurement/requests/new?productionOrder=<id>`, `ConversionOrder` → the conversion, `WriteOff` → the write-off, `LowStockCheck` → `/inventory/stock`, `StockReconciliation` → `/inventory/ledger`, `ExpiryCheck` → `/inventory/finished-goods`, `EndOfDaySummary` → `/inventory/end-of-day?date=<the date>`, and from Week 11 Task 2 `PurchaseOrder` → the order, `ReceivingReport` → the report), null when there is no page — `notificationHref()` in `services/notification.service.ts`, which the email copy's button uses too. Response shapes here are the DTO itself rather than `{ <resource>: … }`.
+
+## Email
+
+Week 11 Task 2 (`docs/2026-11-23-week11-email-resend.md`). ADMIN only (middleware). The emails themselves are sent by the worker, not through an endpoint.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/email/test` | — | 200 `{ sentTo }` — one real email to the caller's `notificationEmail`, sent now and logged `TEST` | 400 the caller has no notification email · 401 · 409 not set up (no `RESEND_API_KEY`; logged `SKIPPED`) · 502 Resend refused it (logged `FAILED`, its message in `error`) |
+| PUT | `/api/email/recipients/[userId]` | `{ notificationEmail }` — an email address (trimmed, lower-cased, ≤ 254), or `""` / `null` to stop that user's emails | 200 `{ notificationEmail }` | 400 not an email address · 401 · 404 no such user |
+
+The login email (`User.email`) is never emailed and never changed here.
 
 ## Known gaps
 

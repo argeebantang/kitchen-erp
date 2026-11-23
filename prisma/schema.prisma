@@ -252,15 +252,18 @@ enum AiActionStatus {
 // ─── USERS ───────────────────────────────────────────────────────────────────
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
-  passwordHash String
-  role         Role
-  branchId     String?
-  branch       Branch?  @relation(fields: [branchId], references: [id])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String   @id @default(cuid())
+  email             String   @unique
+  name              String
+  passwordHash      String
+  role              Role
+  /// Where the app's emails go (Week 11 Task 2) — kept apart from `email`,
+  /// which is the login. Null: in-app notifications only, never an email.
+  notificationEmail String?
+  branchId          String?
+  branch            Branch?  @relation(fields: [branchId], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   managedBranch             Branch?                  @relation("BranchManager")
   approvals                 Approval[]
@@ -277,6 +280,7 @@ model User {
   submittedOutletSales      OutletSale[]             @relation("OutletSaleSubmitter")
   decidedStockRequests      StockRequest[]           @relation("StockRequestDecider")
   productionStatusChanges   ProductionStatusChange[]
+  emailLogs                 EmailLog[]
   notifications             Notification[]
   receivingReports          ReceivingReport[]        @relation("ReceivingReportReceiver")
   aiCalls                   AiCall[]
@@ -1190,18 +1194,55 @@ model Approval {
 /// submission (and later by other jobs). Week 3 only produces rows — the bell
 /// UI that reads them is Week 11. readAt = null means unread.
 model Notification {
-  id            String    @id @default(cuid())
+  id            String     @id @default(cuid())
   userId        String
-  user          User      @relation(fields: [userId], references: [id])
+  user          User       @relation(fields: [userId], references: [id])
   type          String
   title         String
   body          String?
   referenceType String?
   referenceId   String?
   readAt        DateTime?
-  createdAt     DateTime  @default(now())
+  createdAt     DateTime   @default(now())
+  emailLogs     EmailLog[]
 
   @@index([userId, readAt])
+}
+
+/// What happened to an email (Week 11 Task 2).
+///   SENT     Resend accepted it (providerId is its id there)
+///   SKIPPED  not sent on purpose: no RESEND_API_KEY, or the user has no notificationEmail
+///   FAILED   Resend refused it, or every retry failed (error says why)
+enum EmailStatus {
+  SENT
+  SKIPPED
+  FAILED
+}
+
+/// One email the app sent, skipped or failed to send (Week 11 Task 2) — the
+/// answer to "did it go out?". Written by the worker once per email, after
+/// its last attempt. `kind`: NOTIFICATION (a bell notification's copy),
+/// TEST (Admin → Email), and from later tasks REPORT and WEEKLY_SUMMARY.
+/// Both relations SET NULL so removing a user or a notification keeps the log.
+model EmailLog {
+  id             String        @id @default(cuid())
+  kind           String
+  status         EmailStatus
+  userId         String?
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notificationId String?
+  notification   Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+  /// Null when SKIPPED for having no address.
+  toAddress      String?
+  subject        String
+  /// Resend's id for a SENT email.
+  providerId     String?
+  /// Why it was SKIPPED or FAILED, in words.
+  error          String?
+  createdAt      DateTime      @default(now())
+
+  @@index([notificationId])
+  @@index([createdAt])
 }
 
 // ─── AI ──────────────────────────────────────────────────────────────────────

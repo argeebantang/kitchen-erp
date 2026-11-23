@@ -9,7 +9,7 @@ import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
-import { getNotificationQueue, PR_SUBMITTED, type PrSubmittedJob } from '@/lib/queue'
+import { getNotificationQueue, PR_DECIDED, PR_SUBMITTED, type PrSubmittedJob, type PurchaseRequestJob } from '@/lib/queue'
 import { type PurchaseOrderLineInput } from '@/repositories/purchase-order.repository'
 
 export type PurchaseRequestLineDto = {
@@ -414,6 +414,13 @@ export const PurchaseRequestService = {
     })
     if (!updated) {
       return { success: false, error: 'This request was decided meanwhile — reload to see the decision', status: 409 }
+    }
+
+    // Tell whoever raised it (Week 11 Task 2) — after the commit, never failing the decision.
+    try {
+      await getNotificationQueue().add(PR_DECIDED, { purchaseRequestId: id } satisfies PurchaseRequestJob)
+    } catch (err) {
+      console.error('[PurchaseRequestService.applyDecision] could not enqueue notification', err)
     }
 
     return { success: true, data: await toDetailDto(updated) }

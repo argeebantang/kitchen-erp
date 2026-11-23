@@ -9,6 +9,7 @@ import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { SupplierRepository } from '@/repositories/supplier.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
+import { getNotificationQueue, PO_DECIDED, PO_SUBMITTED, type PurchaseOrderJob } from '@/lib/queue'
 
 
 export type PurchaseOrderLineDto = {
@@ -74,6 +75,18 @@ export type UpdatePurchaseOrderInput = {
 }
 
 type Viewer = { userId: string; role: string }
+
+/**
+ * Queues a notification job after the change it reports has committed. A
+ * queue failure never fails the user's action (docs/architecture.md).
+ */
+async function enqueue(jobName: string, purchaseOrderId: string): Promise<void> {
+  try {
+    await getNotificationQueue().add(jobName, { purchaseOrderId } satisfies PurchaseOrderJob)
+  } catch (err) {
+    console.error(`[PurchaseOrderService] could not enqueue ${jobName}`, err)
+  }
+}
 
 function statusText(status: POStatus) {
   return status.replace(/_/g, ' ').toLowerCase()
@@ -284,6 +297,7 @@ export const PurchaseOrderService = {
       return { success: false, error: 'This order changed while you were submitting it — reload and try again', status: 409 }
     }
 
+    await enqueue(PO_SUBMITTED, id) // the approvers (Week 11 Task 2)
     return { success: true, data: await toDetailDto(updated) }
   },
 
@@ -335,6 +349,7 @@ export const PurchaseOrderService = {
       return { success: false, error: 'This order was decided by someone else just now', status: 409 }
     }
 
+    await enqueue(PO_DECIDED, id) // whoever submitted it (Week 11 Task 2)
     return { success: true, data: await toDetailDto(updated) }
   },
 

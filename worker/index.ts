@@ -24,6 +24,18 @@ import {
   LOW_STOCK_CHECK,
   NOTIFICATIONS_QUEUE,
   PR_SUBMITTED,
+  PR_DECIDED,
+  PO_SUBMITTED,
+  PO_DECIDED,
+  RR_SUBMITTED,
+  RR_DECIDED,
+  type PurchaseRequestJob,
+  type PurchaseOrderJob,
+  type ReceivingReportJob,
+  EMAIL_QUEUE,
+  NOTIFICATION_EMAIL,
+  getEmailQueue,
+  type NotificationEmailJob,
   PRODUCTION_COMPLETION_DECIDED,
   PRODUCTION_COMPLETION_REPORTED,
   PRODUCTION_ORDER_DECIDED,
@@ -52,6 +64,7 @@ import { WastePatternService } from '@/services/waste-pattern.service'
 import { lastCompleteMonth, SupplierPerformanceService } from '@/services/supplier-performance.service'
 import { ReorderService } from '@/services/reorder.service'
 import { DemandForecastService } from '@/services/demand-forecast.service'
+import { EmailService } from '@/services/email.service'
 
 /**
  * Background job consumer — a SEPARATE PROCESS from the Next.js app.
@@ -72,6 +85,32 @@ async function handlePrSubmitted(job: Job<PrSubmittedJob>) {
   const count = await NotificationService.notifyPurchaseRequestSubmitted(
     job.data.purchaseRequestId,
   )
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+// Week 11 Task 2: the procurement events that told nobody until now.
+async function handlePurchaseRequestDecided(job: Job<PurchaseRequestJob>) {
+  const count = await NotificationService.notifyPurchaseRequestDecided(job.data.purchaseRequestId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handlePurchaseOrderSubmitted(job: Job<PurchaseOrderJob>) {
+  const count = await NotificationService.notifyPurchaseOrderSubmitted(job.data.purchaseOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handlePurchaseOrderDecided(job: Job<PurchaseOrderJob>) {
+  const count = await NotificationService.notifyPurchaseOrderDecided(job.data.purchaseOrderId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleReceivingReportSubmitted(job: Job<ReceivingReportJob>) {
+  const count = await NotificationService.notifyReceivingReportSubmitted(job.data.receivingReportId)
+  console.log(`  → wrote ${count} notification(s)`)
+}
+
+async function handleReceivingReportDecided(job: Job<ReceivingReportJob>) {
+  const count = await NotificationService.notifyReceivingReportDecided(job.data.receivingReportId)
   console.log(`  → wrote ${count} notification(s)`)
 }
 
@@ -185,6 +224,16 @@ const worker = new Worker(
     switch (job.name) {
       case PR_SUBMITTED:
         return handlePrSubmitted(job)
+      case PR_DECIDED:
+        return handlePurchaseRequestDecided(job)
+      case PO_SUBMITTED:
+        return handlePurchaseOrderSubmitted(job)
+      case PO_DECIDED:
+        return handlePurchaseOrderDecided(job)
+      case RR_SUBMITTED:
+        return handleReceivingReportSubmitted(job)
+      case RR_DECIDED:
+        return handleReceivingReportDecided(job)
       case PRODUCTION_ORDER_SUBMITTED:
         return handleProductionOrderSubmitted(job)
       case PRODUCTION_ORDER_DECIDED:
@@ -356,6 +405,38 @@ aiWorker.on('failed', (job, err) => {
 console.log(`[worker] listening on "${AI_QUEUE}" — 2 at a time`)
 
 /**
+ * Email (Week 11 Task 2): a third worker on its own queue. One at a time and
+ * at most 2 a second — Resend's default rate limit — so a burst of
+ * notifications queues here instead of being refused there. RETRY (busy,
+ * rate-limited, unreachable) throws and BullMQ tries again per
+ * EMAIL_JOB_OPTIONS; every other outcome is final and already logged.
+ */
+async function handleNotificationEmail(job: Job<NotificationEmailJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await EmailService.sendNotification(job.data.notificationId, { lastAttempt: job.attemptsMade + 1 >= attempts })
+  console.log(`  → ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('Resend is busy or unreachable — will retry')
+}
+
+const emailWorker = new Worker<NotificationEmailJob>(
+  EMAIL_QUEUE,
+  async job => {
+    console.log(`[worker:email] job ${job.id} (${job.name})`)
+    switch (job.name) {
+      case NOTIFICATION_EMAIL:
+        return handleNotificationEmail(job)
+      default:
+        throw new Error(`Unknown job name: ${job.name}`)
+    }
+  },
+  { connection: redisConnection, concurrency: 1, limiter: { max: 2, duration: 1000 } },
+)
+
+emailWorker.on('failed', (job, err) => console.error(`[worker:email] job ${job?.id} FAILED: ${err.message}`))
+
+console.log(`[worker] listening on "${EMAIL_QUEUE}" — 2 a second`)
+
+/**
  * Registers the clock-driven jobs. upsertJobScheduler keys each schedule by
  * its id (the job name), so every restart replaces the schedule instead of
  * adding another — and a changed pattern takes effect on the next restart.
@@ -385,8 +466,8 @@ scheduleDailyJobs().catch(err => console.error(`[worker] scheduling FAILED: ${er
  */
 async function shutdown(signal: string) {
   console.log(`\n[worker] ${signal} received, finishing current job…`)
-  await Promise.all([worker.close(), aiWorker.close()])
-  await Promise.all([getNotificationQueue().close(), getAiQueue().close()])
+  await Promise.all([worker.close(), aiWorker.close(), emailWorker.close()])
+  await Promise.all([getNotificationQueue().close(), getAiQueue().close(), getEmailQueue().close()])
   process.exit(0)
 }
 
