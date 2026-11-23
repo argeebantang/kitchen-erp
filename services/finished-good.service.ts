@@ -10,6 +10,8 @@ import {
   FinishedGoodListFilters,
   FinishedGoodWithRelations,
 } from '@/repositories/finished-good.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { FINISHED_GOOD_SORT_KEYS, type FinishedGoodSortKey } from '@/repositories/finished-good.repository'
 
 export type FinishedGoodDto = {
   id: string

@@ -4,6 +4,8 @@ import { BomRepository, BomWithDetail, BomListFilters } from '@/repositories/bom
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { BOM_SORT_KEYS, type BomSortKey } from '@/repositories/bom.repository'
 
 export type BomLineDto = {
   id: string

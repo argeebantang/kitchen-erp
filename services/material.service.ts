@@ -5,6 +5,8 @@ import {
   MaterialWithRelations,
 } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { MATERIAL_SORT_KEYS, type MaterialSortKey } from '@/repositories/material.repository'
 
 export type MaterialDto = {
   id: string

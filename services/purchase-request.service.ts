@@ -5,6 +5,8 @@ import {
   PurchaseRequestListFilters,
   PurchaseRequestWithDetail,
 } from '@/repositories/purchase-request.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { PURCHASE_REQUEST_SORT_KEYS, type PurchaseRequestSortKey } from '@/repositories/purchase-request.repository'
 import { MaterialRepository } from '@/repositories/material.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'

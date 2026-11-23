@@ -1,6 +1,7 @@
 import { MovementType, Prisma, WriteOffReason, WriteOffStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type CreateWriteOffInput = {
   lotId: string
@@ -26,6 +27,29 @@ export type WriteOffListFilters = {
   branchId?: string
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<WriteOffSortKey>
+}
+
+/** Columns the Write-offs list can sort by (Week 12). */
+export const WRITE_OFF_SORT_KEYS = ['number', 'good', 'quantity', 'reason', 'value', 'branch', 'recorded', 'status'] as const
+export type WriteOffSortKey = typeof WRITE_OFF_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<WriteOffSortKey>): Prisma.WriteOffOrderByWithRelationInput[] {
+  const tieBreak: Prisma.WriteOffOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ writeOffNumber: dir }]
+    case 'good': return [{ lot: { finishedGood: { name: dir } } }, ...tieBreak]
+    case 'quantity': return [{ quantity: dir }, ...tieBreak]
+    case 'reason': return [{ reason: dir }, ...tieBreak]
+    case 'value': return [{ totalCost: { sort: dir, nulls: 'last' } }, ...tieBreak]
+    case 'branch': return [{ branch: { name: dir } }, ...tieBreak]
+    case 'recorded': return [{ createdAt: dir }, { id: dir }]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 /**
@@ -87,12 +111,16 @@ export const WriteOffRepository = {
     if (filters.status) where.status = filters.status
     if (filters.reason) where.reason = filters.reason
     if (filters.branchId) where.branchId = filters.branchId
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ writeOffNumber: text }, { lot: { lotNumber: text } }, { lot: { finishedGood: { name: text } } }, { branch: { name: text } }, { submittedBy: { name: text } }]
+    }
 
     const [rows, total, approved] = await prisma.$transaction([
       prisma.writeOff.findMany({
         where,
         include: writeOffInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

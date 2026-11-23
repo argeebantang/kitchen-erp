@@ -8,7 +8,7 @@ import { MaterialService } from '@/services/material.service'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { EmptyState } from '@/components/ui/states'
 import { SearchX, History } from 'lucide-react'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { Pagination } from '@/components/ui/ListControls'
 
 const PAGE_SIZE = 50
 
@@ -33,19 +33,10 @@ export default async function StockLedgerPage({ searchParams }: PageProps) {
     MaterialService.list({ take: 200 }),
     BranchRepository.findAllActive(),
   ])
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   // The unit for the summary, from the material picked — the page may have no rows.
   const unit = materials.find(option => option.id === material)?.unitAbbreviation ?? ''
   const showBalance = reconciliation !== null
 
-  const pageHref = (target: number) => {
-    const query = new URLSearchParams()
-    if (material) query.set('material', material)
-    if (branch)   query.set('branch', branch)
-    if (target > 1) query.set('page', String(target))
-    const text = query.toString()
-    return text ? `/inventory/ledger?${text}` : '/inventory/ledger'
-  }
 
   return (
     <div>
@@ -176,15 +167,7 @@ export default async function StockLedgerPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {pageCount > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Page {page} of {pageCount} · {total} movements</span>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-          </div>
-        </div>
-      )}
+      <Pagination path="/inventory/ledger" params={await searchParams} page={page} pageSize={PAGE_SIZE} total={total} noun="movements" />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { bomDetailInclude } from '@/repositories/bom.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository, ReceiveLotInput } from '@/repositories/finished-good-stock.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type CreateProductionOrderInput = {
   finishedGoodId: string
@@ -36,6 +37,28 @@ export type ProductionOrderListFilters = {
   status?: ProductionStatus
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<ProductionOrderSortKey>
+}
+
+/** Columns the Production Orders list can sort by (Week 12). */
+export const PRODUCTION_ORDER_SORT_KEYS = ['number', 'good', 'planned', 'date', 'branch', 'requester', 'status'] as const
+export type ProductionOrderSortKey = typeof PRODUCTION_ORDER_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<ProductionOrderSortKey>): Prisma.ProductionOrderOrderByWithRelationInput[] {
+  const tieBreak: Prisma.ProductionOrderOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ orderNumber: dir }]
+    case 'good': return [{ finishedGood: { name: dir } }, ...tieBreak]
+    case 'planned': return [{ plannedQty: dir }, ...tieBreak]
+    case 'date': return [{ plannedDate: dir }, ...tieBreak]
+    case 'branch': return [{ branch: { name: dir } }, ...tieBreak]
+    case 'requester': return [{ requestedBy: { name: dir } }, ...tieBreak]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 /**
@@ -119,12 +142,16 @@ export const ProductionOrderRepository = {
   async findMany(filters: ProductionOrderListFilters = {}) {
     const where: Prisma.ProductionOrderWhereInput = {}
     if (filters.status) where.status = filters.status
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ orderNumber: text }, { finishedGood: { name: text } }, { finishedGood: { code: text } }, { branch: { name: text } }, { requestedBy: { name: text } }]
+    }
 
     const [rows, total] = await prisma.$transaction([
       prisma.productionOrder.findMany({
         where,
         include: orderInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

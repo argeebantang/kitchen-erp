@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { type ListSort } from '@/lib/list-query'
 
 export type CreateFinishedGoodInput = {
   code: string
@@ -22,6 +23,24 @@ export type FinishedGoodListFilters = {
   includeInactive?: boolean
   skip?: number
   take?: number
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<FinishedGoodSortKey>
+}
+
+/** Columns the Finished Goods list can sort by (Week 12). */
+export const FINISHED_GOOD_SORT_KEYS = ['code', 'name', 'category', 'unit', 'price', 'shelfLife'] as const
+export type FinishedGoodSortKey = typeof FINISHED_GOOD_SORT_KEYS[number]
+
+// Name (codes are unique) breaks ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<FinishedGoodSortKey>): Prisma.FinishedGoodOrderByWithRelationInput[] {
+  switch (key) {
+    case 'code': return [{ code: dir }]
+    case 'name': return [{ name: dir }, { id: 'asc' }]
+    case 'category': return [{ category: { name: dir } }, { name: 'asc' }]
+    case 'unit': return [{ unit: { name: dir } }, { name: 'asc' }]
+    case 'price': return [{ sellingPrice: dir }, { name: 'asc' }]
+    case 'shelfLife': return [{ shelfLifeHours: { sort: dir, nulls: 'last' } }, { name: 'asc' }]
+  }
 }
 
 const finishedGoodInclude = {
@@ -62,7 +81,7 @@ export const FinishedGoodRepository = {
       prisma.finishedGood.findMany({
         where,
         include: finishedGoodInclude,
-        orderBy: { name: 'asc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { name: 'asc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

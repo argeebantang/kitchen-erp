@@ -24,6 +24,8 @@ import {
   ProductionOrderRepository,
   ProductionOrderWithDetail,
 } from '@/repositories/production-order.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { PRODUCTION_ORDER_SORT_KEYS, type ProductionOrderSortKey } from '@/repositories/production-order.repository'
 
 /** Upper bound on batches per order: catches a typed 1000 for 10. */
 export const MAX_BATCH_COUNT = 100

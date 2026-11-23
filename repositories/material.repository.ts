@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { type ListSort } from '@/lib/list-query'
 
 export type CreateMaterialInput = {
   code: string
@@ -20,6 +21,23 @@ export type MaterialListFilters = {
   includeInactive?: boolean
   skip?: number
   take?: number
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<MaterialSortKey>
+}
+
+/** Columns the Materials list can sort by (Week 12). */
+export const MATERIAL_SORT_KEYS = ['code', 'name', 'category', 'unit', 'reorderPoint'] as const
+export type MaterialSortKey = typeof MATERIAL_SORT_KEYS[number]
+
+// Name (codes are unique) breaks ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<MaterialSortKey>): Prisma.MaterialOrderByWithRelationInput[] {
+  switch (key) {
+    case 'code': return [{ code: dir }]
+    case 'name': return [{ name: dir }, { id: 'asc' }]
+    case 'category': return [{ category: { name: dir } }, { name: 'asc' }]
+    case 'unit': return [{ unit: { name: dir } }, { name: 'asc' }]
+    case 'reorderPoint': return [{ reorderPoint: dir }, { name: 'asc' }]
+  }
 }
 
 /**
@@ -70,7 +88,7 @@ export const MaterialRepository = {
       prisma.material.findMany({
         where,
         include: materialInclude,
-        orderBy: { name: 'asc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { name: 'asc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

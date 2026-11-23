@@ -25,6 +25,8 @@ import {
 } from '@/repositories/conversion-order.repository'
 import { MAX_YIELD_FACTOR } from '@/services/production-order.service'
 import type { ApprovalDto } from '@/services/purchase-request.service'
+// Pages read the sortable columns from the service, never from a repository.
+export { CONVERSION_ORDER_SORT_KEYS, type ConversionOrderSortKey } from '@/repositories/conversion-order.repository'
 
 /**
  * Conversion orders (Week 7 Task 1): a conversion already done in the kitchen

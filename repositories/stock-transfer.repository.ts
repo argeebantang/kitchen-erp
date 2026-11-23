@@ -1,6 +1,7 @@
 import { MovementType, Prisma, TransferKind, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 /**
  * Transfer Orders (Week 8 Task 2): finished goods sent from a commissary to
@@ -52,6 +53,26 @@ export type StockTransferListFilters = {
   shortOnly?: boolean
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<StockTransferSortKey>
+}
+
+/** Columns the Transfers list can sort by (Week 12). */
+export const STOCK_TRANSFER_SORT_KEYS = ['number', 'from', 'to', 'recorded', 'status'] as const
+export type StockTransferSortKey = typeof STOCK_TRANSFER_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<StockTransferSortKey>): Prisma.StockTransferOrderByWithRelationInput[] {
+  const tieBreak: Prisma.StockTransferOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ transferNumber: dir }]
+    case 'from': return [{ fromBranch: { name: dir } }, ...tieBreak]
+    case 'to': return [{ toBranch: { name: dir } }, ...tieBreak]
+    case 'recorded': return [{ createdAt: dir }, { id: dir }]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 /** What dispatching takes: the transfer and, per line, what leaves the sender. */
@@ -391,13 +412,18 @@ export const StockTransferRepository = {
     if (filters.status) where.status = filters.status
     if (filters.branchId) where.OR = [{ fromBranchId: filters.branchId }, { toBranchId: filters.branchId }]
     if (filters.shortOnly) where.varianceReason = { not: null }
+    if (filters.search) {
+      const text = containsText(filters.search)
+      // AND, not OR at the top: the branch filter above already uses where.OR.
+      where.AND = [{ OR: [{ transferNumber: text }, { fromBranch: { name: text } }, { toBranch: { name: text } }, { stockRequest: { requestNumber: text } }, { items: { some: { finishedGood: { name: text } } } }] }]
+    }
     const short: Prisma.StockTransferWhereInput = { AND: [where, { varianceReason: { not: null } }] }
 
     const [rows, total, lost] = await prisma.$transaction([
       prisma.stockTransfer.findMany({
         where,
         include: stockTransferInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

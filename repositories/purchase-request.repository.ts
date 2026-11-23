@@ -4,6 +4,7 @@ import {
   PurchaseOrderRepository,
   type PurchaseOrderLineInput,
 } from '@/repositories/purchase-order.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type PurchaseRequestLineInput = {
   materialId: string
@@ -36,6 +37,27 @@ export type PurchaseRequestListFilters = {
   skip?: number
   take?: number
   sort?: PurchaseRequestSort
+  /** The list page's search box: number, requester, kitchen or a material on it. */
+  search?: string
+  /** The list page's column sort; wins over `sort`. */
+  listSort?: ListSort<PurchaseRequestSortKey>
+}
+
+/** Columns the Purchase Requests list can sort by (Week 12). */
+export const PURCHASE_REQUEST_SORT_KEYS = ['number', 'requester', 'deliverTo', 'neededBy', 'status'] as const
+export type PurchaseRequestSortKey = typeof PURCHASE_REQUEST_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<PurchaseRequestSortKey>): Prisma.PurchaseRequestOrderByWithRelationInput[] {
+  const tieBreak: Prisma.PurchaseRequestOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    // Zero-padded (PR-000042), so text order is number order.
+    case 'number':    return [{ prNumber: dir }]
+    case 'requester': return [{ requester: { name: dir } }, ...tieBreak]
+    case 'deliverTo': return [{ deliverTo: { name: dir } }, ...tieBreak]
+    case 'neededBy':  return [{ neededBy: { sort: dir, nulls: 'last' } }, ...tieBreak]
+    case 'status':    return [{ status: dir }, ...tieBreak]
+  }
 }
 
 /**
@@ -117,6 +139,15 @@ function buildWhere(filters: PurchaseRequestListFilters): Prisma.PurchaseRequest
   if (filters.requestedById) {
     where.requestedById = filters.requestedById
   }
+  if (filters.search) {
+    const text = containsText(filters.search)
+    where.OR = [
+      { prNumber: text },
+      { requester: { name: text } },
+      { deliverTo: { name: text } },
+      { items: { some: { material: { name: text } } } },
+    ]
+  }
 
   return where
 }
@@ -138,7 +169,8 @@ export const PurchaseRequestRepository = {
     // keeps the intent correct if the direction ever flips. createdAt breaks
     // ties, so two requests needed the same day are handled oldest-first.
     const orderBy: Prisma.PurchaseRequestOrderByWithRelationInput[] =
-      filters.sort === 'neededBy'
+      filters.listSort ? listOrderBy(filters.listSort)
+      : filters.sort === 'neededBy'
         ? [{ neededBy: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }]
         : [{ createdAt: 'desc' }]
 

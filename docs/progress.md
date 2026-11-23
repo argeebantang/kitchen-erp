@@ -747,6 +747,10 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
         - a spinner on tabs, chips and paging links (`PendingSpinner`), which never show the page skeleton
 - [x] Sidebar search and collapse — **2026-11-24**, owner request (`docs/2026-11-24-sidebar-search-collapse.md`): search the
       menu (abbreviations too, Enter opens the best match, `/` focuses it), collapse to icons, remembered in a cookie.
+- [x] Paging, search and sort on every list — **2026-11-24**, owner request (`docs/2026-11-24-list-paging-search-sort.md`):
+      server-side, in the URL (`?page=&q=&sort=&dir=`); Purchase Requests / Orders, Receiving, Stock Requests, BOMs and
+      Master Data (Materials, Finished Goods) had none and stopped at 100 rows; the seven Newer / Older lists moved to
+      the same bar with page numbers.
 - [ ] PWA setup
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for

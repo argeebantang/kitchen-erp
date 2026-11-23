@@ -2,12 +2,17 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { Plus, FileText } from 'lucide-react'
 import { getSession } from '@/lib/session'
-import { PurchaseRequestService } from '@/services/purchase-request.service'
+import { PURCHASE_REQUEST_SORT_KEYS, PurchaseRequestService } from '@/services/purchase-request.service'
 import { formatPeso } from '@/lib/format'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { EmptyState } from '@/components/ui/states'
+import { ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery, type SearchParams } from '@/lib/list-query'
 
-export default async function PurchaseRequestListPage() {
+const PATH = '/procurement/requests'
+
+export default async function PurchaseRequestListPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   // Server Components never see the x-user-id header middleware injects — that
   // reaches route handlers only. They re-read the cookie via getSession()
   // instead (docs/architecture.md). The protected layout already redirects an
@@ -18,10 +23,14 @@ export default async function PurchaseRequestListPage() {
   // Called directly rather than through an API route, because this is a read
   // (docs/architecture.md). Scoping to the viewer happens inside the service,
   // never at the call site.
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const params = await searchParams
+  const query = parseListQuery(params, { sorts: PURCHASE_REQUEST_SORT_KEYS, defaultSort: { key: 'number', dir: 'desc' } })
   const { purchaseRequests, total } = await PurchaseRequestService.list(
     { userId: session.userId, role: session.role },
-    { take: 100 },
+    { skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort },
   )
+  const header = { sort: query.sort, path: PATH, params }
 
   return (
     <div>
@@ -44,7 +53,13 @@ export default async function PurchaseRequestListPage() {
         </Link>
       </div>
 
-      {purchaseRequests.length === 0 ? (
+      <div className="mb-4">
+        <SearchBox placeholder="Search number, requester, kitchen, material" />
+      </div>
+
+      {purchaseRequests.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={purchaseRequests.length} total={total} noun="requests" />
+      ) : purchaseRequests.length === 0 ? (
         <EmptyState icon={FileText} title="No purchase requests yet" action={{ href: '/procurement/requests/new', label: 'New Request' }}>
           Raise a request for materials. Accounting approves it before it becomes a purchase order.
         </EmptyState>
@@ -53,13 +68,13 @@ export default async function PurchaseRequestListPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Requested by</th>
-                <th className="px-4 py-3 font-medium">Deliver to</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="Requested by" sortKey="requester" {...header} />
+                <SortHeader label="Deliver to" sortKey="deliverTo" {...header} />
                 <th className="px-4 py-3 font-medium">Lines</th>
                 <th className="px-4 py-3 font-medium">Est. total</th>
-                <th className="px-4 py-3 font-medium">Needed by</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <SortHeader label="Needed by" sortKey="neededBy" {...header} />
+                <SortHeader label="Status" sortKey="status" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -94,6 +109,8 @@ export default async function PurchaseRequestListPage() {
           </table>
         </div>
       )}
+
+      <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="requests" />
     </div>
   )
 }

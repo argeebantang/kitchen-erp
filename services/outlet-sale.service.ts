@@ -7,6 +7,10 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import { OutletSaleConflict, OutletSaleRepository, type OutletSaleSummary } from '@/repositories/outlet-sale.repository'
 import { availabilityAt } from '@/services/stock-transfer.service'
+import type { ListSort } from '@/lib/list-query'
+import type { OutletSaleSortKey } from '@/repositories/outlet-sale.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { OUTLET_SALE_SORT_KEYS, type OutletSaleSortKey } from '@/repositories/outlet-sale.repository'
 
 /**
  * Outlet daily sales (Week 10 Task 1, docs/2026-11-22-week10-history-data.md):
@@ -18,7 +22,6 @@ import { availabilityAt } from '@/services/stock-transfer.service'
 
 export const MAX_SALE_LINES = 30
 export const SALE_NOTE_MAX = 1000
-export const SALES_PAGE_SIZE = 50
 
 export type OutletSaleViewer = { userId: string; role: string }
 
@@ -222,12 +225,13 @@ export const OutletSaleService = {
     }
   },
 
-  async list(viewer: OutletSaleViewer, page: number): Promise<{ rows: OutletSaleListItemDto[]; total: number } | null> {
+  async list(
+    viewer: OutletSaleViewer,
+    query: { skip: number; take: number; search?: string; listSort?: ListSort<OutletSaleSortKey> },
+  ): Promise<{ rows: OutletSaleListItemDto[]; total: number } | null> {
     const scope = await scopeFor(viewer)
     if (!scope) return null
-    const { rows, total } = await OutletSaleRepository.findMany({
-      branchId: scope.branchId, skip: (page - 1) * SALES_PAGE_SIZE, take: SALES_PAGE_SIZE,
-    })
+    const { rows, total } = await OutletSaleRepository.findMany({ branchId: scope.branchId, ...query })
     return { rows: rows.map(toListDto), total }
   },
 

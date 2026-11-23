@@ -3,14 +3,18 @@ import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { shortDateLabel } from '@/lib/dates'
 import { formatPeso } from '@/lib/format'
-import { primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
-import { OutletSaleService, SALES_PAGE_SIZE } from '@/services/outlet-sale.service'
+import { primaryButtonClass } from '@/components/ui/form'
+import { OUTLET_SALE_SORT_KEYS, OutletSaleService } from '@/services/outlet-sale.service'
 import { EmptyState } from '@/components/ui/states'
 import { Store, Receipt } from 'lucide-react'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
+
+const PATH = '/inventory/sales'
 
 type PageProps = {
-  searchParams: Promise<{ page?: string }>
+  searchParams: Promise<{ page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 /**
@@ -23,11 +27,12 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
   if (!session) redirect('/login')
   const viewer = { userId: session.userId, role: session.role }
 
-  const { page: pageParam = '1' } = await searchParams
-  const page = Math.max(1, Number.parseInt(pageParam, 10) || 1)
-  const result = await OutletSaleService.list(viewer, page)
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: OUTLET_SALE_SORT_KEYS, defaultSort: { key: 'soldOn', dir: 'desc' } })
+  const header = { sort: query.sort, path: PATH, params }
+  const result = await OutletSaleService.list(viewer, { skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort })
   const canRecord = session.role === 'ADMIN' || session.role === 'BRANCH_MANAGER'
-  const pages = result ? Math.max(1, Math.ceil(result.total / SALES_PAGE_SIZE)) : 1
 
   return (
     <div>
@@ -41,10 +46,18 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
         {canRecord && result && <Link href="/inventory/sales/new" className={primaryButtonClass}>Record sales</Link>}
       </div>
 
+      {result && (
+        <div className="mb-4">
+          <SearchBox placeholder="Search number, outlet, person" />
+        </div>
+      )}
+
       {!result ? (
         <EmptyState icon={Store} title="You do not run an outlet">
           Daily sales are kept per outlet.
         </EmptyState>
+      ) : result.rows.length === 0 && (query.q || result.total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={result.rows.length} total={result.total} noun="sales" />
       ) : result.rows.length === 0 ? (
         <EmptyState
           icon={Receipt}
@@ -58,13 +71,13 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Sold on</th>
-                <th className="px-4 py-3 font-medium">Outlet</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="Sold on" sortKey="soldOn" firstDir="desc" {...header} />
+                <SortHeader label="Outlet" sortKey="outlet" {...header} />
                 <th className="px-4 py-3 text-right font-medium">Goods</th>
-                <th className="px-4 py-3 text-right font-medium">Takings</th>
-                <th className="px-4 py-3 text-right font-medium">Cost of goods</th>
-                <th className="px-4 py-3 font-medium">Recorded by</th>
+                <SortHeader label="Takings" sortKey="takings" firstDir="desc" align="right" {...header} />
+                <SortHeader label="Cost of goods" sortKey="cost" firstDir="desc" align="right" {...header} />
+                <SortHeader label="Recorded by" sortKey="by" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -86,13 +99,7 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {result && pages > 1 && (
-        <div className="mt-4 flex items-center gap-3 text-sm text-gray-500">
-          {page > 1 && <Link href={`/inventory/sales?page=${page - 1}`} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-          <span>Page {page} of {pages}</span>
-          {page < pages && <Link href={`/inventory/sales?page=${page + 1}`} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-        </div>
-      )}
+      {result && <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={result.total} noun="sales" />}
     </div>
   )
 }

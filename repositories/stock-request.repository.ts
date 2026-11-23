@@ -1,5 +1,6 @@
 import { Prisma, StockRequestStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 /**
  * Branch stock requests (Week 9 Task 10): an outlet asks a kitchen for
@@ -35,6 +36,26 @@ export type StockRequestListFilters = {
   neededFrom?: Date
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<StockRequestSortKey>
+}
+
+/** Columns the Stock Requests list can sort by (Week 12). */
+export const STOCK_REQUEST_SORT_KEYS = ['number', 'needed', 'outlet', 'submitted', 'status'] as const
+export type StockRequestSortKey = typeof STOCK_REQUEST_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<StockRequestSortKey>): Prisma.StockRequestOrderByWithRelationInput[] {
+  const tieBreak: Prisma.StockRequestOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ requestNumber: dir }]
+    case 'needed': return [{ neededOn: dir }, ...tieBreak]
+    case 'outlet': return [{ branch: { name: dir } }, ...tieBreak]
+    case 'submitted': return [{ createdAt: dir }, { id: dir }]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 export const StockRequestRepository = {
@@ -79,11 +100,15 @@ export const StockRequestRepository = {
     if (filters.branchId) where.branchId = filters.branchId
     if (filters.kitchenId) where.kitchenId = filters.kitchenId
     if (filters.neededFrom) where.neededOn = { gte: filters.neededFrom }
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ requestNumber: text }, { branch: { name: text } }, { kitchen: { name: text } }, { items: { some: { finishedGood: { name: text } } } }]
+    }
     const [rows, total] = await prisma.$transaction([
       prisma.stockRequest.findMany({
         where,
         include: stockRequestInclude,
-        orderBy: [{ neededOn: 'asc' }, { createdAt: 'asc' }],
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : [{ neededOn: 'asc' }, { createdAt: 'asc' }],
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 100,
       }),
