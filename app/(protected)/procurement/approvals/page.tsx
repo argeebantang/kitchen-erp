@@ -11,7 +11,9 @@ import { AutoRefresh } from '@/components/ui/AutoRefresh'
  * oldest first — decided in place. Replaces the eight per-type tables
  * (Weeks 3–8), from the same pending lists.
  */
-export default async function ApprovalsInboxPage() {
+export default async function ApprovalsInboxPage({ searchParams }: { searchParams: Promise<{ filter?: string }> }) {
+  // ?filter=overdue — where an overdue reminder leads (Week 11 Task 3). Anything else shows all.
+  const { filter } = await searchParams
   const session = await getSession()
   if (!session) redirect('/login')
 
@@ -33,7 +35,13 @@ export default async function ApprovalsInboxPage() {
         </p>
       </div>
 
-      <ApprovalInbox inbox={inbox} labels={APPROVAL_TYPE_LABELS} overdueHours={OVERDUE_HOURS} now={now} />
+      <ApprovalInbox
+        inbox={inbox}
+        labels={APPROVAL_TYPE_LABELS}
+        overdueHours={OVERDUE_HOURS}
+        now={now}
+        initialFilter={filter === 'overdue' && overdue > 0 ? 'OVERDUE' : 'ALL'}
+      />
     </div>
   )
 }

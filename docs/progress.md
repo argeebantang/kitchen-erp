@@ -688,7 +688,13 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
       - Without `RESEND_API_KEY` every email is logged SKIPPED and nothing else changes.
       - New notifications: a purchase order or receiving report waiting for approval (to the approvers), and a
         purchase request, order or receiving report decided (to whoever submitted it) — they told nobody before.
-- [ ] Escalation job (24h+ pending)
+- [x] Escalation job (24h+ pending) — **Task 3, 2026-11-23** (`docs/2026-11-23-week11-escalation.md`):
+      - `approval-escalation`, hourly 07:00–21:00 Manila (no reminders at night): anything in the approvals inbox
+        waiting 24 h or more is reminded to each approver who did not submit it — at 24 h, again at 48 h, 72 h…
+      - One `APPROVAL_OVERDUE` digest per approver per run (oldest first, up to 5 named), in the bell and by email;
+        it opens the inbox on "Over 24 h".
+      - `ApprovalReminder` (new) claims each (approver, document, step) under a unique key, so no reminder goes
+        twice even if runs overlap. Waiting time and the list are the inbox's own.
 - [ ] 5 reports with CSV/PDF export
 - [ ] End-of-day branch snapshot report
 - [ ] Weekly report scheduler

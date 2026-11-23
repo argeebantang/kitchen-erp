@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ApprovalInboxDto, ApprovalItemDto, ApprovalType } from '@/services/approval-inbox.service'
-import { formatPeso } from '@/lib/format'
+import { formatPeso, formatWaited } from '@/lib/format'
 import { formatDateTime } from '@/lib/dates'
 
 type Decision = 'APPROVED' | 'REJECTED'
@@ -20,16 +20,6 @@ const FLAG_CLASSES: Record<ApprovalItemDto['flags'][number]['tone'], string> = {
   ok:   'bg-emerald-50 text-emerald-700',
   warn: 'bg-amber-50 text-amber-700',
   bad:  'bg-red-50 text-red-700',
-}
-
-/** "40 min", "5 h", "1 d 3 h". */
-function waited(sinceIso: string, now: number): string {
-  const minutes = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 60_000))
-  if (minutes < 60) return `${minutes} min`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} h`
-  const days = Math.floor(hours / 24)
-  return hours % 24 === 0 ? `${days} d` : `${days} d ${hours % 24} h`
 }
 
 function isOverdue(item: ApprovalItemDto, now: number, overdueHours: number): boolean {
@@ -53,14 +43,17 @@ export function ApprovalInbox({
   labels,
   overdueHours,
   now,
+  initialFilter = 'ALL',
 }: {
   inbox: ApprovalInboxDto
   labels: Record<ApprovalType, { one: string; many: string }>
   overdueHours: number
   now: number
+  /** 'OVERDUE' when opened from a reminder (Week 11 Task 3). */
+  initialFilter?: 'ALL' | 'OVERDUE'
 }) {
   const router = useRouter()
-  const [filter, setFilter] = useState<Filter>('ALL')
+  const [filter, setFilter] = useState<Filter>(initialFilter)
   // Hidden as soon as the decision lands, before the refresh removes it from the list.
   const [decided, setDecided] = useState<Set<string>>(new Set())
   const [log, setLog] = useState<LogEntry[]>([])
@@ -218,7 +211,7 @@ function InboxRow({
           </Link>
           {item.pendingSince && (
             <span className={overdue ? 'font-medium text-red-600' : 'text-gray-400'} title={`Submitted ${formatDateTime(item.pendingSince)}`}>
-              waiting {waited(item.pendingSince, now)}
+              waiting {formatWaited(now - Date.parse(item.pendingSince))}
             </span>
           )}
         </div>

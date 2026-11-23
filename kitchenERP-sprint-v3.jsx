@@ -246,7 +246,7 @@ const plan = {
             { t: "One-click approve/reject with comment", done: true },
             { t: "In-app notification bell, real-time over SSE (pulled forward, built 2026-11-07)", done: true },
             { t: "Email notifications via Resend, building on the in-app bell", done: true },
-            "Escalation job: re-notify approver if pending 24+ hours",
+            { t: "Escalation job: re-notify approver if pending 24+ hours", done: true },
             "5 reports with CSV + PDF export: Inventory Movement, Production Summary, Procurement, Waste & Write-off, Cost per Batch",
             "End-of-day branch snapshot report",
             "Report scheduler: auto-email weekly summary to management every Monday",

@@ -1,6 +1,6 @@
 import { Prisma, Role } from '@prisma/client'
 import { BUSINESS_TIME_ZONE, EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
-import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
+import { formatPeso, formatQuantity, formatWaited, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { EMAIL_JOB_OPTIONS, getEmailQueue, NOTIFICATION_EMAIL, type NotificationEmailJob } from '@/lib/queue'
 import { PurchaseOrderRepository } from '@/repositories/purchase-order.repository'
@@ -22,6 +22,8 @@ import { EndOfDayService } from '@/services/end-of-day.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
+import { ApprovalReminderRepository } from '@/repositories/approval-reminder.repository'
+import { APPROVAL_TYPE_LABELS, ApprovalInboxService, OVERDUE_HOURS, type ApprovalItemDto } from '@/services/approval-inbox.service'
 
 /** Roles that can decide a purchase request or production order, and therefore need to know one is waiting. */
 const APPROVER_ROLES: Role[] = [Role.ACCOUNTING, Role.ADMIN]
@@ -63,6 +65,8 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   WriteOff:            id => `/inventory/write-offs/${id}`,
   StockTransfer:       id => `/inventory/transfers/${id}`,
   StockRequest:        id => `/inventory/requests/${id}`,
+  // The overdue reminder (Week 11 Task 3): the inbox, filtered to what is over 24 h.
+  ApprovalInbox:       () => '/procurement/approvals?filter=overdue',
 }
 
 /** Where a notification leads — the bell's link, and its email's button (Week 11 Task 2). */
@@ -90,6 +94,8 @@ export const EMAILED_TYPES: ReadonlySet<string> = new Set([
   'TRANSFER_APPROVED', 'TRANSFER_REJECTED',
   // The 21:00 close.
   'END_OF_DAY',
+  // Still waiting after 24 h, 48 h… (Week 11 Task 3).
+  'APPROVAL_OVERDUE',
 ])
 
 export type NotificationDto = {
@@ -151,6 +157,15 @@ async function createAndPush(inputs: CreateNotificationInput[]): Promise<number>
   }
   return rows.length
 }
+
+/**
+ * The approvals inbox as the overdue sweep reads it: every pending document
+ * (ADMIN sees all purchase requests). The sweep ignores `mine` and uses
+ * submittedById per approver instead.
+ */
+const SWEEP_VIEWER = { userId: '', role: Role.ADMIN }
+
+const HOUR_MS = 3_600_000
 
 /** "1 line", "3 lines". */
 const lineCount = (count: number) => `${count} line${count === 1 ? '' : 's'}`
@@ -332,6 +347,64 @@ export const NotificationService = {
       referenceType: 'ReceivingReport',
       referenceId:   rr.id,
     }])
+  },
+
+  /**
+   * The overdue sweep (Week 11 Task 3, hourly 07:00–21:00 Manila): every
+   * document that has waited OVERDUE_HOURS (24) or more is reminded to each
+   * approver who did not submit it — once at 24 h, again at 48 h, 72 h… One
+   * digest per approver per run, naming the documents newly due, oldest
+   * first; emailed like the request itself. "Waiting since" and the list are
+   * the inbox's own (ApprovalInboxService). ApprovalReminder claims each
+   * (approver, document, step) before anything is written, so overlapping
+   * runs cannot remind twice; a crash between the claim and the write loses
+   * that step's reminder, and the next step (24 h later) sends it.
+   */
+  async notifyOverdueApprovals(now: Date = new Date()): Promise<{ overdue: number; reminded: number; written: number }> {
+    const inbox = await ApprovalInboxService.list(SWEEP_VIEWER)
+    const stepMs = OVERDUE_HOURS * HOUR_MS
+    const overdue = inbox.items.flatMap(item => {
+      if (item.pendingSince === null) return []
+      const waitedMs = now.getTime() - Date.parse(item.pendingSince)
+      const tier = Math.floor(waitedMs / stepMs)
+      return tier >= 1 ? [{ item, waitedMs, tier }] : []
+    })
+    if (overdue.length === 0) return { overdue: 0, reminded: 0, written: 0 }
+
+    const approvers = await UserRepository.findByRoles(APPROVER_ROLES)
+    // Nobody is asked to decide what they submitted, ADMIN included.
+    const theirs = (userId: string) => overdue.filter(entry => entry.item.submittedById !== userId)
+    const claimed = await ApprovalReminderRepository.claim(approvers.flatMap(user =>
+      theirs(user.id).map(entry => ({ userId: user.id, referenceType: entry.item.type, referenceId: entry.item.id, tier: entry.tier }))))
+
+    const keyOf = (item: Pick<ApprovalItemDto, 'type' | 'id'>) => `${item.type}:${item.id}`
+    const due = new Map<string, string[]>()
+    for (const row of claimed) due.set(row.userId, [...(due.get(row.userId) ?? []), `${row.referenceType}:${row.referenceId}`])
+
+    // The run's hour (UTC) as the reference — the link ignores it; it only groups a run's digests.
+    const runKey = now.toISOString().slice(0, 13)
+    const written = await createAndPush([...due].map(([userId, keys]) => {
+      // In the inbox's order — oldest first.
+      const items = overdue.filter(entry => keys.includes(keyOf(entry.item)))
+      const named = items.slice(0, SUMMARY_NAMES)
+        .map(entry => `${entry.item.number} (${APPROVAL_TYPE_LABELS[entry.item.type].one.toLowerCase()}, ${formatWaited(entry.waitedMs)})`)
+      const more = items.length - named.length
+      const inAll = theirs(userId).length
+      const first = items[0]
+      return {
+        userId,
+        type:          'APPROVAL_OVERDUE',
+        title:         items.length === 1
+          ? `${first.item.number} has waited ${formatWaited(first.waitedMs)} for a decision`
+          : `${items.length} approvals have waited over ${OVERDUE_HOURS} hours`,
+        body:          `${named.join(', ')}${more > 0 ? `, +${more} more` : ''}.`
+          + (inAll > items.length ? ` ${inAll} in all are over ${OVERDUE_HOURS} hours.` : '')
+          + ' Oldest first in Approvals.',
+        referenceType: 'ApprovalInbox',
+        referenceId:   runKey,
+      }
+    }))
+    return { overdue: overdue.length, reminded: claimed.length, written }
   },
 
   /**
