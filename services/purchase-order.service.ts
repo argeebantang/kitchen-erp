@@ -53,6 +53,11 @@ export type PurchaseOrderSummaryDto = {
   lineCount: number
   totalAmount: string
   expectedDelivery: string | null
+  /** Who sent it for approval; null on a draft and on orders older than the column. */
+  submittedById: string | null
+  submittedByName: string | null
+  /** When (Week 11 Task 1); null while a draft and on older orders. */
+  submittedAt: string | null
   createdAt: string
 }
 
@@ -138,6 +143,9 @@ export const PurchaseOrderService = {
         lineCount:        po._count.items,
         totalAmount:      toDecimalString(po.totalAmount),
         expectedDelivery: po.expectedDelivery?.toISOString() ?? null,
+        submittedById:    po.submittedById,
+        submittedByName:  po.submittedBy?.name ?? null,
+        submittedAt:      po.submittedAt?.toISOString() ?? null,
         createdAt:        po.createdAt.toISOString(),
       })),
       total,

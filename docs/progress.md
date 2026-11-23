@@ -656,7 +656,27 @@ No new tables beyond the already-planned AI ones; `ai_query_log` gains `action_t
 were considered and deliberately dropped.
 
 ### Week 11 — Approvals Hub & Reports
-- [ ] Unified approvals inbox
+Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
+1. unified approvals inbox + one-click approve / reject
+2. email via Resend (an `email` queue, `EmailLog`, `User.notificationEmail`), plus the missing PO / RR submitted and
+   PR / PO / RR decided notifications
+3. escalation: hourly sweep, a reminder digest to the approvers every 24 h an item waits (07:00–21:00 Manila)
+4. reports engine + Production Summary and Cost per Batch (CSV + PDF, on demand)
+5. Inventory Movement, Procurement, Waste & Write-off
+6. end-of-day branch snapshot, attached to the 21:00 job
+7. "Email this report" and the Monday 07:00 weekly summary to ADMIN + ACCOUNTING
+
+- [x] Unified approvals inbox + one-click approve / reject — **Task 1, 2026-11-23**
+      (`docs/2026-11-23-week11-approvals-inbox.md`):
+      - **One queue** at Overview → Approvals: every pending purchase request, purchase order, receiving report,
+        production plan and completion, conversion, write-off and transfer, oldest first, with how long each has
+        waited (red past 24 h), filter chips per type and "Over 24 h", and the same badges as before.
+      - **Decided in place:** Approve in one click; Reject with the reason typed in the row. Your own documents show
+        no buttons. A refusal (decided meanwhile, stock moved, price missing) shows on the row.
+      - **`submittedAt`** on purchase requests, orders and receiving reports (migration `20261123220000`); production
+        uses its status log.
+      - **Fix:** two approvers approving the same purchase request at once created two purchase orders; the
+        decision now moves the status first with `PENDING_APPROVAL` in the `WHERE` (the second gets 409).
 - [~] Notification bell + email (Resend) — **bell done 2026-11-07**, pulled forward
       (`docs/2026-11-07-notification-bell.md`): unread badge and latest 15 in the top bar,
       pushed live (Redis pub/sub → Server-Sent Events → `EventSource`), mark one / all read.

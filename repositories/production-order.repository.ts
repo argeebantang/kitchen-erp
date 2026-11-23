@@ -220,6 +220,21 @@ export const ProductionOrderRepository = {
   },
 
   /**
+   * When each order last moved INTO `status`, from the status log — the
+   * approvals inbox's "waiting since" (Week 11 Task 1). The latest such change,
+   * so an order sent back and submitted again counts from the resubmit.
+   */
+  async enteredStatusAt(ids: string[], status: ProductionStatus): Promise<Map<string, Date>> {
+    if (ids.length === 0) return new Map()
+    const rows = await prisma.productionStatusChange.groupBy({
+      by:    ['productionOrderId'],
+      where: { productionOrderId: { in: ids }, toStatus: status },
+      _max:  { createdAt: true },
+    })
+    return new Map(rows.flatMap(row => (row._max.createdAt ? [[row.productionOrderId, row._max.createdAt] as const] : [])))
+  },
+
+  /**
    * The committing orders at a branch, each with its pinned BOM's lines, in
    * one query — the service scales them with the same function as the order
    * being checked. `excludeId` keeps an approved order from counting against

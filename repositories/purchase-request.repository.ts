@@ -162,23 +162,21 @@ export const PurchaseRequestRepository = {
   
 
   /**
-     * Moves a request to a new status.
-     *
-     * Deliberately dumb — which transitions are legal is a business rule, so that
-     * decision lives in the service. Postgres would happily accept
-     * DRAFT → CONVERTED_TO_PO; see docs/database.md: "status transitions are
-     * enforced in the service layer, not by the database".
-     */
-    async updateStatus(id: string, status: PRStatus): Promise<PurchaseRequestWithDetail> {
-      return prisma.purchaseRequest.update({
-        where:   { id },
-        data:    { status },
-        include: detailInclude,
-      })
-    },
-    
+   * DRAFT → PENDING_APPROVAL, stamping submittedAt (Week 11 Task 1). The
+   * status sits in the WHERE, so a double-click or a second tab submits once;
+   * null when the request stopped being a draft first (docs/coding-conventions.md,
+   * Concurrency).
+   */
+  async submit(id: string): Promise<PurchaseRequestWithDetail | null> {
+    const { count } = await prisma.purchaseRequest.updateMany({
+      where: { id, status: PRStatus.DRAFT },
+      data:  { status: PRStatus.PENDING_APPROVAL, submittedAt: new Date() },
+    })
+    if (count === 0) return null
+    return prisma.purchaseRequest.findUnique({ where: { id }, include: detailInclude })
+  },
 
-      /**
+  /**
    * Records a decision and moves the request, as ONE transaction.
    *
    * Both writes must land together. If the Approval insert succeeded and the
@@ -200,11 +198,22 @@ export const PurchaseRequestRepository = {
     purchaseOrderLines?: PurchaseOrderLineInput[]
     /** Copied onto the purchase order it becomes. */
     deliverToId?: string | null
-  }): Promise<PurchaseRequestWithDetail> {
+  }): Promise<PurchaseRequestWithDetail | null> {
     return prisma.$transaction(async tx => {
       // NOTE: tx, not prisma. Inside this callback `tx` is the transactional
       // client; writing `prisma.` here instead would run that statement OUTSIDE
       // the transaction, silently defeating the whole thing.
+
+      // The status moves FIRST, with PENDING_APPROVAL in the WHERE (Week 11
+      // Task 1). Two approvers clicking at once in the inbox used to both pass
+      // the service's read-then-check and both create a purchase order; now
+      // the second matches no row, writes nothing, and gets null (409).
+      const { count } = await tx.purchaseRequest.updateMany({
+        where: { id: input.id, status: PRStatus.PENDING_APPROVAL },
+        data:  { status: input.newStatus },
+      })
+      if (count === 0) return null
+
       await tx.approval.create({
         data: {
           referenceType: 'PurchaseRequest',
@@ -226,11 +235,7 @@ export const PurchaseRequestRepository = {
         })
       }
 
-      return tx.purchaseRequest.update({
-        where:   { id: input.id },
-        data:    { status: input.newStatus },
-        include: detailInclude,
-      })
+      return tx.purchaseRequest.findUnique({ where: { id: input.id }, include: detailInclude })
     })
   },
 

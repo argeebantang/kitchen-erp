@@ -242,8 +242,8 @@ const plan = {
           title: "Approvals Hub & Reports",
           tag: null,
           tasks: [
-            "Unified approvals inbox: all pending PRs, POs, RRs, Production Orders, Conversions, Write-offs in one queue",
-            "One-click approve/reject with comment",
+            { t: "Unified approvals inbox: all pending PRs, POs, RRs, Production Orders (plans and completions), Conversions, Write-offs and Transfers in one queue, oldest first", done: true },
+            { t: "One-click approve/reject with comment", done: true },
             { t: "In-app notification bell, real-time over SSE (pulled forward, built 2026-11-07)", done: true },
             "Email notifications via Resend, building on the in-app bell",
             "Escalation job: re-notify approver if pending 24+ hours",

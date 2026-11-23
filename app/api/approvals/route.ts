@@ -7,6 +7,7 @@ import { ProductionOrderService } from '@/services/production-order.service'
 import { ConversionOrderService } from '@/services/conversion-order.service'
 import { WriteOffService } from '@/services/write-off.service'
 import { StockTransferService } from '@/services/stock-transfer.service'
+import { APPROVAL_TYPES } from '@/services/approval-inbox.service'
 
 
 const DecisionSchema = z.object({
@@ -15,7 +16,8 @@ const DecisionSchema = z.object({
   // ConversionOrder = a recorded conversion (Week 7 Task 1); WriteOff = a
   // recorded write-off of a finished-goods lot (Week 7 Task 2);
   // StockTransfer = a Transfer Order, approving it dispatches (Week 8 Task 3).
-  referenceType: z.enum(['PurchaseRequest', 'PurchaseOrder', 'ReceivingReport', 'ProductionOrder', 'ProductionCompletion', 'ConversionOrder', 'WriteOff', 'StockTransfer']),
+  // The list lives with the inbox (Week 11 Task 1), so the two cannot drift.
+  referenceType: z.enum(APPROVAL_TYPES),
   referenceId:   z.string().cuid(),
   decision:      z.enum(['APPROVED', 'REJECTED']),
   remarks:       z.string().trim().max(1000).nullish(),

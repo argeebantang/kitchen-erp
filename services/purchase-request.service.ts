@@ -62,6 +62,9 @@ export type PurchaseRequestSummaryDto = {
   estimatedTotal: string | null
   neededBy: string | null
   deliverToName: string | null
+  requestedById: string
+  /** When it was sent for approval (Week 11 Task 1); null while a draft and on older requests. */
+  submittedAt: string | null
   createdAt: string
 }
 
@@ -257,6 +260,8 @@ export const PurchaseRequestService = {
           estimatedTotal: estimated === null ? null : toDecimalString(estimated),
           neededBy:       pr.neededBy?.toISOString() ?? null,
           deliverToName:  pr.deliverTo?.name ?? null,
+          requestedById:  pr.requestedById,
+          submittedAt:    pr.submittedAt?.toISOString() ?? null,
           createdAt:      pr.createdAt.toISOString(),
         }
       }),
@@ -317,7 +322,10 @@ export const PurchaseRequestService = {
       return { success: false, error: 'Add at least one line before submitting', status: 400 }
     }
 
-    const updated = await PurchaseRequestRepository.updateStatus(id, PRStatus.PENDING_APPROVAL)
+    const updated = await PurchaseRequestRepository.submit(id)
+    if (!updated) {
+      return { success: false, error: 'This request was submitted or changed meanwhile — reload to see it', status: 409 }
+    }
 
     // Enqueued AFTER the status change has committed, and a queue failure never
     // fails the submit: the request is saved and already visible in the
@@ -404,7 +412,9 @@ export const PurchaseRequestService = {
       purchaseOrderLines,
       deliverToId: pr.deliverToId,
     })
-
+    if (!updated) {
+      return { success: false, error: 'This request was decided meanwhile — reload to see the decision', status: 409 }
+    }
 
     return { success: true, data: await toDetailDto(updated) }
   },

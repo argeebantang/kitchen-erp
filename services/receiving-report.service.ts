@@ -71,8 +71,11 @@ export type ReceivingReportSummaryDto = {
   poNumber: string
   supplierName: string | null
   branchName: string
+  receivedById: string
   receivedByName: string
   receivedAt: string
+  /** When it was sent for approval (Week 11 Task 1); null while a draft and on older reports. */
+  submittedAt: string | null
   lineCount: number
   /** Lines whose count differs from what was expected; 0 is a match. */
   varianceLineCount: number
@@ -367,8 +370,10 @@ export const ReceivingReportService = {
         poNumber:        rr.purchaseOrder.poNumber,
         supplierName:    rr.purchaseOrder.supplier?.name ?? null,
         branchName:      rr.branch.name,
+        receivedById:    rr.receivedById,
         receivedByName:  rr.receivedBy.name,
         receivedAt:      rr.receivedAt.toISOString(),
+        submittedAt:     rr.submittedAt?.toISOString() ?? null,
         lineCount:       rr._count.items,
         varianceLineCount: varianceLines.get(rr.id) ?? 0,
         acceptedValue:     toDecimalString(acceptedValues.get(rr.id) ?? new Prisma.Decimal(0)),
