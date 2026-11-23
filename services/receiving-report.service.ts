@@ -12,6 +12,7 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
+import { getNotificationQueue, RR_DECIDED, RR_SUBMITTED, type ReceivingReportJob } from '@/lib/queue'
 
 /** One purchase order line as the receiving form shows it. */
 export type ReceivingLineDto = {
@@ -71,8 +72,11 @@ export type ReceivingReportSummaryDto = {
   poNumber: string
   supplierName: string | null
   branchName: string
+  receivedById: string
   receivedByName: string
   receivedAt: string
+  /** When it was sent for approval (Week 11 Task 1); null while a draft and on older reports. */
+  submittedAt: string | null
   lineCount: number
   /** Lines whose count differs from what was expected; 0 is a match. */
   varianceLineCount: number
@@ -171,6 +175,18 @@ export type ReceivingReportResult<T> =
   | { success: false; error: string; status: number }
 
 type Viewer = { userId: string; role: string }
+
+/**
+ * Queues a notification job after the change it reports has committed. A
+ * queue failure never fails the user's action (docs/architecture.md).
+ */
+async function enqueue(jobName: string, receivingReportId: string): Promise<void> {
+  try {
+    await getNotificationQueue().add(jobName, { receivingReportId } satisfies ReceivingReportJob)
+  } catch (err) {
+    console.error(`[ReceivingReportService] could not enqueue ${jobName}`, err)
+  }
+}
 
 // Only these orders are out with a supplier and still owed something.
 const RECEIVABLE_STATUSES: POStatus[] = [POStatus.SENT, POStatus.PARTIALLY_RECEIVED]
@@ -367,8 +383,10 @@ export const ReceivingReportService = {
         poNumber:        rr.purchaseOrder.poNumber,
         supplierName:    rr.purchaseOrder.supplier?.name ?? null,
         branchName:      rr.branch.name,
+        receivedById:    rr.receivedById,
         receivedByName:  rr.receivedBy.name,
         receivedAt:      rr.receivedAt.toISOString(),
+        submittedAt:     rr.submittedAt?.toISOString() ?? null,
         lineCount:       rr._count.items,
         varianceLineCount: varianceLines.get(rr.id) ?? 0,
         acceptedValue:     toDecimalString(acceptedValues.get(rr.id) ?? new Prisma.Decimal(0)),
@@ -678,6 +696,7 @@ export const ReceivingReportService = {
       return { success: false, error: 'This report changed while you were submitting it — reload and try again', status: 409 }
     }
 
+    await enqueue(RR_SUBMITTED, id) // the approvers (Week 11 Task 2)
     return { success: true, data: submitted }
   },
 
@@ -733,6 +752,7 @@ export const ReceivingReportService = {
 
     // The accepted quantities joined the branch's stock (Week 8 Task 5).
     if (decision === 'APPROVED') signalInventoryChanged([rr.branchId])
+    await enqueue(RR_DECIDED, id) // whoever counted it (Week 11 Task 2)
     return { success: true, data: decided.report }
   },
 }

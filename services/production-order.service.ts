@@ -288,6 +288,8 @@ export type StatusChangeDto = {
 export type PendingProductionOrderDto = ProductionOrderSummaryDto & {
   ingredientCount: number
   shortCount: number
+  /** When it was (last) sent for approval, from the status log (Week 11 Task 1). */
+  pendingSince: string | null
 }
 
 /** A reported completion in the approvals inbox (Week 6 Task 2, D9). */
@@ -295,7 +297,10 @@ export type PendingCompletionDto = ProductionOrderSummaryDto & {
   actualQty: string
   /** actualQty ÷ plannedQty × 100, one decimal place. */
   percentOfPlan: string
+  completedById: string | null
   completedByName: string | null
+  /** When the kitchen (last) reported it done, from the status log (Week 11 Task 1). */
+  pendingSince: string | null
   ingredientCount: number
   /** Ingredients approval would take below zero at the branch. */
   negativeCount: number
@@ -1230,6 +1235,7 @@ export const ProductionOrderService = {
    */
   async listPending(take = 100): Promise<PendingProductionOrderDto[]> {
     const orders = await ProductionOrderRepository.findPendingWithBom(ProductionStatus.PENDING_APPROVAL, take)
+    const since  = await ProductionOrderRepository.enteredStatusAt(orders.map(order => order.id), ProductionStatus.PENDING_APPROVAL)
 
     return Promise.all(orders.map(async order => {
       const lines = await materialRequirements(
@@ -1240,6 +1246,7 @@ export const ProductionOrderService = {
         ...toSummaryDto(order),
         ingredientCount: lines.length,
         shortCount:      lines.filter(line => line.stock !== null && !line.stock.enough).length,
+        pendingSince:    since.get(order.id)?.toISOString() ?? null,
       }
     }))
   },
@@ -1253,6 +1260,7 @@ export const ProductionOrderService = {
    */
   async listPendingCompletions(take = 100): Promise<PendingCompletionDto[]> {
     const orders = await ProductionOrderRepository.findPendingWithBom(ProductionStatus.PENDING_COMPLETION, take)
+    const since  = await ProductionOrderRepository.enteredStatusAt(orders.map(order => order.id), ProductionStatus.PENDING_COMPLETION)
 
     return Promise.all(orders.flatMap(order => {
       if (order.actualQty === null || order.completedAt === null) return []
@@ -1266,7 +1274,10 @@ export const ProductionOrderService = {
         ...toSummaryDto(order),
         actualQty:       toDecimalString(actualQty),
         percentOfPlan:   toDecimalString(actualQty.div(order.plannedQty).mul(100).toDecimalPlaces(1)),
+        completedById:   order.completedBy?.id ?? null,
         completedByName: order.completedBy?.name ?? null,
+        // The log, falling back to completedAt (the same moment) for a run reported before the log had it.
+        pendingSince:    (since.get(order.id) ?? order.completedAt)?.toISOString() ?? null,
         ingredientCount: effect.ingredients.length,
         negativeCount:   effect.negativeCount,
         costPerUnit:     cost.dto.perUnit,

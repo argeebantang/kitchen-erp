@@ -20,6 +20,7 @@ import {
   Coins,
   CalendarCheck,
   Sparkles,
+  Mail,
   Receipt
 } from 'lucide-react'
 
@@ -40,6 +41,8 @@ export const navigation: NavGroup[] = [
     group: 'Overview',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: [] },
+      // Week 11 Task 1: one queue for every document type, so it sits above the departments.
+      { label: 'Approvals', href: '/procurement/approvals', icon: ClipboardCheck, roles: ['ADMIN', 'ACCOUNTING'] },
       { label: 'Roadmap',   href: '/roadmap',   icon: Map,             roles: [] },
     ],
   },
@@ -47,7 +50,6 @@ export const navigation: NavGroup[] = [
     group: 'Procurement',
     items: [
       { label: 'Purchase Requests', href: '/procurement/requests',  icon: ShoppingCart,  roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
-      { label: 'Approvals',         href: '/procurement/approvals', icon: ClipboardCheck, roles: ['ADMIN', 'ACCOUNTING'] },
       { label: 'Purchase Orders', href: '/procurement/orders', icon: ClipboardList, roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
       { label: 'Receiving',         href: '/procurement/receiving', icon: Truck,         roles: ['ADMIN', 'PROCUREMENT_MANAGER', 'ACCOUNTING'] },
     ],
@@ -92,6 +94,8 @@ export const navigation: NavGroup[] = [
       { label: 'Master Data', href: '/admin/master', icon: Settings, roles: ['ADMIN'] },
       // Week 9 Task 1: the Claude connection, models and AI spend.
       { label: 'AI Settings', href: '/admin/ai',     icon: Sparkles, roles: ['ADMIN'] },
+      // Week 11 Task 2: Resend, who gets emails, and what went out.
+      { label: 'Email',       href: '/admin/email',  icon: Mail,     roles: ['ADMIN'] },
     ],
   },
 ]

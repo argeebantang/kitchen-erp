@@ -2,6 +2,9 @@ import { Prisma, Role } from '@prisma/client'
 import { BUSINESS_TIME_ZONE, EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
 import { formatPeso, formatQuantity, trimDecimal } from '@/lib/format'
 import { publishNotificationsChanged } from '@/lib/realtime'
+import { EMAIL_JOB_OPTIONS, getEmailQueue, NOTIFICATION_EMAIL, type NotificationEmailJob } from '@/lib/queue'
+import { PurchaseOrderRepository } from '@/repositories/purchase-order.repository'
+import { ReceivingReportRepository } from '@/repositories/receiving-report.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { CreateNotificationInput, NotificationRepository } from '@/repositories/notification.repository'
@@ -45,6 +48,8 @@ const LATEST = 15
  */
 const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   PurchaseRequest:     id => `/procurement/requests/${id}`,
+  PurchaseOrder:       id => `/procurement/orders/${id}`,
+  ReceivingReport:     id => `/procurement/receiving/${id}`,
   LowStockCheck:       () => '/inventory/stock',
   ExpiryCheck:         () => '/inventory/finished-goods',
   // Unlike the other daily jobs, the date matters: the bell opens that day.
@@ -59,6 +64,33 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   StockTransfer:       id => `/inventory/transfers/${id}`,
   StockRequest:        id => `/inventory/requests/${id}`,
 }
+
+/** Where a notification leads — the bell's link, and its email's button (Week 11 Task 2). */
+export function notificationHref(referenceType: string | null, referenceId: string | null): string | null {
+  const page = referenceType ? REFERENCE_PAGES[referenceType] : undefined
+  return page && referenceId ? page(referenceId) : null
+}
+
+/**
+ * The notifications that are also emailed (Week 11 Task 2, owner 2026-11-23):
+ * something waiting for your decision, a decision on something you
+ * submitted, and the evening close. Everything else — low stock, expiry,
+ * ledger mismatches, transfers on their way, stock requests — stays in the
+ * bell: it is acted on in the app the same day, and an inbox full of it gets
+ * ignored. Task 3 adds the escalation reminder, Task 7 the weekly summary.
+ */
+export const EMAILED_TYPES: ReadonlySet<string> = new Set([
+  // Waiting for a decision → the approvers.
+  'PR_SUBMITTED', 'PO_SUBMITTED', 'RR_SUBMITTED', 'PRODUCTION_ORDER_SUBMITTED', 'PRODUCTION_COMPLETION_REPORTED',
+  'CONVERSION_ORDER_SUBMITTED', 'WRITE_OFF_SUBMITTED', 'TRANSFER_SUBMITTED',
+  // Decided → whoever submitted it.
+  'PR_APPROVED', 'PR_REJECTED', 'PO_APPROVED', 'PO_REJECTED', 'RR_APPROVED', 'RR_REJECTED',
+  'PRODUCTION_ORDER_APPROVED', 'PRODUCTION_ORDER_REJECTED', 'PRODUCTION_COMPLETION_APPROVED', 'PRODUCTION_COMPLETION_REJECTED',
+  'CONVERSION_ORDER_APPROVED', 'CONVERSION_ORDER_REJECTED', 'WRITE_OFF_APPROVED', 'WRITE_OFF_REJECTED',
+  'TRANSFER_APPROVED', 'TRANSFER_REJECTED',
+  // The 21:00 close.
+  'END_OF_DAY',
+])
 
 export type NotificationDto = {
   id: string
@@ -89,12 +121,39 @@ async function push(userIds: string[]): Promise<void> {
   }
 }
 
-/** Every notification write goes through here: insert the rows, then push. */
-async function createAndPush(inputs: CreateNotificationInput[]): Promise<number> {
-  const count = await NotificationRepository.createMany(inputs)
-  if (count > 0) await push(inputs.map(input => input.userId))
-  return count
+/**
+ * Queue the email copy of each notification that is emailed (EMAILED_TYPES).
+ * After the insert, and never failing the caller: the bell is the record, the
+ * email a convenience. The notification id is the job id, so a re-run cannot
+ * queue it twice. The worker decides who has an address.
+ */
+async function queueEmails(rows: { id: string; type: string }[]): Promise<void> {
+  const emailed = rows.filter(row => EMAILED_TYPES.has(row.type))
+  if (emailed.length === 0) return
+  try {
+    await getEmailQueue().addBulk(emailed.map(row => ({
+      name: NOTIFICATION_EMAIL,
+      data: { notificationId: row.id } satisfies NotificationEmailJob,
+      // No ':' in a custom id — BullMQ refuses it (its own key separator).
+      opts: { ...EMAIL_JOB_OPTIONS, jobId: `${NOTIFICATION_EMAIL}-${row.id}` },
+    })))
+  } catch (err) {
+    console.error('[notifications] email jobs not queued; the notifications stand', err)
+  }
 }
+
+/** Every notification write goes through here: insert the rows, push to the bell, queue the emails. */
+async function createAndPush(inputs: CreateNotificationInput[]): Promise<number> {
+  const rows = await NotificationRepository.createMany(inputs)
+  if (rows.length > 0) {
+    await push(inputs.map(input => input.userId))
+    await queueEmails(rows)
+  }
+  return rows.length
+}
+
+/** "1 line", "3 lines". */
+const lineCount = (count: number) => `${count} line${count === 1 ? '' : 's'}`
 
 export const NotificationService = {
   /**
@@ -116,13 +175,12 @@ export const NotificationService = {
     return {
       unreadCount,
       notifications: rows.map(row => {
-        const page = row.referenceType ? REFERENCE_PAGES[row.referenceType] : undefined
         return {
           id:        row.id,
           type:      row.type,
           title:     row.title,
           body:      row.body,
-          href:      page && row.referenceId ? page(row.referenceId) : null,
+          href:      notificationHref(row.referenceType, row.referenceId),
           read:      row.readAt !== null,
           createdAt: row.createdAt.toISOString(),
         }
@@ -156,6 +214,124 @@ export const NotificationService = {
         referenceId:   pr.id,
       })),
     )
+  },
+
+  /**
+   * A purchase request was decided (Week 11 Task 2): tell whoever raised it —
+   * approved, with the purchase order it became, or rejected with the reason.
+   * Nothing when they decided it themselves (they cannot) or it is pending again.
+   */
+  async notifyPurchaseRequestDecided(purchaseRequestId: string): Promise<number> {
+    const [pr, [latest]] = await Promise.all([
+      PurchaseRequestRepository.findById(purchaseRequestId),
+      ApprovalRepository.findByReference('PurchaseRequest', purchaseRequestId),
+    ])
+    if (!pr || !latest || pr.status === 'PENDING_APPROVAL' || pr.status === 'DRAFT') return 0
+    if (pr.requestedById === latest.approver.id) return 0
+
+    const approved = latest.decision === 'APPROVED'
+    const order    = pr.purchaseOrders[0] ?? null
+    return createAndPush([{
+      userId:        pr.requestedById,
+      type:          approved ? 'PR_APPROVED' : 'PR_REJECTED',
+      title:         `${pr.prNumber} was ${approved ? 'approved' : 'rejected'}`,
+      body:          approved
+        ? `${latest.approver.name} approved it${order ? ` — it is now ${order.poNumber}, which procurement sources and sends` : ''}.`
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}.`,
+      referenceType: 'PurchaseRequest',
+      referenceId:   pr.id,
+    }])
+  },
+
+  /** A purchase order was sent for approval (Week 11 Task 2): tell the approvers, except whoever submitted it. */
+  async notifyPurchaseOrderSubmitted(purchaseOrderId: string): Promise<number> {
+    const po = await PurchaseOrderRepository.findById(purchaseOrderId)
+    if (!po || po.status !== 'PENDING_APPROVAL') return 0
+
+    const [approvers, submitter] = await Promise.all([
+      UserRepository.findByRoles(APPROVER_ROLES),
+      po.submittedById ? UserRepository.findById(po.submittedById) : Promise.resolve(null),
+    ])
+    const recipients = approvers.filter(user => user.id !== po.submittedById)
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'PO_SUBMITTED',
+      title:         `${po.poNumber} is waiting for approval`,
+      body:          `${submitter?.name ?? 'Procurement'} submitted ${lineCount(po.items.length)} from ${po.supplier?.name ?? 'no supplier'}`
+        + `${po.deliverTo ? ` for ${po.deliverTo.name}` : ''}, ${formatPeso(po.totalAmount.toString())}`
+        + `${po.purchaseRequest ? ` (from ${po.purchaseRequest.prNumber})` : ''}.`,
+      referenceType: 'PurchaseOrder',
+      referenceId:   po.id,
+    })))
+  },
+
+  /** A purchase order was decided (Week 11 Task 2): tell whoever submitted it. */
+  async notifyPurchaseOrderDecided(purchaseOrderId: string): Promise<number> {
+    const [po, [latest]] = await Promise.all([
+      PurchaseOrderRepository.findById(purchaseOrderId),
+      ApprovalRepository.findByReference('PurchaseOrder', purchaseOrderId),
+    ])
+    if (!po || !latest || !po.submittedById || po.status === 'PENDING_APPROVAL' || po.status === 'DRAFT') return 0
+    if (po.submittedById === latest.approver.id) return 0
+
+    const approved = latest.decision === 'APPROVED'
+    return createAndPush([{
+      userId:        po.submittedById,
+      type:          approved ? 'PO_APPROVED' : 'PO_REJECTED',
+      title:         `${po.poNumber} was ${approved ? 'approved' : 'rejected'}`,
+      body:          approved
+        ? `${latest.approver.name} approved it — download the PDF and send it to ${po.supplier?.name ?? 'the supplier'}.`
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}.`,
+      referenceType: 'PurchaseOrder',
+      referenceId:   po.id,
+    }])
+  },
+
+  /** A receiving report was sent for approval (Week 11 Task 2): tell the approvers, except whoever counted it. */
+  async notifyReceivingReportSubmitted(receivingReportId: string): Promise<number> {
+    const rr = await ReceivingReportRepository.findById(receivingReportId)
+    if (!rr || rr.status !== 'PENDING_APPROVAL') return 0
+
+    // The same figures as the receiving list and the approvals inbox.
+    const [approvers, accepted, variances] = await Promise.all([
+      UserRepository.findByRoles(APPROVER_ROLES),
+      ReceivingReportRepository.acceptedValues([rr.id]),
+      ReceivingReportRepository.varianceLineCounts([rr.id]),
+    ])
+    const recipients = approvers.filter(user => user.id !== rr.receivedById)
+    const differ = variances.get(rr.id) ?? 0
+    return createAndPush(recipients.map(user => ({
+      userId:        user.id,
+      type:          'RR_SUBMITTED',
+      title:         `${rr.rrNumber} is waiting for approval`,
+      body:          `${rr.receivedBy.name} counted ${rr.purchaseOrder.poNumber} from ${rr.purchaseOrder.supplier?.name ?? 'no supplier'} at ${rr.branch.name}: `
+        + `${formatPeso((accepted.get(rr.id) ?? new Prisma.Decimal(0)).toString())} accepted`
+        + (differ > 0 ? `, ${differ} ${differ === 1 ? 'line differs' : 'lines differ'} from the order.` : ', as ordered.'),
+      referenceType: 'ReceivingReport',
+      referenceId:   rr.id,
+    })))
+  },
+
+  /** A receiving report was decided (Week 11 Task 2): tell whoever counted it. */
+  async notifyReceivingReportDecided(receivingReportId: string): Promise<number> {
+    const [rr, [latest]] = await Promise.all([
+      ReceivingReportRepository.findById(receivingReportId),
+      ApprovalRepository.findByReference('ReceivingReport', receivingReportId),
+    ])
+    if (!rr || !latest || rr.status === 'PENDING_APPROVAL' || rr.status === 'DRAFT') return 0
+    if (rr.receivedById === latest.approver.id) return 0
+
+    const approved = latest.decision === 'APPROVED'
+    return createAndPush([{
+      userId:        rr.receivedById,
+      type:          approved ? 'RR_APPROVED' : 'RR_REJECTED',
+      title:         `${rr.rrNumber} was ${approved ? 'approved' : 'rejected'}`,
+      body:          approved
+        ? `${latest.approver.name} approved it — the delivery is in ${rr.branch.name}'s stock.`
+        : `${latest.approver.name}: ${latest.remarks ?? 'no reason given'}. Nothing went into stock.`,
+      referenceType: 'ReceivingReport',
+      referenceId:   rr.id,
+    }])
   },
 
   /**

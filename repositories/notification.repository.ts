@@ -15,12 +15,13 @@ export const NotificationRepository = {
    * round trip per recipient — tolerable for three approvers, wasteful at
    * fifty, and exactly the batching docs/coding-conventions.md asks for.
    *
-   * createMany returns a count, not the rows.
+   * Returns each row's id and type (createManyAndReturn, still one INSERT):
+   * the email copies (Week 11 Task 2) are queued by notification id.
    */
-  async createMany(inputs: CreateNotificationInput[]): Promise<number> {
-    if (inputs.length === 0) return 0
+  async createMany(inputs: CreateNotificationInput[]): Promise<{ id: string; type: string }[]> {
+    if (inputs.length === 0) return []
 
-    const result = await prisma.notification.createMany({
+    return prisma.notification.createManyAndReturn({
       data: inputs.map(input => ({
         userId:        input.userId,
         type:          input.type,
@@ -29,9 +30,19 @@ export const NotificationRepository = {
         referenceType: input.referenceType ?? null,
         referenceId:   input.referenceId ?? null,
       })),
+      select: { id: true, type: true },
     })
+  },
 
-    return result.count
+  /** One notification with its user's name and email address — what its email copy needs (Week 11 Task 2). */
+  async findForEmail(id: string) {
+    return prisma.notification.findUnique({
+      where:  { id },
+      select: {
+        id: true, type: true, title: true, body: true, referenceType: true, referenceId: true,
+        user: { select: { id: true, name: true, notificationEmail: true } },
+      },
+    })
   },
 
   /**

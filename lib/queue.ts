@@ -18,6 +18,18 @@ export const NOTIFICATIONS_QUEUE = 'notifications'
 /** Job names within the queue. Each name has its own payload type below. */
 export const PR_SUBMITTED = 'pr-submitted'
 
+/**
+ * Week 11 Task 2: the procurement events that told nobody until now — a
+ * purchase request decided (tell the requester), a purchase order or receiving
+ * report sent for approval (tell the approvers) and decided (tell whoever
+ * submitted or counted it).
+ */
+export const PR_DECIDED = 'pr-decided'
+export const PO_SUBMITTED = 'po-submitted'
+export const PO_DECIDED = 'po-decided'
+export const RR_SUBMITTED = 'rr-submitted'
+export const RR_DECIDED = 'rr-decided'
+
 /** A production order was sent for approval: tell the approvers. */
 export const PRODUCTION_ORDER_SUBMITTED = 'production-order-submitted'
 
@@ -128,6 +140,27 @@ export const REORDER_EXPLAIN = 'reorder-explain'
 export const DEMAND_FORECAST_EXPLAIN = 'demand-forecast-explain'
 
 /**
+ * Email (Week 11 Task 2) has its own queue too: Resend is an outside service
+ * with a rate limit, and a slow or failing send must hold up neither a
+ * notification nor an AI job.
+ */
+export const EMAIL_QUEUE = 'email'
+
+/** Send a notification's copy by email to its user. */
+export const NOTIFICATION_EMAIL = 'notification-email'
+
+/**
+ * Retries for email: a busy, rate-limited or unreachable Resend throws and
+ * comes back after 30 s, then 60 s; a refusal is logged FAILED at once.
+ */
+export const EMAIL_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff:  { type: 'exponential', delay: 30_000 },
+  removeOnComplete: 1000,
+  removeOnFail:     5000,
+}
+
+/**
  * Retries for AI jobs: only a failure worth retrying (busy, overloaded,
  * unreachable) throws and comes back — 30 s, then 60 s. Anything else marks
  * its insight FAILED on the first attempt and completes.
@@ -170,6 +203,22 @@ export type PrSubmittedJob = {
 }
 
 /** Same rule as PrSubmittedJob: an id, re-read when the job runs. */
+export type PurchaseRequestJob = {
+  purchaseRequestId: string
+}
+
+export type PurchaseOrderJob = {
+  purchaseOrderId: string
+}
+
+export type ReceivingReportJob = {
+  receivingReportId: string
+}
+
+export type NotificationEmailJob = {
+  notificationId: string
+}
+
 export type ProductionOrderJob = {
   productionOrderId: string
 }
@@ -252,6 +301,7 @@ export const redisConnection: ConnectionOptions = {
 const globalForQueue = globalThis as unknown as {
   notificationQueue: Queue | undefined
   aiQueue: Queue | undefined
+  emailQueue: Queue | undefined
 }
 
 /**
@@ -275,4 +325,12 @@ export function getAiQueue(): Queue {
     globalForQueue.aiQueue = new Queue(AI_QUEUE, { connection: redisConnection })
   }
   return globalForQueue.aiQueue
+}
+
+/** The email queue, lazy for the same reason as getNotificationQueue. */
+export function getEmailQueue(): Queue {
+  if (!globalForQueue.emailQueue) {
+    globalForQueue.emailQueue = new Queue(EMAIL_QUEUE, { connection: redisConnection })
+  }
+  return globalForQueue.emailQueue
 }

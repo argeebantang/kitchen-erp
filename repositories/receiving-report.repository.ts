@@ -240,7 +240,7 @@ export const ReceivingReportRepository = {
    */
   async submit(id: string): Promise<{ id: string; rrNumber: string } | null> {
     return prisma.$transaction(tx =>
-      moveStatus(tx, id, RRStatus.DRAFT, { status: RRStatus.PENDING_APPROVAL }),
+      moveStatus(tx, id, RRStatus.DRAFT, { status: RRStatus.PENDING_APPROVAL, submittedAt: new Date() }),
     )
   },
 

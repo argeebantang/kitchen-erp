@@ -135,7 +135,7 @@ export const PurchaseOrderRepository = {
         tx,
         input.id,
         POStatus.DRAFT,
-        { status: POStatus.PENDING_APPROVAL, submittedById: input.submittedById },
+        { status: POStatus.PENDING_APPROVAL, submittedById: input.submittedById, submittedAt: new Date() },
         { supplierId: { not: null } },
       ),
     )
@@ -271,6 +271,8 @@ async function moveStatus(
 const summaryInclude = {
   supplier:        { select: { id: true, name: true } },
   purchaseRequest: { select: { id: true, prNumber: true } },
+  // Who sent it for approval — the approvals inbox's "submitted by" (Week 11 Task 1).
+  submittedBy:     { select: { id: true, name: true } },
   _count:          { select: { items: true } },
 } satisfies Prisma.PurchaseOrderInclude
 
