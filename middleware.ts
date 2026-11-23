@@ -54,6 +54,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/branches',          roles: ['ADMIN'], methods: WRITE_METHODS },
   // Master Data → Suppliers (Week 10 Task 3): the promised lead time.
   { path: '/api/suppliers',         roles: ['ADMIN'] },
+  // Master Data → Holidays (Week 10 Task 5): the calendar the Demand Forecaster reads.
+  { path: '/api/holidays',          roles: ['ADMIN'] },
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
   // Accounting reads production orders to approve them (the decision itself

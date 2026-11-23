@@ -48,6 +48,8 @@ export const AI_FEATURES: Record<AiFeature, AiFeatureSettings> = {
   SUPPLIER_PERFORMANCE: { label: 'Supplier performance', model: AI_MODEL, effort: 'low', maxTokens: 8000 },
   // Why a kitchen should reorder a material, how much and by when — figures from the code (Week 10 Task 4).
   REORDER_RECOMMENDATION: { label: 'Reorder recommender', model: AI_MODEL, effort: 'low', maxTokens: 2000 },
+  // What a kitchen should cook on a day, from the code's forecast (Week 10 Task 5).
+  DEMAND_FORECAST: { label: 'Demand forecaster', model: AI_MODEL, effort: 'low', maxTokens: 3000 },
 }
 
 /** USD per million tokens. Writes are the 5-minute cache rate (1.25 × input). */

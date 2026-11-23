@@ -18,6 +18,7 @@ import {
   Moon,
   Store,
   Coins,
+  CalendarCheck,
   Sparkles,
   Receipt
 } from 'lucide-react'
@@ -56,6 +57,8 @@ export const navigation: NavGroup[] = [
     items: [
       { label: 'Production Orders', href: '/production/orders', icon: Package,       roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Production Schedule', href: '/production/schedule', icon: CalendarDays, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
+      // Week 10 Task 5: what to cook on a day (Feature 5); Feature 7's simulator joins it in Task 6.
+      { label: 'Plan',              href: '/production/plan',   icon: CalendarCheck, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Conversions',       href: '/production/conversions', icon: Recycle,  roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
       { label: 'Bill of Materials', href: '/production/bom',    icon: ClipboardList, roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
     ],

@@ -586,7 +586,18 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         and the Reorder Recommender counts what is on order per kitchen from it. Old documents were backfilled from
         their deliveries and notes.
       - Migrations `20261123150000_reorder_recommendation` (enum values only) and `20261123160000_purchase_deliver_to`.
-- [ ] Demand Forecaster
+- [x] Demand Forecaster — **done 2026-11-23** (`docs/2026-11-23-week10-demand-forecaster.md`, Task 5).
+      - **Production → Plan** (new): one kitchen, one day (tomorrow by default, up to 14 days ahead).
+      - **Per good, worked out by the system:** the requests (or, while they are open, the usual amount for that
+        weekday over 8 weeks, holidays left out), − stock still good, ÷ the kitchen's yield (Las Piñas Bopis 90.7 %),
+        − runs already planned, giving batches. **Plan production →** opens the order form pre-filled.
+      - Also on the page: the weekday profile, the day's holiday badge, and how past holidays went (All Saints' and
+        All Souls' Day ×1.8 for Lechon).
+      - **About this plan** (AI badge): Explain / Regenerate, about a cent; Claude may advise an extra batch on a
+        holiday, as advice.
+      - **Master Data → Holidays** (new, ADMIN): the 2026 Philippine regular and special non-working days pre-filled.
+        Add Eid'l Fitr / Eid'l Adha when proclaimed, 2027, and your own days.
+      - Migration `20261123180000_holidays_demand_forecast` (`Holiday`, 36 models).
 - [x] Supplier Performance Analyzer (monthly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-supplier-performance.md`, Task 3).
       - **Dashboard → KitchenAI insights → Suppliers — <month>** (ADMIN, ACCOUNTING, PROCUREMENT_MANAGER, VIEWER), with
         a month picker and a supplier filter.
@@ -606,8 +617,8 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
         "regenerate failed").
       - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
-      - On Feature 1 (cost explanation), Feature 3, Feature 6 and Feature 4 (the stock map popup) so far. Task 7 sweeps
-        the rest.
+      - On Feature 1 (cost explanation), Feature 3, Feature 6, Feature 4 (the stock map popup) and Feature 5 (Plan) so
+        far. Task 7 sweeps the rest.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

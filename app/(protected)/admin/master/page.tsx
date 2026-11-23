@@ -11,15 +11,17 @@ import { ReferenceDataPanel } from '@/components/master/ReferenceDataPanel'
 import { BranchesPanel } from '@/components/master/BranchesPanel'
 import { SuppliersPanel } from '@/components/master/SuppliersPanel'
 import { SupplierService } from '@/services/supplier.service'
+import { HolidaysPanel } from '@/components/master/HolidaysPanel'
+import { HolidayService } from '@/services/holiday.service'
 
 // Next.js 15: searchParams is a Promise in Server Components and must be
 // awaited. Destructuring it directly (the Next 14 shape) yields undefined.
 type PageProps = {
-  searchParams: Promise<{ tab?: string }>
+  searchParams: Promise<{ tab?: string; year?: string }>
 }
 
 export default async function MasterDataPage({ searchParams }: PageProps) {
-  const { tab } = await searchParams
+  const { tab, year } = await searchParams
   const active: MasterTabKey = isMasterTab(tab) ? tab : 'materials'
 
   // This is a Server Component, so it calls services directly rather than
@@ -36,7 +38,7 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Master Data</h1>
         <p className="mt-1 text-sm text-gray-400">
-          Materials, finished goods, the categories and units they reference, branches and suppliers
+          Materials, finished goods, the categories and units they reference, branches, suppliers and holidays
         </p>
       </div>
 
@@ -52,6 +54,9 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
       )}
       {active === 'branches' && <BranchesTab />}
       {active === 'suppliers' && <SuppliersPanel suppliers={await SupplierService.list()} />}
+      {active === 'holidays' && (
+        <HolidaysPanel {...await HolidayService.list(/^\d{4}$/.test(year ?? '') ? Number(year) : undefined)} />
+      )}
     </div>
   )
 }

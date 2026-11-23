@@ -3,6 +3,7 @@ import { CostVarianceService } from '@/services/cost-variance.service'
 import { WastePatternService } from '@/services/waste-pattern.service'
 import { SupplierPerformanceService } from '@/services/supplier-performance.service'
 import { REORDER_GENERATE_ROLES, ReorderService } from '@/services/reorder.service'
+import { DemandForecastService, FORECAST_GENERATE_ROLES } from '@/services/demand-forecast.service'
 
 /**
  * Every stored AI insight type, in one place (Week 10 Task 2, P6): who may see
@@ -45,6 +46,11 @@ const HANDLERS: Partial<Record<AiInsightType, InsightHandler>> = {
   [AiInsightType.REORDER_RECOMMENDATION]: {
     generateRoles: REORDER_GENERATE_ROLES,
     request: (position, userId, options) => ReorderService.request(position, userId, options),
+  },
+  // Feature 5 (Week 10 Task 5): one kitchen's plan for one day, by '<kitchenId>:<YYYY-MM-DD>'.
+  [AiInsightType.DEMAND_FORECAST]: {
+    generateRoles: FORECAST_GENERATE_ROLES,
+    request: (position, userId, options) => DemandForecastService.request(position, userId, options),
   },
 }
 
