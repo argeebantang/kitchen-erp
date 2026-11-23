@@ -252,16 +252,22 @@ export const ConversionOrderRepository = {
   /**
    * Approved conversions whose output lot was produced in [from, to) (date
    * labels at UTC midnight) — the costing dashboard's conversion ingredients
-   * and conversion output cost (Week 8 Task 6, C4, C8).
+   * and conversion output cost (Week 8 Task 6, C4, C8). `branchId` narrows to
+   * one kitchen (the Week 11 reports); null is every kitchen.
    */
-  async findApprovedProducedBetween(from: Date, to: Date) {
+  async findApprovedProducedBetween(from: Date, to: Date, branchId: string | null = null) {
     return prisma.conversionOrder.findMany({
-      where:  { status: ConversionStatus.APPROVED, lot: { producedOn: { gte: from, lt: to } } },
+      where:  { status: ConversionStatus.APPROVED, lot: { producedOn: { gte: from, lt: to } }, ...(branchId ? { branchId } : {}) },
       select: {
         id:             true,
+        orderNumber:    true,
+        sourceQty:      true,
         outputQty:      true,
         sourceCost:     true,
         conversionCost: true,
+        costPerUnit:    true,
+        branch:         { select: { id: true, name: true } },
+        sourceFinishedGood: { select: { name: true, unit: { select: { abbreviation: true } } } },
         finishedGood:   { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
         lot:            { select: { producedOn: true } },
       },
