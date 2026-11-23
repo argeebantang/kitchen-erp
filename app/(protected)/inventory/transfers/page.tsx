@@ -5,17 +5,19 @@ import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { BranchRepository } from '@/repositories/branch.repository'
-import { isTransferStatus, StockTransferService, TRANSFER_STATUSES, transferStatusLabel } from '@/services/stock-transfer.service'
+import { isTransferStatus, STOCK_TRANSFER_SORT_KEYS, StockTransferService, TRANSFER_STATUSES, transferStatusLabel } from '@/services/stock-transfer.service'
 import { ReturnBadge } from '@/components/inventory/BranchTransfers'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { EmptyState } from '@/components/ui/states'
 import { Store, SearchX, ArrowLeftRight } from 'lucide-react'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { KeepListParams, ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
 
-const PAGE_SIZE = 50
+const PATH = '/inventory/transfers'
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; branch?: string; short?: string; page?: string }>
+  searchParams: Promise<{ status?: string; branch?: string; short?: string; page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 /**
@@ -30,10 +32,13 @@ export default async function TransferListPage({ searchParams }: PageProps) {
   if (!session) redirect('/login')
 
   // Unknown filter values are ignored rather than an error, so a stale link still opens.
-  const { status: statusParam = '', branch: branchParam = '', short: shortParam, page: pageParam } = await searchParams
+  const { status: statusParam = '', branch: branchParam = '', short: shortParam } = await searchParams
   const status    = isTransferStatus(statusParam) ? statusParam : undefined
   const shortOnly = shortParam === '1'
-  const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: STOCK_TRANSFER_SORT_KEYS, defaultSort: { key: 'recorded', dir: 'desc' } })
+  const header = { sort: query.sort, path: PATH, params }
   const canRecord = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
   // Returns (Week 9 Task 9): an outlet's manager or an admin; the form says so if they run no outlet.
   const canReturn = session.role === 'ADMIN' || session.role === 'BRANCH_MANAGER'
@@ -44,22 +49,12 @@ export default async function TransferListPage({ searchParams }: PageProps) {
 
   const { transfers, total, lost, scopedTo, managesNoBranch } = await StockTransferService.list(
     { userId: session.userId, role: session.role },
-    { status, branchId, shortOnly, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE },
+    { status, branchId, shortOnly, skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort },
   )
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   // A branch manager sees one branch already, so the branch filter is not offered.
   const showBranchFilter = scopedTo === null && !managesNoBranch
   const filtered = status !== undefined || shortOnly || (showBranchFilter && branchId !== undefined)
 
-  const pageHref = (target: number) => {
-    const query = new URLSearchParams()
-    if (status) query.set('status', status)
-    if (branchId && showBranchFilter) query.set('branch', branchId)
-    if (shortOnly) query.set('short', '1')
-    if (target > 1) query.set('page', String(target))
-    const text = query.toString()
-    return text ? `/inventory/transfers?${text}` : '/inventory/transfers'
-  }
 
   // The same filters, arrived short only.
   const shortHref = (() => {
@@ -88,6 +83,8 @@ export default async function TransferListPage({ searchParams }: PageProps) {
       {!managesNoBranch && (
         // A GET form: the filters live in the URL, so a filtered list can be linked to.
         <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
+          <SearchBox placeholder="Search number, branch, good, request" />
+          <KeepListParams params={params} />
           <label className="block min-w-48">
             <span className="mb-1 block text-xs font-medium text-gray-500">Status</span>
             <select name="status" defaultValue={status ?? ''} className={inputClass}>
@@ -133,6 +130,8 @@ export default async function TransferListPage({ searchParams }: PageProps) {
         <EmptyState icon={Store} title="You don't manage a branch yet">
           An admin assigns branch managers in Master Data → Branches.
         </EmptyState>
+      ) : transfers.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={transfers.length} total={total} noun="transfers" />
       ) : transfers.length === 0 ? (
         filtered ? (
           <EmptyState icon={SearchX} title="No transfers match these filters" action={{ href: '/inventory/transfers', label: 'Clear filters' }} />
@@ -150,11 +149,11 @@ export default async function TransferListPage({ searchParams }: PageProps) {
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">From → To</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="From → To" sortKey="from" {...header} />
                 <th className="px-4 py-3 font-medium">Goods</th>
-                <th className="px-4 py-3 font-medium">Recorded</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <SortHeader label="Recorded" sortKey="recorded" firstDir="desc" {...header} />
+                <SortHeader label="Status" sortKey="status" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -196,15 +195,7 @@ export default async function TransferListPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {pageCount > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Page {page} of {pageCount} · {total} transfers</span>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-          </div>
-        </div>
-      )}
+      <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="transfers" />
     </div>
   )
 }

@@ -1,5 +1,6 @@
 import { Prisma, POStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type PurchaseOrderLineInput = {
   materialId: string
@@ -39,12 +40,16 @@ export const PurchaseOrderRepository = {
     const where: Prisma.PurchaseOrderWhereInput = {}
     if (filters.status)     where.status     = filters.status
     if (filters.supplierId) where.supplierId = filters.supplierId
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ poNumber: text }, { supplier: { name: text } }, { purchaseRequest: { prNumber: text } }, { items: { some: { material: { name: text } } } }]
+    }
 
     const [rows, total] = await prisma.$transaction([
       prisma.purchaseOrder.findMany({
         where,
         include: summaryInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),
@@ -303,6 +308,26 @@ export type PurchaseOrderListFilters = {
   supplierId?: string
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<PurchaseOrderSortKey>
+}
+
+/** Columns the Purchase Orders list can sort by (Week 12). */
+export const PURCHASE_ORDER_SORT_KEYS = ['number', 'supplier', 'total', 'expected', 'status'] as const
+export type PurchaseOrderSortKey = typeof PURCHASE_ORDER_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<PurchaseOrderSortKey>): Prisma.PurchaseOrderOrderByWithRelationInput[] {
+  const tieBreak: Prisma.PurchaseOrderOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ poNumber: dir }]
+    case 'supplier': return [{ supplier: { name: dir } }, ...tieBreak]
+    case 'total': return [{ totalAmount: dir }, ...tieBreak]
+    case 'expected': return [{ expectedDelivery: { sort: dir, nulls: 'last' } }, ...tieBreak]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 

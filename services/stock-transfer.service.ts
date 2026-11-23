@@ -23,6 +23,10 @@ import {
 } from '@/lib/queue'
 import { signalInventoryChanged } from '@/lib/realtime'
 import { StockRequestService } from '@/services/stock-request.service'
+import type { ListSort } from '@/lib/list-query'
+import type { StockTransferSortKey } from '@/repositories/stock-transfer.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { STOCK_TRANSFER_SORT_KEYS, type StockTransferSortKey } from '@/repositories/stock-transfer.repository'
 
 export type StockTransferLineDto = {
   finishedGoodId: string
@@ -663,7 +667,7 @@ export const StockTransferService = {
    */
   async list(
     viewer: TransferViewer,
-    filters: { status?: TransferStatus; branchId?: string; shortOnly?: boolean; skip?: number; take?: number } = {},
+    filters: { status?: TransferStatus; branchId?: string; shortOnly?: boolean; skip?: number; take?: number; search?: string; listSort?: ListSort<StockTransferSortKey> } = {},
   ): Promise<{
     transfers: StockTransferSummaryDto[]
     total: number

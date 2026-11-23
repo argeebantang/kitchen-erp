@@ -10,6 +10,8 @@ import { SupplierRepository } from '@/repositories/supplier.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
 import { getNotificationQueue, PO_DECIDED, PO_SUBMITTED, type PurchaseOrderJob } from '@/lib/queue'
+// Pages read the sortable columns from the service, never from a repository.
+export { PURCHASE_ORDER_SORT_KEYS, type PurchaseOrderSortKey } from '@/repositories/purchase-order.repository'
 
 
 export type PurchaseOrderLineDto = {

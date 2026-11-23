@@ -9,6 +9,10 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 import { StockRequestRepository, type StockRequestWithDetail } from '@/repositories/stock-request.repository'
+import type { ListSort } from '@/lib/list-query'
+import type { StockRequestSortKey } from '@/repositories/stock-request.repository'
+// Pages read the sortable columns from the service, never from a repository.
+export { STOCK_REQUEST_SORT_KEYS, type StockRequestSortKey } from '@/repositories/stock-request.repository'
 
 /**
  * Branch stock requests (Week 9 Task 10, docs/2026-11-21-week9-stock-requests.md):
@@ -291,7 +295,10 @@ export const StockRequestService = {
   },
 
   /** Soonest needed first. A branch manager sees only their own outlet's (S-9). */
-  async list(viewer: StockRequestViewer, filters: { status?: StockRequestStatus; kitchenId?: string; branchId?: string } = {}): Promise<{
+  async list(viewer: StockRequestViewer, filters: {
+    status?: StockRequestStatus; kitchenId?: string; branchId?: string
+    skip?: number; take?: number; search?: string; listSort?: ListSort<StockRequestSortKey>
+  } = {}): Promise<{
     requests: StockRequestSummaryDto[]
     total: number
     scopedTo: { id: string; name: string } | null
@@ -303,6 +310,10 @@ export const StockRequestService = {
       statuses:  filters.status ? [filters.status] : undefined,
       kitchenId: filters.kitchenId,
       branchId:  scope?.id ?? filters.branchId,
+      skip:      filters.skip,
+      take:      filters.take,
+      search:    filters.search,
+      listSort:  filters.listSort,
     })
     return { requests: rows.map(row => toSummary(row, null)), total, scopedTo: scope ?? null, managesNoBranch: false }
   },

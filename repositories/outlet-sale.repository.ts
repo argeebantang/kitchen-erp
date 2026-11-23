@@ -1,6 +1,7 @@
 import { MovementType, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 /** Something changed under the form: not enough left, or the day already recorded. Nothing is written. */
 export class OutletSaleConflict extends Error {}
@@ -41,6 +42,23 @@ const detailSelect = {
 
 export type OutletSaleSummary = Prisma.OutletSaleGetPayload<{ select: typeof listSelect }>
 export type OutletSaleDetail  = Prisma.OutletSaleGetPayload<{ select: typeof detailSelect }>
+
+/** Columns the Daily Sales list can sort by (Week 12). */
+export const OUTLET_SALE_SORT_KEYS = ['number', 'soldOn', 'outlet', 'takings', 'cost', 'by'] as const
+export type OutletSaleSortKey = typeof OUTLET_SALE_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<OutletSaleSortKey>): Prisma.OutletSaleOrderByWithRelationInput[] {
+  const tieBreak: Prisma.OutletSaleOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number':  return [{ saleNumber: dir }]
+    case 'soldOn':  return [{ soldOn: dir }, ...tieBreak]
+    case 'outlet':  return [{ branch: { name: dir } }, ...tieBreak]
+    case 'takings': return [{ totalAmount: dir }, ...tieBreak]
+    case 'cost':    return [{ totalCost: dir }, ...tieBreak]
+    case 'by':      return [{ submittedBy: { name: dir } }, ...tieBreak]
+  }
+}
 
 export const OutletSaleRepository = {
   /**
@@ -133,12 +151,21 @@ export const OutletSaleRepository = {
   },
 
   /** Newest day first; `branchId` null = every outlet. */
-  async findMany(input: { branchId: string | null; skip: number; take: number }): Promise<{ rows: OutletSaleSummary[]; total: number }> {
+  async findMany(input: {
+    branchId: string | null; skip: number; take: number
+    /** The list page's search box: number, outlet, who recorded it. */
+    search?: string
+    listSort?: ListSort<OutletSaleSortKey>
+  }): Promise<{ rows: OutletSaleSummary[]; total: number }> {
     const where: Prisma.OutletSaleWhereInput = input.branchId ? { branchId: input.branchId } : {}
+    if (input.search) {
+      const text = containsText(input.search)
+      where.OR = [{ saleNumber: text }, { branch: { name: text } }, { submittedBy: { name: text } }]
+    }
     const [rows, total] = await prisma.$transaction([
       prisma.outletSale.findMany({
         where, select: listSelect, skip: input.skip, take: input.take,
-        orderBy: [{ soldOn: 'desc' }, { createdAt: 'desc' }],
+        orderBy: input.listSort ? listOrderBy(input.listSort) : [{ soldOn: 'desc' }, { createdAt: 'desc' }],
       }),
       prisma.outletSale.count({ where }),
     ])

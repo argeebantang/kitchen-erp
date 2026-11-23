@@ -2,6 +2,7 @@ import { POStatus, Prisma, RRStatus } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { PurchaseOrderRepository } from '@/repositories/purchase-order.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type ReceivingReportLineInput = {
   purchaseOrderItemId: string
@@ -46,12 +47,16 @@ export const ReceivingReportRepository = {
     const where: Prisma.ReceivingReportWhereInput = {}
     if (filters.status)          where.status          = filters.status
     if (filters.purchaseOrderId) where.purchaseOrderId = filters.purchaseOrderId
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ rrNumber: text }, { purchaseOrder: { poNumber: text } }, { purchaseOrder: { supplier: { name: text } } }, { branch: { name: text } }, { items: { some: { material: { name: text } } } }]
+    }
 
     const [rows, total] = await prisma.$transaction([
       prisma.receivingReport.findMany({
         where,
         include: summaryInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),
@@ -414,4 +419,26 @@ export type ReceivingReportListFilters = {
   purchaseOrderId?: string
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<ReceivingReportSortKey>
+}
+
+/** Columns the Receiving list can sort by (Week 12). */
+export const RECEIVING_REPORT_SORT_KEYS = ['number', 'order', 'supplier', 'branch', 'received', 'receivedBy', 'status'] as const
+export type ReceivingReportSortKey = typeof RECEIVING_REPORT_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<ReceivingReportSortKey>): Prisma.ReceivingReportOrderByWithRelationInput[] {
+  const tieBreak: Prisma.ReceivingReportOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ rrNumber: dir }]
+    case 'order': return [{ purchaseOrder: { poNumber: dir } }, ...tieBreak]
+    case 'supplier': return [{ purchaseOrder: { supplier: { name: dir } } }, ...tieBreak]
+    case 'branch': return [{ branch: { name: dir } }, ...tieBreak]
+    case 'received': return [{ receivedAt: dir }, ...tieBreak]
+    case 'receivedBy': return [{ receivedBy: { name: dir } }, ...tieBreak]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }

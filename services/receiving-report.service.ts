@@ -13,6 +13,8 @@ import { ApprovalRepository } from '@/repositories/approval.repository'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
 import { getNotificationQueue, RR_DECIDED, RR_SUBMITTED, type ReceivingReportJob } from '@/lib/queue'
+// Pages read the sortable columns from the service, never from a repository.
+export { RECEIVING_REPORT_SORT_KEYS, type ReceivingReportSortKey } from '@/repositories/receiving-report.repository'
 
 /** One purchase order line as the receiving form shows it. */
 export type ReceivingLineDto = {

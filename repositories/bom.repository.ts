@@ -1,5 +1,6 @@
 import { BomKind, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type BomLineInput = {
   materialId: string
@@ -68,6 +69,22 @@ export type BomListFilters = {
   includeSuperseded?: boolean
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<BomSortKey>
+}
+
+/** Columns the Bill of Materials list can sort by (Week 12). */
+export const BOM_SORT_KEYS = ['good', 'created'] as const
+export type BomSortKey = typeof BOM_SORT_KEYS[number]
+
+// Kind / version / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<BomSortKey>): Prisma.BOMOrderByWithRelationInput[] {
+  switch (key) {
+    case 'good': return [{ finishedGood: { name: dir } }, { kind: 'asc' }, { version: 'desc' }, { id: 'asc' }]
+    case 'created': return [{ createdAt: dir }, { id: dir }]
+  }
 }
 
 export const BomRepository = {
@@ -84,12 +101,16 @@ export const BomRepository = {
     if (filters.kind) {
       where.kind = filters.kind
     }
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ finishedGood: { name: text } }, { finishedGood: { code: text } }, { sourceFinishedGood: { name: text } }, { items: { some: { material: { name: text } } } }]
+    }
 
     const [rows, total] = await prisma.$transaction([
       prisma.bOM.findMany({
         where,
         include: bomSummaryInclude,
-        orderBy: [{ finishedGood: { name: 'asc' } }, { kind: 'asc' }, { version: 'desc' }],
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : [{ finishedGood: { name: 'asc' } }, { kind: 'asc' }, { version: 'desc' }],
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

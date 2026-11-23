@@ -5,7 +5,7 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/componen
 import { AI_QUERY_PAGE_SIZE, AiQueryService, type AiQueryDto } from '@/services/ai-query.service'
 import { EmptyState } from '@/components/ui/states'
 import { SearchX, MessageSquare } from 'lucide-react'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { Pagination } from '@/components/ui/ListControls'
 
 type PageProps = {
   searchParams: Promise<{ user?: string; conversation?: string; page?: string }>
@@ -79,7 +79,6 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
   // A malformed conversation id is ignored; an unknown user simply matches nothing.
   const userId = userParam || undefined
   const { questions, total, askers } = await AiQueryService.list({ userId, conversationId, page })
-  const pageCount = Math.max(1, Math.ceil(total / AI_QUERY_PAGE_SIZE))
   const filtered = userId !== undefined || conversationId !== undefined
 
   const href = (target: { page?: number; conversation?: string | null }) => {
@@ -224,15 +223,7 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
         </ul>
       )}
 
-      {pageCount > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Page {page} of {pageCount} · {total} questions</span>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={href({ page: page - 1 })} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-            {page < pageCount && <Link href={href({ page: page + 1 })} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-          </div>
-        </div>
-      )}
+      <Pagination path="/admin/ai/questions" params={await searchParams} page={page} pageSize={AI_QUERY_PAGE_SIZE} total={total} noun="questions" />
     </div>
   )
 }

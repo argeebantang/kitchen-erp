@@ -9,6 +9,7 @@ import {
   isWriteOffReason,
   isWriteOffStatus,
   WRITE_OFF_REASONS,
+  WRITE_OFF_SORT_KEYS,
   WRITE_OFF_STATUSES,
   WriteOffService,
 } from '@/services/write-off.service'
@@ -16,12 +17,14 @@ import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { WriteOffReasonBadge } from '@/components/inventory/WriteOffReasonBadge'
 import { EmptyState } from '@/components/ui/states'
 import { SearchX, Trash2 } from 'lucide-react'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { KeepListParams, ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
 
-const PAGE_SIZE = 50
+const PATH = '/inventory/write-offs'
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; reason?: string; branch?: string; page?: string }>
+  searchParams: Promise<{ status?: string; reason?: string; branch?: string; page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 /**
@@ -35,29 +38,22 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
   const canWriteOff = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
   // Unknown filter values are ignored rather than an error, so a stale link still opens.
-  const { status: statusParam = '', reason: reasonParam = '', branch: branchParam = '', page: pageParam } = await searchParams
+  const { status: statusParam = '', reason: reasonParam = '', branch: branchParam = '' } = await searchParams
   const status = isWriteOffStatus(statusParam) ? statusParam : undefined
   const reason = isWriteOffReason(reasonParam) ? reasonParam : undefined
-  const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: WRITE_OFF_SORT_KEYS, defaultSort: { key: 'recorded', dir: 'desc' } })
+  const header = { sort: query.sort, path: PATH, params }
   // Week 10 Task 2 follow-up: by branch too. An unknown branch matches nothing, like the schedule's.
   const branches = await BranchRepository.findAllActiveWithType()
   const branchId = branchParam || undefined
 
   const { writeOffs, total, approvedValue } = await WriteOffService.list({
-    status, reason, branchId, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE,
+    status, reason, branchId, skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort,
   })
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const filtered  = status !== undefined || reason !== undefined || branchId !== undefined
 
-  const pageHref = (target: number) => {
-    const query = new URLSearchParams()
-    if (status) query.set('status', status)
-    if (reason) query.set('reason', reason)
-    if (branchId) query.set('branch', branchId)
-    if (target > 1) query.set('page', String(target))
-    const text = query.toString()
-    return text ? `/inventory/write-offs?${text}` : '/inventory/write-offs'
-  }
 
   return (
     <div>
@@ -91,6 +87,8 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
 
       {/* A GET form: the filters live in the URL, so a filtered list can be linked to. */}
       <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
+        <SearchBox placeholder="Search number, lot, good, branch" />
+        <KeepListParams params={params} />
         <label className="block min-w-48">
           <span className="mb-1 block text-xs font-medium text-gray-500">Status</span>
           <select name="status" defaultValue={status ?? ''} className={inputClass}>
@@ -120,7 +118,9 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
         {filtered && <Link href="/inventory/write-offs" className={secondaryButtonClass}>Clear</Link>}
       </form>
 
-      {writeOffs.length === 0 ? (
+      {writeOffs.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={writeOffs.length} total={total} noun="write-offs" />
+      ) : writeOffs.length === 0 ? (
         filtered ? (
           <EmptyState icon={SearchX} title="No write-offs match these filters" action={{ href: '/inventory/write-offs', label: 'Clear filters' }} />
         ) : (
@@ -137,14 +137,14 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Finished good · lot</th>
-                <th className="px-4 py-3 text-right font-medium">Quantity</th>
-                <th className="px-4 py-3 font-medium">Reason</th>
-                <th className="px-4 py-3 text-right font-medium">Value</th>
-                <th className="px-4 py-3 font-medium">Branch</th>
-                <th className="px-4 py-3 font-medium">Recorded</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="Finished good · lot" sortKey="good" {...header} />
+                <SortHeader label="Quantity" sortKey="quantity" firstDir="desc" align="right" {...header} />
+                <SortHeader label="Reason" sortKey="reason" {...header} />
+                <SortHeader label="Value" sortKey="value" firstDir="desc" align="right" {...header} />
+                <SortHeader label="Branch" sortKey="branch" {...header} />
+                <SortHeader label="Recorded" sortKey="recorded" firstDir="desc" {...header} />
+                <SortHeader label="Status" sortKey="status" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -182,15 +182,7 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {pageCount > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Page {page} of {pageCount} · {total} write-offs</span>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-          </div>
-        </div>
-      )}
+      <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="write-offs" />
     </div>
   )
 }

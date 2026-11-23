@@ -5,15 +5,17 @@ import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
-import { CONVERSION_STATUSES, ConversionOrderService, isConversionStatus } from '@/services/conversion-order.service'
+import { CONVERSION_STATUSES, CONVERSION_ORDER_SORT_KEYS, ConversionOrderService, isConversionStatus } from '@/services/conversion-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { EmptyState } from '@/components/ui/states'
-import { PendingSpinner } from '@/components/ui/PendingSpinner'
+import { KeepListParams, ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
 
-const PAGE_SIZE = 50
+const PATH = '/production/conversions'
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; page?: string }>
+  searchParams: Promise<{ status?: string; page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 export default async function ConversionOrderListPage({ searchParams }: PageProps) {
@@ -23,24 +25,19 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
   const canConvert = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
 
   // An unknown status is ignored rather than an error, so a stale link still opens.
-  const { status: statusParam = '', page: pageParam } = await searchParams
+  const { status: statusParam = '' } = await searchParams
   const status = isConversionStatus(statusParam) ? statusParam : undefined
-  const page   = Math.max(1, Number.parseInt(pageParam ?? '1', 10) || 1)
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: CONVERSION_ORDER_SORT_KEYS, defaultSort: { key: 'recorded', dir: 'desc' } })
+  const header = { sort: query.sort, path: PATH, params }
 
   const { conversionOrders, total } = await ConversionOrderService.list({
     status,
-    skip: (page - 1) * PAGE_SIZE,
-    take: PAGE_SIZE,
+    skip: query.skip,
+    take: query.take, search: query.q || undefined, listSort: query.sort,
   })
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
-  const pageHref = (target: number) => {
-    const query = new URLSearchParams()
-    if (status) query.set('status', status)
-    if (target > 1) query.set('page', String(target))
-    const text = query.toString()
-    return text ? `/production/conversions?${text}` : '/production/conversions'
-  }
 
   return (
     <div>
@@ -67,6 +64,8 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
 
       {/* A GET form: the filter lives in the URL, so a filtered list can be linked to. */}
       <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
+        <SearchBox placeholder="Search number, good, branch, person" />
+        <KeepListParams params={params} />
         <label className="block min-w-48">
           <span className="mb-1 block text-xs font-medium text-gray-500">Status</span>
           <select name="status" defaultValue={status ?? ''} className={inputClass}>
@@ -80,7 +79,9 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
         {status && <Link href="/production/conversions" className={secondaryButtonClass}>Clear</Link>}
       </form>
 
-      {conversionOrders.length === 0 ? (
+      {conversionOrders.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={conversionOrders.length} total={total} noun="conversions" />
+      ) : conversionOrders.length === 0 ? (
         status ? (
           <EmptyState icon={SearchX} title="No conversions with this status" action={{ href: '/production/conversions', label: 'Clear filter' }} />
         ) : (
@@ -97,13 +98,13 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 text-right font-medium">Made</th>
-                <th className="px-4 py-3 text-right font-medium">From</th>
-                <th className="px-4 py-3 font-medium">Branch</th>
-                <th className="px-4 py-3 font-medium">Recorded</th>
-                <th className="px-4 py-3 font-medium">By</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="Made" sortKey="made" align="right" {...header} />
+                <SortHeader label="From" sortKey="from" align="right" {...header} />
+                <SortHeader label="Branch" sortKey="branch" {...header} />
+                <SortHeader label="Recorded" sortKey="recorded" firstDir="desc" {...header} />
+                <SortHeader label="By" sortKey="by" {...header} />
+                <SortHeader label="Status" sortKey="status" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -136,15 +137,7 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
         </div>
       )}
 
-      {pageCount > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-          <span>Page {page} of {pageCount} · {total} conversions</span>
-          <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
-          </div>
-        </div>
-      )}
+      <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="conversions" />
     </div>
   )
 }

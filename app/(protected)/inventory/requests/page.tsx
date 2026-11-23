@@ -7,6 +7,7 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/componen
 import { BranchRepository } from '@/repositories/branch.repository'
 import {
   isStockRequestStatus,
+  STOCK_REQUEST_SORT_KEYS,
   StockRequestService,
   STOCK_REQUEST_STATUSES,
   type DemandDayDto,
@@ -15,9 +16,14 @@ import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { LateBadge } from '@/components/inventory/LateBadge'
 import { EmptyState } from '@/components/ui/states'
 import { Store, SearchX, ClipboardList } from 'lucide-react'
+import { KeepListParams, ListEmptyState, Pagination, SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
+
+const PATH = '/inventory/requests'
 
 type PageProps = {
-  searchParams: Promise<{ status?: string; kitchen?: string }>
+  searchParams: Promise<{ status?: string; kitchen?: string; page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 /**
@@ -36,8 +42,14 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
   const kitchens = await BranchRepository.findActiveKitchens()
   const kitchenId = kitchens.some(k => k.id === kitchenParam) ? kitchenParam : undefined
 
-  const [{ requests, scopedTo, managesNoBranch }, demand] = await Promise.all([
-    StockRequestService.list(viewer, { status, kitchenId }),
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  // The default is the kitchen's order of work: needed soonest first.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: STOCK_REQUEST_SORT_KEYS, defaultSort: { key: 'needed', dir: 'asc' } })
+  const header = { sort: query.sort, path: PATH, params }
+
+  const [{ requests, total, scopedTo, managesNoBranch }, demand] = await Promise.all([
+    StockRequestService.list(viewer, { status, kitchenId, skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort }),
     StockRequestService.demand(viewer, kitchenId),
   ])
   const isKitchen = session.role === 'ADMIN' || session.role === 'PRODUCTION_MANAGER'
@@ -61,6 +73,8 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
 
       {!managesNoBranch && (
         <form method="get" className="mb-6 flex flex-wrap items-end gap-3">
+          <SearchBox placeholder="Search number, outlet, kitchen, good" />
+          <KeepListParams params={params} />
           <label className="block min-w-48">
             <span className="mb-1 block text-xs font-medium text-gray-500">Status</span>
             <select name="status" defaultValue={status ?? ''} className={inputClass}>
@@ -86,6 +100,8 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
         <EmptyState icon={Store} title="You don't manage an outlet yet">
           An admin assigns branch managers in Master Data → Branches.
         </EmptyState>
+      ) : requests.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={requests.length} total={total} noun="requests" />
       ) : requests.length === 0 ? (
         filtered ? (
           <EmptyState icon={SearchX} title="No requests match these filters" action={{ href: '/inventory/requests', label: 'Clear filters' }} />
@@ -103,12 +119,12 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
           <table className="w-full text-sm">
             <thead className="border-b border-gray-200 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Number</th>
-                <th className="px-4 py-3 font-medium">Needed</th>
-                <th className="px-4 py-3 font-medium">Outlet → Kitchen</th>
+                <SortHeader label="Number" sortKey="number" firstDir="desc" {...header} />
+                <SortHeader label="Needed" sortKey="needed" {...header} />
+                <SortHeader label="Outlet → Kitchen" sortKey="outlet" {...header} />
                 <th className="px-4 py-3 font-medium">Goods asked</th>
-                <th className="px-4 py-3 font-medium">Submitted</th>
-                <th className="px-4 py-3 font-medium">Status</th>
+                <SortHeader label="Submitted" sortKey="submitted" firstDir="desc" {...header} />
+                <SortHeader label="Status" sortKey="status" {...header} />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -142,6 +158,8 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
           </table>
         </div>
       )}
+
+      {!managesNoBranch && <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="requests" />}
     </div>
   )
 }

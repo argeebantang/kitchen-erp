@@ -11,12 +11,18 @@ import { trimDecimal, formatPeso } from '@/lib/format'
 import { requestJson } from '@/lib/http'
 import type { MaterialDto } from '@/services/material.service'
 import type { CategoryDto, UnitDto } from '@/services/reference-data.service'
+import { SortHeader } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import type { ListSort, SearchParams } from '@/lib/list-query'
+import type { MaterialSortKey } from '@/services/material.service'
 
 type Props = {
   materials: MaterialDto[]
   categories: CategoryDto[]
   units: UnitDto[]
   suppliers: { id: string; name: string }[]
+  /** Server-side paging, search and sort (Week 12): the page's query, and how many rows match it. */
+  list: { total: number; q: string; sort: ListSort<MaterialSortKey>; params: SearchParams }
 }
 
 type PriceRow = {
@@ -36,7 +42,7 @@ const emptyForm = {
   code: '', name: '', description: '', categoryId: '', unitId: '', reorderPoint: '0',
 }
 
-export function MaterialsPanel({ materials, categories, units, suppliers }: Props) {
+export function MaterialsPanel({ materials, categories, units, suppliers, list }: Props) {
   const router = useRouter()
 
   const [editing, setEditing]   = useState<MaterialDto | null>(null)
@@ -120,10 +126,13 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-400">
-          {materials.length} active material{materials.length === 1 ? '' : 's'}
-        </p>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-1 flex-wrap items-center gap-3">
+          <SearchBox placeholder="Search code or name" />
+          <p className="text-sm text-gray-400">
+            {list.total} active material{list.total === 1 ? '' : 's'}{list.q ? ' match' : ''}
+          </p>
+        </div>
         <button
           onClick={openCreate}
           className="flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-600"
@@ -143,11 +152,11 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
         <table className="w-full text-sm">
           <thead className="border-b border-gray-100 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
             <tr>
-              <th className="px-4 py-3 font-medium">Code</th>
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Category</th>
-              <th className="px-4 py-3 font-medium">Unit</th>
-              <th className="px-4 py-3 text-right font-medium">Reorder point</th>
+              <SortHeader label="Code" sortKey="code" {...{ sort: list.sort, path: '/admin/master', params: list.params }} />
+              <SortHeader label="Name" sortKey="name" {...{ sort: list.sort, path: '/admin/master', params: list.params }} />
+              <SortHeader label="Category" sortKey="category" {...{ sort: list.sort, path: '/admin/master', params: list.params }} />
+              <SortHeader label="Unit" sortKey="unit" {...{ sort: list.sort, path: '/admin/master', params: list.params }} />
+              <SortHeader label="Reorder point" sortKey="reorderPoint" firstDir="desc" align="right" {...{ sort: list.sort, path: '/admin/master', params: list.params }} />
               <th className="px-4 py-3 text-right font-medium">Current price</th>
               <th className="px-4 py-3" />
             </tr>
@@ -156,7 +165,7 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
             {materials.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
-                  No materials yet. Create one to get started.
+                  {list.q ? `No materials match \u201c${list.q}\u201d. The search looks at every page.` : 'No materials yet. Create one to get started.'}
                 </td>
               </tr>
             )}

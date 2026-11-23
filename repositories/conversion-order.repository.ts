@@ -2,6 +2,7 @@ import { ConversionStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { InventoryRepository } from '@/repositories/inventory.repository'
 import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { containsText, type ListSort } from '@/lib/list-query'
 
 export type CreateConversionOrderInput = {
   /** The active CONVERSION version, pinned. */
@@ -44,6 +45,28 @@ export type ConversionOrderListFilters = {
   status?: ConversionStatus
   skip?: number
   take?: number
+  /** The list page's search box. */
+  search?: string
+  /** The list page's column sort (Week 12). */
+  listSort?: ListSort<ConversionOrderSortKey>
+}
+
+/** Columns the Conversions list can sort by (Week 12). */
+export const CONVERSION_ORDER_SORT_KEYS = ['number', 'made', 'from', 'branch', 'recorded', 'by', 'status'] as const
+export type ConversionOrderSortKey = typeof CONVERSION_ORDER_SORT_KEYS[number]
+
+// createdAt / id break ties, so a page boundary never shows a row twice or skips one.
+function listOrderBy({ key, dir }: ListSort<ConversionOrderSortKey>): Prisma.ConversionOrderOrderByWithRelationInput[] {
+  const tieBreak: Prisma.ConversionOrderOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }]
+  switch (key) {
+    case 'number': return [{ orderNumber: dir }]
+    case 'made': return [{ finishedGood: { name: dir } }, ...tieBreak]
+    case 'from': return [{ sourceFinishedGood: { name: dir } }, ...tieBreak]
+    case 'branch': return [{ branch: { name: dir } }, ...tieBreak]
+    case 'recorded': return [{ createdAt: dir }, { id: dir }]
+    case 'by': return [{ submittedBy: { name: dir } }, ...tieBreak]
+    case 'status': return [{ status: dir }, ...tieBreak]
+  }
 }
 
 /**
@@ -96,12 +119,16 @@ export const ConversionOrderRepository = {
   async findMany(filters: ConversionOrderListFilters = {}) {
     const where: Prisma.ConversionOrderWhereInput = {}
     if (filters.status) where.status = filters.status
+    if (filters.search) {
+      const text = containsText(filters.search)
+      where.OR = [{ orderNumber: text }, { finishedGood: { name: text } }, { sourceFinishedGood: { name: text } }, { branch: { name: text } }, { submittedBy: { name: text } }]
+    }
 
     const [rows, total] = await prisma.$transaction([
       prisma.conversionOrder.findMany({
         where,
         include: conversionInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: filters.listSort ? listOrderBy(filters.listSort) : { createdAt: 'desc' },
         skip:    filters.skip ?? 0,
         take:    filters.take ?? 50,
       }),

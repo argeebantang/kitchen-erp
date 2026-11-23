@@ -14,6 +14,8 @@ import {
   WriteOffWithDetail,
 } from '@/repositories/write-off.repository'
 import type { ApprovalDto } from '@/services/purchase-request.service'
+// Pages read the sortable columns from the service, never from a repository.
+export { WRITE_OFF_SORT_KEYS, type WriteOffSortKey } from '@/repositories/write-off.repository'
 
 /**
  * Write-offs (Week 7 Task 2): finished goods that cannot be used or converted

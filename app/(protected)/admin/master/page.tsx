@@ -1,5 +1,5 @@
-import { MaterialService } from '@/services/material.service'
-import { FinishedGoodService, MAX_SHELF_LIFE_HOURS } from '@/services/finished-good.service'
+import { MATERIAL_SORT_KEYS, MaterialService } from '@/services/material.service'
+import { FINISHED_GOOD_SORT_KEYS, FinishedGoodService, MAX_SHELF_LIFE_HOURS } from '@/services/finished-good.service'
 import { ReferenceDataService } from '@/services/reference-data.service'
 import { BranchService } from '@/services/branch.service'
 import { SupplierRepository } from '@/repositories/supplier.repository'
@@ -13,15 +13,18 @@ import { SuppliersPanel } from '@/components/master/SuppliersPanel'
 import { SupplierService } from '@/services/supplier.service'
 import { HolidaysPanel } from '@/components/master/HolidaysPanel'
 import { HolidayService } from '@/services/holiday.service'
+import { Pagination } from '@/components/ui/ListControls'
+import { parseListQuery, type SearchParams } from '@/lib/list-query'
 
 // Next.js 15: searchParams is a Promise in Server Components and must be
 // awaited. Destructuring it directly (the Next 14 shape) yields undefined.
 type PageProps = {
-  searchParams: Promise<{ tab?: string; year?: string }>
+  searchParams: Promise<{ tab?: string; year?: string; page?: string; q?: string; sort?: string; dir?: string }>
 }
 
 export default async function MasterDataPage({ searchParams }: PageProps) {
-  const { tab, year } = await searchParams
+  const params = await searchParams
+  const { tab, year } = params
   const active: MasterTabKey = isMasterTab(tab) ? tab : 'materials'
 
   // This is a Server Component, so it calls services directly rather than
@@ -44,8 +47,8 @@ export default async function MasterDataPage({ searchParams }: PageProps) {
 
       <MasterTabs active={active} />
 
-      {active === 'materials' && <MaterialsTab categories={categories} units={units} />}
-      {active === 'finished-goods' && <FinishedGoodsTab categories={categories} units={units} />}
+      {active === 'materials' && <MaterialsTab categories={categories} units={units} params={params} />}
+      {active === 'finished-goods' && <FinishedGoodsTab categories={categories} units={units} params={params} />}
       {active === 'categories' && (
         <ReferenceDataPanel kind="categories" categories={categories} units={units} />
       )}
@@ -76,40 +79,56 @@ async function BranchesTab() {
 }
 
 async function MaterialsTab({
-  categories, units,
+  categories, units, params,
 }: {
   categories: Awaited<ReturnType<typeof ReferenceDataService.listCategories>>
   units: Awaited<ReturnType<typeof ReferenceDataService.listUnits>>
+  params: SearchParams
 }) {
-  const [{ materials }, suppliers] = await Promise.all([
-    MaterialService.list({ take: 100 }),
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const query = parseListQuery(params, { sorts: MATERIAL_SORT_KEYS, defaultSort: { key: 'name', dir: 'asc' } })
+  const [{ materials, total }, suppliers] = await Promise.all([
+    MaterialService.list({ skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort }),
     SupplierRepository.findAllActive(),
   ])
 
   return (
-    <MaterialsPanel
-      materials={materials}
-      categories={categories.filter(c => c.type !== 'FINISHED_GOOD')}
-      units={units}
-      suppliers={suppliers}
-    />
+    <>
+      <MaterialsPanel
+        materials={materials}
+        categories={categories.filter(c => c.type !== 'FINISHED_GOOD')}
+        units={units}
+        suppliers={suppliers}
+        list={{ total, q: query.q, sort: query.sort, params }}
+      />
+      <Pagination path="/admin/master" params={params} page={query.page} pageSize={query.take} total={total} noun="materials" />
+    </>
   )
 }
 
 async function FinishedGoodsTab({
-  categories, units,
+  categories, units, params,
 }: {
   categories: Awaited<ReturnType<typeof ReferenceDataService.listCategories>>
   units: Awaited<ReturnType<typeof ReferenceDataService.listUnits>>
+  params: SearchParams
 }) {
-  const { finishedGoods } = await FinishedGoodService.list({ take: 100 })
+  // Paging, search and sort live in the URL (lib/list-query.ts); the database does all three.
+  const query = parseListQuery(params, { sorts: FINISHED_GOOD_SORT_KEYS, defaultSort: { key: 'name', dir: 'asc' } })
+  const { finishedGoods, total } = await FinishedGoodService.list({
+    skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort,
+  })
 
   return (
-    <FinishedGoodsPanel
-      finishedGoods={finishedGoods}
-      categories={categories.filter(c => c.type === 'FINISHED_GOOD')}
-      units={units}
-      maxShelfLifeHours={MAX_SHELF_LIFE_HOURS}
-    />
+    <>
+      <FinishedGoodsPanel
+        finishedGoods={finishedGoods}
+        categories={categories.filter(c => c.type === 'FINISHED_GOOD')}
+        units={units}
+        maxShelfLifeHours={MAX_SHELF_LIFE_HOURS}
+        list={{ total, q: query.q, sort: query.sort, params }}
+      />
+      <Pagination path="/admin/master" params={params} page={query.page} pageSize={query.take} total={total} noun="finished goods" />
+    </>
   )
 }

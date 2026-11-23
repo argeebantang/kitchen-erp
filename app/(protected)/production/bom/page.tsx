@@ -1,21 +1,31 @@
 import Link from 'next/link'
 import { ClipboardList, SearchX, BookOpen } from 'lucide-react'
-import { BomService } from '@/services/bom.service'
+import { BOM_SORT_KEYS, BomService } from '@/services/bom.service'
 import { trimDecimal } from '@/lib/format'
 import { EmptyState } from '@/components/ui/states'
+import { ListEmptyState, Pagination } from '@/components/ui/ListControls'
+import { SearchBox } from '@/components/ui/SearchBox'
+import { parseListQuery } from '@/lib/list-query'
+
+const PATH = '/production/bom'
 
 type PageProps = {
-  searchParams: Promise<{ finishedGoodId?: string; includeSuperseded?: string }>
+  searchParams: Promise<{ finishedGoodId?: string; includeSuperseded?: string; page?: string; q?: string }>
 }
 
 export default async function BomListPage({ searchParams }: PageProps) {
   const { finishedGoodId, includeSuperseded } = await searchParams
   const showAll = includeSuperseded === 'true'
 
-  const { boms } = await BomService.list({
+  // Paging and search live in the URL (lib/list-query.ts). Cards have no column headers, so they keep one
+  // order: by finished good, then kind and version.
+  const params = await searchParams
+  const query  = parseListQuery(params, { sorts: BOM_SORT_KEYS, defaultSort: { key: 'good', dir: 'asc' }, pageSize: 48 })
+
+  const { boms, total } = await BomService.list({
     finishedGoodId,
     includeSuperseded: showAll,
-    take: 100,
+    skip: query.skip, take: query.take, search: query.q || undefined, listSort: query.sort,
   })
 
   return (
@@ -37,7 +47,13 @@ export default async function BomListPage({ searchParams }: PageProps) {
         </Link>
       </div>
 
-      {boms.length === 0 ? (
+      <div className="mb-4">
+        <SearchBox placeholder="Search finished good, code, material" />
+      </div>
+
+      {boms.length === 0 && (query.q || total > 0) ? (
+        <ListEmptyState path={PATH} params={params} q={query.q} rowCount={boms.length} total={total} noun="BOMs" />
+      ) : boms.length === 0 ? (
         finishedGoodId ? (
           <EmptyState icon={SearchX} title="No BOM for this finished good" action={{ href: '/production/bom', label: 'Show every BOM' }} />
         ) : (
@@ -102,6 +118,8 @@ export default async function BomListPage({ searchParams }: PageProps) {
           ))}
         </div>
       )}
+
+      <Pagination path={PATH} params={params} page={query.page} pageSize={query.take} total={total} noun="BOMs" />
     </div>
   )
 }
