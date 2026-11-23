@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/form'
 import { CATEGORY_TYPES } from '@/repositories/category.repository'
 import type { CategoryDto, UnitDto } from '@/services/reference-data.service'
+import { requestJson } from '@/lib/http'
 
 /**
  * Categories and units share a panel — both are small, flat reference lists
@@ -46,17 +47,14 @@ export function ReferenceDataPanel({
     setSaving(true)
     setError('')
 
-    const res = await fetch(isCategories ? '/api/categories' : '/api/units', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(isCategories ? { name, type } : { name, abbreviation }),
+    const result = await requestJson(isCategories ? '/api/categories' : '/api/units', {
+      body:   isCategories ? { name, type } : { name, abbreviation },
+      fields: { name: 'Name', type: 'Type', abbreviation: 'Abbreviation' },
     })
-
-    const data = await res.json()
     setSaving(false)
 
-    if (!res.ok) {
-      setError(data.error ?? 'Save failed')
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 

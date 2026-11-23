@@ -9,6 +9,7 @@ import {
   Field, inputClass, primaryButtonClass, secondaryButtonClass,
 } from '@/components/ui/form'
 import type { BranchDto } from '@/services/branch.service'
+import { requestJson } from '@/lib/http'
 
 // Here rather than in the service: a value import from a service would pull
 // Prisma into the client bundle.
@@ -30,13 +31,6 @@ type Props = {
 // managerId '' = no manager.
 const emptyForm = { code: '', name: '', type: 'OUTLET' as BranchType, address: '', phone: '', managerId: '' }
 
-/** "Validation failed" alone tells the admin nothing — name the field and the rule. */
-function errorMessage(data: { error?: string; fields?: Record<string, string[] | undefined> }): string {
-  const fieldErrors = Object.entries(data.fields ?? {})
-    .filter(([, messages]) => messages && messages.length > 0)
-    .map(([field, messages]) => `${FIELD_LABELS[field] ?? field}: ${messages?.join(', ')}`)
-  return fieldErrors.length > 0 ? fieldErrors.join(' · ') : (data.error ?? 'Save failed')
-}
 
 export function BranchesPanel({ branches, managers }: Props) {
   const router = useRouter()
@@ -97,17 +91,16 @@ export function BranchesPanel({ branches, managers }: Props) {
       ...(isEdit ? {} : { code: form.code }),
     }
 
-    const res = await fetch(isEdit ? `/api/branches/${editing.id}` : '/api/branches', {
-      method:  isEdit ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    // "Validation failed" comes back as "Name: … · Phone: …" (lib/http.ts).
+    const result = await requestJson(isEdit ? `/api/branches/${editing.id}` : '/api/branches', {
+      method: isEdit ? 'PATCH' : 'POST',
+      body,
+      fields: FIELD_LABELS,
     })
-
-    const data = await res.json()
     setSaving(false)
 
-    if (!res.ok) {
-      setError(errorMessage(data))
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 
@@ -122,12 +115,11 @@ export function BranchesPanel({ branches, managers }: Props) {
 
     setBusyId(branch.id)
     setRowError('')
-    const res = await fetch(`/api/branches/${branch.id}/${active ? 'reactivate' : 'deactivate'}`, { method: 'POST' })
-    const data = await res.json()
+    const result = await requestJson(`/api/branches/${branch.id}/${active ? 'reactivate' : 'deactivate'}`, { method: 'POST' })
     setBusyId(null)
 
-    if (!res.ok) {
-      setRowError(data.error ?? (active ? 'Reactivate failed' : 'Deactivate failed'))
+    if (!result.ok) {
+      setRowError(`Could not ${active ? 'reactivate' : 'deactivate'} ${branch.name}: ${result.error}`)
       return
     }
     router.refresh()

@@ -4,6 +4,7 @@ import { todayIsoDate } from '@/lib/dates'
 import { trimDecimal } from '@/lib/format'
 import { MAX_BATCH_COUNT, ProductionOrderService } from '@/services/production-order.service'
 import { ProductionOrderForm } from '@/components/production/ProductionOrderForm'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   // ?date= from the schedule's "+"; ?good=, ?branch=, ?batches= too from the
@@ -71,9 +72,6 @@ export default async function NewProductionOrderPage({ searchParams }: PageProps
 
 function Blocked({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-      <p className="text-sm font-medium text-gray-600">{title}</p>
-      <p className="mt-1 text-sm text-gray-400">{body}</p>
-    </div>
+    <EmptyState title={title}>{body}</EmptyState>
   )
 }

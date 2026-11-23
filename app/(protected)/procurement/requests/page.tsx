@@ -1,10 +1,11 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Plus } from 'lucide-react'
+import { Plus, FileText } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { PurchaseRequestService } from '@/services/purchase-request.service'
 import { formatPeso } from '@/lib/format'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { EmptyState } from '@/components/ui/states'
 
 export default async function PurchaseRequestListPage() {
   // Server Components never see the x-user-id header middleware injects — that
@@ -44,10 +45,9 @@ export default async function PurchaseRequestListPage() {
       </div>
 
       {purchaseRequests.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No purchase requests yet</p>
-          <p className="mt-1 text-sm text-gray-400">Create one to get started.</p>
-        </div>
+        <EmptyState icon={FileText} title="No purchase requests yet" action={{ href: '/procurement/requests/new', label: 'New Request' }}>
+          Raise a request for materials. Accounting approves it before it becomes a purchase order.
+        </EmptyState>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">

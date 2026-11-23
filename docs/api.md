@@ -6,8 +6,8 @@ The browser is the only client. Server Components read through services directly
 
 ## Conventions
 
-* **Auth**: the `kitchen-token` cookie (set by `POST /api/auth/login`). `middleware.ts` verifies it on every non-public path; without it, the request is redirected to `/login` (a `307`, not a `401` — route handlers never see an unauthenticated request).
-* **Roles**: `ROLE_GUARDS` in `middleware.ts` restricts path prefixes, optionally only for some HTTP methods. A role outside the guard is redirected to `/unauthorized` (`307`). Services add action-level checks (`403`) where one path serves several roles. All guards that match a path apply.
+* **Auth**: the `kitchen-token` cookie (set by `POST /api/auth/login`). `middleware.ts` verifies it on every non-public path; route handlers never see an unauthenticated request. Without a valid one, an API call gets `401 { error: 'Your session has ended. Sign in again.' }` (Week 12 Task 2 — it used to be a `307` to `/login`, which `fetch` followed and took for success); a page, or an `/api/*` link the browser opens itself (`Sec-Fetch-Mode: navigate`: a PDF or Excel download), is still redirected to `/login`.
+* **Roles**: `ROLE_GUARDS` in `middleware.ts` restricts path prefixes, optionally only for some HTTP methods. A role outside the guard gets `403 { error: 'Your role cannot do this.' }` on an API call, and is redirected to `/unauthorized` (`307`) on a page or a navigated download. Services add action-level checks (`403`) where one path serves several roles. All guards that match a path apply.
 * **Identity**: handlers that record *who* read `x-user-id` / `x-user-role` (injected by middleware) and return `401` if they are missing. Who did something is never taken from the body.
 * **Bodies** are JSON. Quantities and money are **decimal strings** (`"2.5"`, regex-validated), never numbers. Dates are `YYYY-MM-DD`.
 * **Success**: `200` with `{ <resource>: … }`, `201` on create. Lists return `{ <resources>: [...], total }`.

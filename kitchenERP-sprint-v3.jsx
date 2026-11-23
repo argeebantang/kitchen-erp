@@ -260,8 +260,7 @@ const plan = {
           tag: null,
           tasks: [
             // Order changed 2026-11-23 (owner): polish first, deploy after — the screens are finished before they go live.
-            { t: "UI polish: loading states, empty states, error states on every screen",
-              partial: "Task 1 (2026-11-23): every screen has a loading skeleton, an error screen with Try again (the sidebar stays), and not-found pages for unknown links. Task 2 next: empty states and form errors, screen by screen." },
+            { t: "UI polish: loading states, empty states, error states on every screen — Task 1 (2026-11-23): loading skeletons, error screens with Try again, not-found pages; Task 2 (2026-11-24): readable form errors that never hang, filter-aware empty states with Clear filters, spinners on tabs and paging", done: true },
             "PWA setup: installable on mobile with offline indicator",
             { t: "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
               partial: "Pulled forward to Week 10 Task 1: npm run seed:history generates 90 days at 3 kitchens and 3 outlets (purchasing, production, outlet orders, deliveries, sales, waste). Item names and prices are the seed's; tune the volumes for the demo here." },

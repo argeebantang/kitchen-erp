@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Store } from 'lucide-react'
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { ExpiryBadge } from '@/components/inventory/ExpiryBadge'
 import { formatPeso, formatQuantity } from '@/lib/format'
@@ -15,6 +15,7 @@ import type {
   TransferLinePlanDto,
   TransferPreviewDto,
 } from '@/services/stock-transfer.service'
+import { EmptyState } from '@/components/ui/states'
 
 type Line = { key: number; finishedGoodId: string; quantity: string }
 
@@ -181,14 +182,11 @@ export function TransferOrderForm({
 
   if (fromBranches.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-gray-600">{isReturn ? 'No outlet to return from' : 'No active commissary'}</p>
-        <p className="mt-1 text-sm text-gray-400">
-          {isReturn
-            ? 'Returns are sent by an outlet\'s manager — you do not run an active outlet.'
-            : 'Transfers are sent from a commissary — set one up in Master Data → Branches.'}
-        </p>
-      </div>
+      <EmptyState icon={Store} title={isReturn ? 'No outlet to return from' : 'No active commissary'}>
+        {isReturn
+          ? 'Returns are sent by an outlet\'s manager, and you do not run an active outlet.'
+          : 'Transfers are sent from a commissary. Set one up in Master Data → Branches.'}
+      </EmptyState>
     )
   }
   const fromName = fromBranches.find(branch => branch.id === fromBranchId)?.name ?? 'the outlet'

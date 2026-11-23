@@ -8,6 +8,8 @@ import { DecisionSimulator } from '@/components/production/DecisionSimulator'
 import {
   DecisionSimulatorService, SIMULATOR_EXPLAIN_ROLES, SIMULATOR_ORDER_ROLES,
 } from '@/services/decision-simulator.service'
+import { EmptyState } from '@/components/ui/states'
+import { Factory } from 'lucide-react'
 
 type PageProps = {
   searchParams: Promise<{ kitchen?: string; date?: string }>
@@ -76,9 +78,9 @@ export default async function ProductionPlanPage({ searchParams }: PageProps) {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">
-          No active kitchen to plan for.
-        </div>
+        <EmptyState icon={Factory} title="No active kitchen to plan for">
+          An admin sets up kitchens in Master Data → Branches.
+        </EmptyState>
       )}
     </div>
   )

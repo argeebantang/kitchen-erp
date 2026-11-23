@@ -32,14 +32,15 @@ export function Field({ label, children }: { label: string; children: React.Reac
 }
 
 export function IconButton({
-  title, onClick, children,
-}: { title: string; onClick: () => void; children: React.ReactNode }) {
+  title, onClick, children, disabled = false,
+}: { title: string; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+      disabled={disabled}
+      className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-wait disabled:opacity-50"
     >
       {children}
     </button>

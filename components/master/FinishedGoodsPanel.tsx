@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Pencil, Ban, ClipboardList } from 'lucide-react'
+import { Plus, Pencil, Ban, ClipboardList, Loader2 } from 'lucide-react'
 import { formatPeso, formatShelfLife } from '@/lib/format'
+import { requestJson } from '@/lib/http'
 import { Modal } from '@/components/ui/Modal'
 import {
   Field, inputClass, primaryButtonClass, secondaryButtonClass,
@@ -32,6 +33,9 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfL
   const [form, setForm]         = useState(emptyForm)
   const [error, setError]       = useState('')
   const [saving, setSaving]     = useState(false)
+  // Deactivate runs from the table, outside any modal, so its failure shows above the table.
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null)
+  const [listError, setListError]           = useState('')
 
   function openCreate() {
     setForm({ ...emptyForm, categoryId: categories[0]?.id ?? '', unitId: units[0]?.id ?? '' })
@@ -80,17 +84,18 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfL
       ...(isEdit ? {} : { code: form.code }),
     }
 
-    const res = await fetch(isEdit ? `/api/finished-goods/${editing.id}` : '/api/finished-goods', {
-      method:  isEdit ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const result = await requestJson(isEdit ? `/api/finished-goods/${editing.id}` : '/api/finished-goods', {
+      method: isEdit ? 'PATCH' : 'POST',
+      body,
+      fields: {
+        code: 'Code', name: 'Name', description: 'Description', categoryId: 'Category', unitId: 'Unit',
+        sellingPrice: 'Selling price', shelfLifeHours: 'Shelf life',
+      },
     })
-
-    const data = await res.json()
     setSaving(false)
 
-    if (!res.ok) {
-      setError(data.error ?? 'Save failed')
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 
@@ -99,7 +104,14 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfL
   }
 
   async function deactivate(good: FinishedGoodDto) {
-    await fetch(`/api/finished-goods/${good.id}`, { method: 'DELETE' })
+    setDeactivatingId(good.id)
+    setListError('')
+    const result = await requestJson(`/api/finished-goods/${good.id}`, { method: 'DELETE' })
+    setDeactivatingId(null)
+    if (!result.ok) {
+      setListError(`Could not deactivate ${good.name}: ${result.error}`)
+      return
+    }
     router.refresh()
   }
 
@@ -116,6 +128,13 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfL
           <Plus size={16} /> New finished good
         </button>
       </div>
+
+      {listError && (
+        <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600">
+          {listError}
+          <button type="button" onClick={() => setListError('')} className="text-xs font-medium text-red-700 hover:underline">Dismiss</button>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -172,9 +191,10 @@ export function FinishedGoodsPanel({ finishedGoods, categories, units, maxShelfL
                     <button
                       title="Deactivate"
                       onClick={() => deactivate(good)}
-                      className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                      disabled={deactivatingId === good.id}
+                      className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-wait disabled:opacity-50"
                     >
-                      <Ban size={15} />
+                      {deactivatingId === good.id ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />}
                     </button>
                   </div>
                 </td>

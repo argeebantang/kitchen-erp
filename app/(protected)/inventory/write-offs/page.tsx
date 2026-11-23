@@ -14,6 +14,9 @@ import {
 } from '@/services/write-off.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { WriteOffReasonBadge } from '@/components/inventory/WriteOffReasonBadge'
+import { EmptyState } from '@/components/ui/states'
+import { SearchX, Trash2 } from 'lucide-react'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 const PAGE_SIZE = 50
 
@@ -118,14 +121,17 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
       </form>
 
       {writeOffs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">{filtered ? 'No write-offs match these filters' : 'No write-offs yet'}</p>
-          <p className="mt-1 text-sm text-gray-400">
-            {canWriteOff
-              ? <>Open <Link href="/inventory/finished-goods" className="text-orange-600 hover:underline">Finished Goods</Link> and click Write off on a lot.</>
-              : 'Production records write-offs here.'}
-          </p>
-        </div>
+        filtered ? (
+          <EmptyState icon={SearchX} title="No write-offs match these filters" action={{ href: '/inventory/write-offs', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState
+            icon={Trash2}
+            title="No write-offs yet"
+            action={canWriteOff ? { href: '/inventory/finished-goods', label: 'Open Finished Goods' } : undefined}
+          >
+            {canWriteOff ? 'Click Write off on a lot in Finished Goods.' : 'Production records write-offs here.'}
+          </EmptyState>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -180,8 +186,8 @@ export default async function WriteOffListPage({ searchParams }: PageProps) {
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} write-offs</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

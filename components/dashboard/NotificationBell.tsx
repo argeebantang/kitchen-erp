@@ -5,14 +5,15 @@ import Link from 'next/link'
 import { Bell } from 'lucide-react'
 import { useNotifications } from '@/hooks/useNotifications'
 import type { NotificationDto } from '@/services/notification.service'
+import { requestJson } from '@/lib/http'
 
-/** Fire-and-reload: the push from the server refreshes other tabs; this one reloads itself. */
+/**
+ * Fire-and-reload: the push from the server refreshes other tabs; this one
+ * reloads itself. A failure needs no message — the item simply stays unread
+ * and can be clicked again.
+ */
 async function markRead(body: { id: string } | { all: true }, reload: () => Promise<void>) {
-  await fetch('/api/notifications/read', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
-  })
+  await requestJson('/api/notifications/read', { body })
   await reload()
 }
 

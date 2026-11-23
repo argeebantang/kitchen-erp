@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { PurchaseOrderService } from '@/services/purchase-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { formatPeso } from '@/lib/format'
+import { EmptyState } from '@/components/ui/states'
+import { ShoppingCart } from 'lucide-react'
 
 export default async function PurchaseOrderListPage() {
   // No getSession() here, unlike the requests list. A purchase order is not
@@ -21,12 +23,9 @@ export default async function PurchaseOrderListPage() {
       </div>
 
       {purchaseOrders.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No purchase orders yet</p>
-          <p className="mt-1 text-sm text-gray-400">
-            Approve a purchase request and its order is created automatically.
-          </p>
-        </div>
+        <EmptyState icon={ShoppingCart} title="No purchase orders yet">
+          Approve a purchase request and its order is created automatically.
+        </EmptyState>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">

@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { LogOut, ChevronDown } from 'lucide-react'
 import { NotificationBell } from '@/components/dashboard/NotificationBell'
+import { requestJson } from '@/lib/http'
 
 type Props = {
   name: string
@@ -15,6 +16,7 @@ export function Topbar({ name, email, role }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -29,7 +31,15 @@ export function Topbar({ name, email, role }: Props) {
 
   async function handleLogout() {
     setLoading(true)
-    await fetch('/api/auth/logout', { method: 'POST' })
+    setLogoutError('')
+    // Only the server can clear the httpOnly session cookie, so a failed call
+    // means still signed in — say so rather than pretend.
+    const result = await requestJson('/api/auth/logout', { method: 'POST' })
+    if (!result.ok) {
+      setLoading(false)
+      setLogoutError(result.error)
+      return
+    }
     router.push('/login')
     router.refresh()
   }
@@ -84,6 +94,9 @@ export function Topbar({ name, email, role }: Props) {
                 <LogOut size={15} />
                 {loading ? 'Signing out...' : 'Log out'}
               </button>
+              {logoutError && (
+                <p role="alert" className="px-4 pb-2.5 text-xs text-red-600">{logoutError}</p>
+              )}
             </div>
           )}
         </div>

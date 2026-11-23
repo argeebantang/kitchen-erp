@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Trash2 } from 'lucide-react'
+import { Trash2, SearchX, PackageOpen } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
@@ -8,6 +8,8 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/componen
 import { EXPIRY_FILTERS, FINISHED_GOOD_LOT_LIMIT, InventoryService } from '@/services/inventory.service'
 import { ExpiryBadge, expiryRowClass } from '@/components/inventory/ExpiryBadge'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { EmptyState } from '@/components/ui/states'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type PageProps = {
   searchParams: Promise<{ branch?: string; expiry?: string }>
@@ -91,6 +93,7 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
               }`}
             >
               {count} {option.label}
+              <PendingSpinner />
             </Link>
           )
         })}
@@ -102,19 +105,11 @@ export default async function FinishedGoodsPage({ searchParams }: PageProps) {
       </div>
 
       {lots.length === 0 && expiryFilter ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No lots {expiryFilter.label}</p>
-          <p className="mt-1 text-sm text-gray-400">
-            <Link href={chipHref(null)} className="text-orange-600 hover:underline">Show every lot</Link>
-          </p>
-        </div>
+        <EmptyState icon={SearchX} title={`No lots ${expiryFilter.label}`} action={{ href: chipHref(null), label: 'Show every lot' }} />
       ) : lots.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No finished goods on hand</p>
-          <p className="mt-1 text-sm text-gray-400">
-            Complete a production run or record a conversion, and have accounting approve it — its output appears here as a lot.
-          </p>
-        </div>
+        <EmptyState icon={PackageOpen} title="No finished goods on hand">
+          Complete a production run or record a conversion, and have accounting approve it. Its output appears here as a lot.
+        </EmptyState>
       ) : (
         <>
           <div className="mb-6 flex flex-wrap gap-3">

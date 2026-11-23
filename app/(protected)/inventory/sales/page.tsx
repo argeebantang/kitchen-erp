@@ -5,6 +5,9 @@ import { shortDateLabel } from '@/lib/dates'
 import { formatPeso } from '@/lib/format'
 import { primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { OutletSaleService, SALES_PAGE_SIZE } from '@/services/outlet-sale.service'
+import { EmptyState } from '@/components/ui/states'
+import { Store, Receipt } from 'lucide-react'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type PageProps = {
   searchParams: Promise<{ page?: string }>
@@ -39,14 +42,17 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
       </div>
 
       {!result ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">You do not run an outlet</p>
-          <p className="mt-1 text-sm text-gray-400">Daily sales are kept per outlet.</p>
-        </div>
+        <EmptyState icon={Store} title="You do not run an outlet">
+          Daily sales are kept per outlet.
+        </EmptyState>
       ) : result.rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No sales recorded yet</p>
-        </div>
+        <EmptyState
+          icon={Receipt}
+          title="No sales recorded yet"
+          action={canRecord ? { href: '/inventory/sales/new', label: 'Record sales' } : undefined}
+        >
+          {canRecord ? 'Record what sold at closing; the goods leave the outlet\'s stock, soonest expiry first.' : null}
+        </EmptyState>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -82,9 +88,9 @@ export default async function OutletSaleListPage({ searchParams }: PageProps) {
 
       {result && pages > 1 && (
         <div className="mt-4 flex items-center gap-3 text-sm text-gray-500">
-          {page > 1 && <Link href={`/inventory/sales?page=${page - 1}`} className={secondaryButtonClass}>Newer</Link>}
+          {page > 1 && <Link href={`/inventory/sales?page=${page - 1}`} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
           <span>Page {page} of {pages}</span>
-          {page < pages && <Link href={`/inventory/sales?page=${page + 1}`} className={secondaryButtonClass}>Older</Link>}
+          {page < pages && <Link href={`/inventory/sales?page=${page + 1}`} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
         </div>
       )}
     </div>

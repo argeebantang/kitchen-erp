@@ -1,12 +1,14 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { Plus } from 'lucide-react'
+import { Plus, SearchX, Undo2 } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { CONVERSION_STATUSES, ConversionOrderService, isConversionStatus } from '@/services/conversion-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { EmptyState } from '@/components/ui/states'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 const PAGE_SIZE = 50
 
@@ -79,14 +81,17 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
       </form>
 
       {conversionOrders.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">
-            {status ? 'No conversions with this status' : 'No conversions yet'}
-          </p>
-          <p className="mt-1 text-sm text-gray-400">
-            {canConvert ? <>Click <span className="font-medium">Record Conversion</span> after the kitchen converts something.</> : 'Production records conversions here.'}
-          </p>
-        </div>
+        status ? (
+          <EmptyState icon={SearchX} title="No conversions with this status" action={{ href: '/production/conversions', label: 'Clear filter' }} />
+        ) : (
+          <EmptyState
+            icon={Undo2}
+            title="No conversions yet"
+            action={canConvert ? { href: '/production/conversions/new', label: 'Record Conversion' } : undefined}
+          >
+            {canConvert ? 'Record one after the kitchen converts a finished good into another.' : 'Production records conversions here.'}
+          </EmptyState>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -135,8 +140,8 @@ export default async function ConversionOrderListPage({ searchParams }: PageProp
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} conversions</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

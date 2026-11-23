@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Pencil, History, Ban } from 'lucide-react'
+import { Plus, Pencil, History, Ban, Loader2 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import {
   Field, IconButton, inputClass, primaryButtonClass, secondaryButtonClass,
 } from '@/components/ui/form'
 import { trimDecimal, formatPeso } from '@/lib/format'
+import { requestJson } from '@/lib/http'
 import type { MaterialDto } from '@/services/material.service'
 import type { CategoryDto, UnitDto } from '@/services/reference-data.service'
 
@@ -26,6 +27,11 @@ type PriceRow = {
   note: string | null
 }
 
+// Labels for a 400 "Validation failed" — the API names the fields as in the body.
+const FIELD_LABELS = {
+  code: 'Code', name: 'Name', description: 'Description', categoryId: 'Category', unitId: 'Unit', reorderPoint: 'Reorder point',
+}
+
 const emptyForm = {
   code: '', name: '', description: '', categoryId: '', unitId: '', reorderPoint: '0',
 }
@@ -38,6 +44,9 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
   const [form, setForm]         = useState(emptyForm)
   const [error, setError]       = useState('')
   const [saving, setSaving]     = useState(false)
+  // Deactivate runs from the table, outside any modal, so its failure shows above the table.
+  const [deactivatingId, setDeactivatingId] = useState<string | null>(null)
+  const [listError, setListError]           = useState('')
 
   const [pricingFor, setPricingFor] = useState<MaterialDto | null>(null)
 
@@ -79,17 +88,15 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
       ...(isEdit ? {} : { code: form.code }),
     }
 
-    const res = await fetch(isEdit ? `/api/materials/${editing.id}` : '/api/materials', {
-      method:  isEdit ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const result = await requestJson(isEdit ? `/api/materials/${editing.id}` : '/api/materials', {
+      method: isEdit ? 'PATCH' : 'POST',
+      body,
+      fields: FIELD_LABELS,
     })
-
-    const data = await res.json()
     setSaving(false)
 
-    if (!res.ok) {
-      setError(data.error ?? 'Save failed')
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 
@@ -100,7 +107,14 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
   }
 
   async function deactivate(material: MaterialDto) {
-    await fetch(`/api/materials/${material.id}`, { method: 'DELETE' })
+    setDeactivatingId(material.id)
+    setListError('')
+    const result = await requestJson(`/api/materials/${material.id}`, { method: 'DELETE' })
+    setDeactivatingId(null)
+    if (!result.ok) {
+      setListError(`Could not deactivate ${material.name}: ${result.error}`)
+      return
+    }
     router.refresh()
   }
 
@@ -117,6 +131,13 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
           <Plus size={16} /> New material
         </button>
       </div>
+
+      {listError && (
+        <div role="alert" className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-600">
+          {listError}
+          <button type="button" onClick={() => setListError('')} className="text-xs font-medium text-red-700 hover:underline">Dismiss</button>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full text-sm">
@@ -161,8 +182,8 @@ export function MaterialsPanel({ materials, categories, units, suppliers }: Prop
                     <IconButton title="Edit" onClick={() => openEdit(material)}>
                       <Pencil size={15} />
                     </IconButton>
-                    <IconButton title="Deactivate" onClick={() => deactivate(material)}>
-                      <Ban size={15} />
+                    <IconButton title="Deactivate" onClick={() => deactivate(material)} disabled={deactivatingId === material.id}>
+                      {deactivatingId === material.id ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />}
                     </IconButton>
                   </div>
                 </td>
@@ -274,6 +295,7 @@ function PriceHistoryModal({
   onRecorded: () => void
 }) {
   const [prices, setPrices]   = useState<PriceRow[] | null>(null)
+  const [loadError, setLoadError] = useState('')
   const [unitPrice, setPrice] = useState('')
   const [date, setDate]       = useState(new Date().toISOString().slice(0, 10))
   const [supplierId, setSupplierId] = useState('')
@@ -282,9 +304,10 @@ function PriceHistoryModal({
   const [saving, setSaving]   = useState(false)
 
   const load = useCallback(async () => {
-    const res  = await fetch(`/api/materials/${material.id}/prices`)
-    const data = await res.json()
-    if (res.ok) setPrices(data.prices)
+    setLoadError('')
+    const result = await requestJson<{ prices: PriceRow[] }>(`/api/materials/${material.id}/prices`)
+    if (result.ok) setPrices(result.data.prices)
+    else setLoadError(result.error)
   }, [material.id])
 
   // Must be an effect, not a render-body call — fetching in the body would
@@ -295,22 +318,19 @@ function PriceHistoryModal({
     setSaving(true)
     setError('')
 
-    const res = await fetch(`/api/materials/${material.id}/prices`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    const result = await requestJson(`/api/materials/${material.id}/prices`, {
+      body: {
         unitPrice,
         effectiveDate: date,
         supplierId:    supplierId || null,
         note:          note || null,
-      }),
+      },
+      fields: { unitPrice: 'Unit price', effectiveDate: 'Effective date', supplierId: 'Supplier', note: 'Note' },
     })
-
-    const data = await res.json()
     setSaving(false)
 
-    if (!res.ok) {
-      setError(data.error ?? 'Could not record price')
+    if (!result.ok) {
+      setError(result.error)
       return
     }
 
@@ -387,6 +407,17 @@ function PriceHistoryModal({
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
+          {prices === null && !loadError && (
+            <tr><td colSpan={4} className="py-6 text-center text-gray-400">Loading prices…</td></tr>
+          )}
+          {loadError && (
+            <tr>
+              <td colSpan={4} className="py-6 text-center text-red-600" role="alert">
+                Could not load the prices: {loadError}{' '}
+                <button type="button" onClick={() => void load()} className="font-medium underline">Try again</button>
+              </td>
+            </tr>
+          )}
           {prices?.length === 0 && (
             <tr><td colSpan={4} className="py-6 text-center text-gray-400">No prices recorded yet.</td></tr>
           )}

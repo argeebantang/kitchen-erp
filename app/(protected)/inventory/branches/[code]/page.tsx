@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, PackageOpen } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, trimDecimal } from '@/lib/format'
@@ -12,6 +12,7 @@ import { BranchTransfers } from '@/components/inventory/BranchTransfers'
 import { StockMap } from '@/components/inventory/StockMap'
 import { LiveRefresh } from '@/components/ui/LiveRefresh'
 import { ExpiryBadge, expiryRowClass } from '@/components/inventory/ExpiryBadge'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   params: Promise<{ code: string }>
@@ -101,13 +102,10 @@ export default async function BranchInventoryPage({ params }: PageProps) {
         )}
 
         {goods.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-            <p className="text-sm font-medium text-gray-600">No finished goods on hand at {branch.name}</p>
-            <p className="mt-1 text-sm text-gray-400">
-              Lots arrive here when accounting approves a production run or conversion made here, or when a transfer to
-              this branch is received.
-            </p>
-          </div>
+          <EmptyState icon={PackageOpen} title={`No finished goods on hand at ${branch.name}`}>
+            Lots arrive here when accounting approves a production run or conversion made here, or when a transfer to this
+            branch is received.
+          </EmptyState>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
             <table className="w-full text-sm">

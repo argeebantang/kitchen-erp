@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Lock } from 'lucide-react'
 import { todayIsoDate } from '@/lib/dates'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ReceivingReportForm } from '@/components/procurement/ReceivingReportForm'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   params: Promise<{ id: string }>
@@ -52,10 +53,9 @@ export default async function EditReceivingReportPage({ params }: PageProps) {
       </p>
 
       {rr.status !== 'DRAFT' ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">This report can no longer be edited</p>
-          <p className="mt-1 text-sm text-gray-400">Only a draft can be changed.</p>
-        </div>
+        <EmptyState icon={Lock} title="This report can no longer be edited" action={{ href: `/procurement/receiving/${rr.id}`, label: 'Back to the report' }}>
+          Only a draft can be changed.
+        </EmptyState>
       ) : (
         <ReceivingReportForm
           purchaseOrderId={rr.purchaseOrderId}

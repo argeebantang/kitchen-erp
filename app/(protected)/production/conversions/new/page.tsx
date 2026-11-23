@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { ConversionOrderService } from '@/services/conversion-order.service'
 import { ConversionOrderForm } from '@/components/production/ConversionOrderForm'
+import { EmptyState } from '@/components/ui/states'
 
 export default async function NewConversionOrderPage() {
   const { recipes, branches } = await ConversionOrderService.getForm()
@@ -51,9 +52,6 @@ export default async function NewConversionOrderPage() {
 
 function Blocked({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-      <p className="text-sm font-medium text-gray-600">{title}</p>
-      <p className="mt-1 text-sm text-gray-400">{body}</p>
-    </div>
+    <EmptyState title={title}>{body}</EmptyState>
   )
 }

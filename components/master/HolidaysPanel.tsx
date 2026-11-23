@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 // Type-only, so nothing from the service is bundled into the browser.
 import type { HolidayDto } from '@/services/holiday.service'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type HolidayType = HolidayDto['type']
 
@@ -56,6 +57,7 @@ export function HolidaysPanel({ year, years, holidays }: { year: number; years: 
             className={`rounded-lg border px-3 py-1.5 text-sm ${option === year ? 'border-orange-300 bg-orange-50 font-medium text-orange-700' : 'border-gray-200 text-gray-600 hover:bg-gray-50'}`}
           >
             {option}
+            <PendingSpinner />
           </Link>
         ))}
       </div>

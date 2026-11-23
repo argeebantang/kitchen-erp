@@ -79,6 +79,9 @@
 * Money on screen uses `formatPeso` (`₱`); in PDFs it prints as `PHP 1,420.00`.
 * A new folder with sub-pages under `app/(protected)/` gets a `loading.tsx` re-exporting `PageSkeleton` — without it, navigating inside that folder shows nothing until the page arrives (docs/architecture.md, "Page states").
 * "Nothing here" — an empty list, a record not available — uses `EmptyState` (`components/ui/states.tsx`). A not-found message never says whether the record exists.
+* Browser requests use `requestJson` (`lib/http.ts`) — it never throws, so a form always leaves its busy state; show `result.error` as is, and pass `fields` labels for validation errors. Disable the button while the request runs.
+* A filtered list that comes back empty says so ("No X match these filters") with a Clear filters link — never the same message as an empty list.
+* A link that changes only the URL's `?…` (tab, chip, paging) gets `<PendingSpinner />` inside it — it never shows the page skeleton.
 * Error screens show `ErrorState` (`components/ui/ErrorState.tsx`): a plain message, Try again, the digest as a reference. Never render `error.message` to the user.
 
 ## Refactoring

@@ -7,6 +7,7 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/componen
 import { ProductionOrderService, SCHEDULE_LIMIT } from '@/services/production-order.service'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { CHIP_STYLES, ScheduleCalendar } from '@/components/production/ScheduleCalendar'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type PageProps = {
   searchParams: Promise<{ month?: string; branch?: string; closed?: string }>
@@ -85,13 +86,15 @@ export default async function ProductionSchedulePage({ searchParams }: PageProps
           </Link>
           <Link href={href(addMonths(month, -1))} className={`${secondaryButtonClass} px-2`} aria-label="Previous month">
             <ChevronLeft size={16} />
+            <PendingSpinner className="ml-1 inline-flex" />
           </Link>
           <span className="min-w-36 text-center text-sm font-semibold text-gray-800">{monthLabel(month)}</span>
           <Link href={href(addMonths(month, 1))} className={`${secondaryButtonClass} px-2`} aria-label="Next month">
+            <PendingSpinner className="mr-1 inline-flex" />
             <ChevronRight size={16} />
           </Link>
           {month !== today.slice(0, 7) && (
-            <Link href={href(null)} className={secondaryButtonClass}>Today</Link>
+            <Link href={href(null)} className={secondaryButtonClass}>Today<PendingSpinner /></Link>
           )}
         </div>
       </div>

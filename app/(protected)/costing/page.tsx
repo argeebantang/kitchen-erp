@@ -15,6 +15,7 @@ import { WeeklyCostTable } from '@/components/costing/WeeklyCostTable'
 import { CHART_COLORS } from '@/components/costing/chart-colors'
 import { CostPerGood } from '@/components/costing/CostPerGood'
 import { ExpensiveBatches } from '@/components/costing/ExpensiveBatches'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type PageProps = {
   searchParams: Promise<{ weeks?: string }>
@@ -71,6 +72,7 @@ export default async function CostingPage({ searchParams }: PageProps) {
               }`}
             >
               {option} weeks
+              <PendingSpinner />
             </Link>
           ))}
         </nav>
