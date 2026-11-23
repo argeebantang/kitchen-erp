@@ -238,7 +238,7 @@ const plan = {
         },
         {
           week: "Week 11",
-          status: "next",
+          status: "done",
           title: "Approvals Hub & Reports",
           tag: null,
           tasks: [
@@ -249,12 +249,13 @@ const plan = {
             { t: "Escalation job: re-notify approver if pending 24+ hours", done: true },
             { t: "5 reports with Excel + PDF export (CSV in the original plan; Excel chosen instead, 2026-11-23): Inventory Movement, Production Summary, Procurement, Waste & Write-off, Cost per Batch", done: true },
             { t: "End-of-day branch snapshot report", done: true },
-            "Report scheduler: auto-email weekly summary to management every Monday",
+            { t: "Report scheduler: auto-email weekly summary to management every Monday", done: true },
           ],
           deliverable: "Accounting approver clears 5 pending items in 2 minutes from one screen. Generate and email a full week production report as PDF.",
         },
         {
           week: "Week 12",
+          status: "next",
           title: "Deploy, Polish & Portfolio",
           tag: null,
           tasks: [

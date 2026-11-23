@@ -8,7 +8,7 @@ import { notificationHref } from '@/services/notification.service'
 import { ReportService } from '@/services/report.service'
 import { renderReportPdf } from '@/lib/report-pdf'
 import { reportFileName } from '@/lib/report-format'
-import type { NotificationEmailJob } from '@/lib/queue'
+import type { NotificationEmailJob, ReportAttachment, ReportEmailJob } from '@/lib/queue'
 
 /**
  * Email (Week 11 Task 2). Every email goes to a user's `notificationEmail` —
@@ -106,6 +106,13 @@ ${paragraphs}${button}
 /** Who the worker generates an emailed report as: it has no user, and management sees every branch. */
 const REPORT_VIEWER = { userId: '', role: 'ADMIN' }
 
+/** A report as an email attachment, generated now (Tasks 6–7). Throws when the report cannot be built. */
+async function reportPdf(attachment: ReportAttachment): Promise<EmailAttachment> {
+  const built = await ReportService.run(attachment.report, attachment.query, REPORT_VIEWER)
+  if (!built.success) throw new Error(built.error)
+  return { filename: reportFileName(built.data, 'pdf'), content: await renderReportPdf(built.data) }
+}
+
 const NOTIFICATION_FOOTER = 'A copy of a notification in your KitchenERP bell. Your administrator sets where these emails go (Admin → Email).'
 
 export const EmailService = {
@@ -136,10 +143,7 @@ export const EmailService = {
     let attachments: EmailAttachment[] | undefined
     if (options.attachment) {
       try {
-        const { report, date, branchId } = options.attachment
-        const built = await ReportService.run(report, { date, branchId }, REPORT_VIEWER)
-        if (!built.success) throw new Error(built.error)
-        attachments = [{ filename: reportFileName(built.data, 'pdf'), content: await renderReportPdf(built.data) }]
+        attachments = [await reportPdf(options.attachment)]
       } catch (err) {
         if (!options.lastAttempt) return 'RETRY'
         await EmailLogRepository.create({ ...entry, status: EmailStatus.FAILED, error: `Could not build the PDF: ${err instanceof Error ? err.message : 'unknown error'}` })
@@ -161,6 +165,61 @@ export const EmailService = {
     // The notification id as the idempotency key: a job retried after Resend
     // accepted it (the reply lost) cannot send it twice.
     const result = await sendEmail({ to: address, subject: notification.title, html, text, attachments, idempotencyKey: `notification-${notification.id}` })
+    if (result.ok) {
+      await EmailLogRepository.create({ ...entry, status: EmailStatus.SENT, providerId: result.id })
+      return 'SENT'
+    }
+    if (result.retryable && !options.lastAttempt) return 'RETRY'
+    await EmailLogRepository.create({ ...entry, status: EmailStatus.FAILED, error: result.error })
+    return 'FAILED'
+  },
+
+  /**
+   * "Email this report" (Week 11 Task 7, the REPORT_EMAIL job): one report's
+   * PDF to one user, generated when it sends, logged REPORT. Same rules as a
+   * notification's email: no address → nothing, no key → SKIPPED, busy or the
+   * PDF failing → RETRY until the last attempt, then FAILED. `jobId` makes the
+   * Resend idempotency key, so a retried job cannot send twice.
+   */
+  async sendReport(job: ReportEmailJob, options: { jobId: string; lastAttempt: boolean }): Promise<EmailOutcome> {
+    const user = await UserRepository.findNotificationEmail(job.userId)
+    if (!user) return 'GONE'
+    if (!user.notificationEmail) return 'NO_ADDRESS'
+
+    let pdf: EmailAttachment
+    let title: string
+    let period: string
+    try {
+      const built = await ReportService.run(job.report, job.query, REPORT_VIEWER)
+      if (!built.success) throw new Error(built.error)
+      pdf = { filename: reportFileName(built.data, 'pdf'), content: await renderReportPdf(built.data) }
+      title = built.data.title
+      period = `${built.data.periodLabel}${built.data.branchName ? ` · ${built.data.branchName}` : ''}`
+    } catch (err) {
+      if (!options.lastAttempt) return 'RETRY'
+      await EmailLogRepository.create({
+        kind: 'REPORT', status: EmailStatus.FAILED, userId: job.userId, toAddress: user.notificationEmail,
+        subject: `Report: ${job.report}`, error: `Could not build the PDF: ${err instanceof Error ? err.message : 'unknown error'}`,
+      })
+      return 'FAILED'
+    }
+
+    const subject = `${title} — ${period}`
+    const entry = { kind: 'REPORT', userId: job.userId, toAddress: user.notificationEmail, subject }
+    if (!emailConfigured()) {
+      await EmailLogRepository.create({ ...entry, status: EmailStatus.SKIPPED, error: 'Email is not set up (RESEND_API_KEY)' })
+      return 'SKIPPED'
+    }
+    const query = new URLSearchParams(Object.entries({ ...job.query, branch: job.query.branchId ?? undefined, branchId: undefined })
+      .filter((pair): pair is [string, string] => typeof pair[1] === 'string'))
+    const { html, text } = renderEmail({
+      greeting:   `Hi ${user.name},`,
+      heading:    subject,
+      paragraphs: [`${job.requestedByName} sent you this report from KitchenERP. The PDF is attached (${pdf.filename}).`],
+      link:       { url: absoluteUrl(`/reports/${job.report}?${query.toString()}`), label: 'Open it in KitchenERP' },
+      footer:     'Figures as they stood when it was sent; the report in the app is always current.',
+    })
+    const result = await sendEmail({ to: user.notificationEmail, subject, html, text, attachments: [pdf], idempotencyKey: `report-${options.jobId}` })
     if (result.ok) {
       await EmailLogRepository.create({ ...entry, status: EmailStatus.SENT, providerId: result.id })
       return 'SENT'

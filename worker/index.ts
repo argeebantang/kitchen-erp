@@ -20,6 +20,9 @@ import {
   DAILY_JOBS,
   END_OF_DAY_SUMMARY,
   APPROVAL_ESCALATION,
+  WEEKLY_SUMMARY,
+  REPORT_EMAIL,
+  type ReportEmailJob,
   EXPIRY_CHECK,
   getNotificationQueue,
   LOW_STOCK_CHECK,
@@ -217,6 +220,12 @@ async function handleApprovalEscalation() {
     : `  → ${overdue} overdue; ${reminded} reminder(s) due → wrote ${written} notification(s)`)
 }
 
+async function handleWeeklySummary() {
+  // Monday 07:00, Manila: last week (Monday to Sunday).
+  const { week, written } = await NotificationService.notifyWeeklySummary(todayIsoDate())
+  console.log(written === 0 ? `  → ${week}: nothing to report or already sent` : `  → ${week}: wrote ${written} notification(s)`)
+}
+
 async function handleStockReconciliation() {
   const date = todayIsoDate()
   const { mismatches, written } = await NotificationService.notifyStockMismatches(date)
@@ -283,6 +292,8 @@ const worker = new Worker(
         return handleEndOfDaySummary()
       case APPROVAL_ESCALATION:
         return handleApprovalEscalation()
+      case WEEKLY_SUMMARY:
+        return handleWeeklySummary()
       default:
         // Throwing marks the job FAILED rather than quietly completing it, so an
         // unrecognised job name is visible instead of vanishing.
@@ -434,13 +445,23 @@ async function handleNotificationEmail(job: Job<NotificationEmailJob>) {
   if (outcome === 'RETRY') throw new Error('Resend is busy or unreachable — will retry')
 }
 
-const emailWorker = new Worker<NotificationEmailJob>(
+/** "Email this report" (Week 11 Task 7): one report's PDF to one user. Same retry rule. */
+async function handleReportEmail(job: Job<ReportEmailJob>) {
+  const attempts = job.opts.attempts ?? 1
+  const outcome = await EmailService.sendReport(job.data, { jobId: job.id ?? job.data.userId, lastAttempt: job.attemptsMade + 1 >= attempts })
+  console.log(`  → ${job.data.report}: ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
+  if (outcome === 'RETRY') throw new Error('Resend is busy or the PDF could not be built — will retry')
+}
+
+const emailWorker = new Worker<NotificationEmailJob | ReportEmailJob>(
   EMAIL_QUEUE,
   async job => {
     console.log(`[worker:email] job ${job.id} (${job.name})`)
     switch (job.name) {
       case NOTIFICATION_EMAIL:
-        return handleNotificationEmail(job)
+        return handleNotificationEmail(job as Job<NotificationEmailJob>)
+      case REPORT_EMAIL:
+        return handleReportEmail(job as Job<ReportEmailJob>)
       default:
         throw new Error(`Unknown job name: ${job.name}`)
     }

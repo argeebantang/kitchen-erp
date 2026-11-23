@@ -718,7 +718,15 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
         a new bell notification and email with their own branch's PDF (on days it moved stock). The worker builds
         the PDF when it sends.
       - PDFs render through `lib/report-pdf.ts` (dynamic import), so the worker can render them under tsx.
-- [ ] Weekly report scheduler
+- [x] Weekly report scheduler — **Task 7, 2026-11-23** (`docs/2026-11-23-week11-weekly-summary.md`):
+      - **Weekly Management Summary** (Reports, management): last week's headline figures and key tables from the
+        four reports, unchanged, plus KitchenAI's waste findings.
+      - **Mondays 07:00:** to every admin and accountant — bell + email with the PDF (once per person per week).
+      - **"Email PDF"** on every report page: to me, or (admin, accounting) to management; queued, rendered by the
+        worker, logged in Admin → Email. Covers the deliverable "Generate and email a full week production report
+        as PDF".
+
+**Week 11 complete (2026-11-23).** Next: Week 12, Deploy, Polish & Portfolio.
 
 ### Week 12 — Deploy, Polish & Portfolio
 - [ ] AWS deploy (EC2, RDS, S3)

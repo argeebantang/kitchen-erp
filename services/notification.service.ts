@@ -1,6 +1,8 @@
 import { Prisma, Role } from '@prisma/client'
 import { BUSINESS_TIME_ZONE, EXPIRY_SOON_HOURS, expiryFlag, formatTimeLeft } from '@/lib/dates'
 import { formatPeso, formatQuantity, formatWaited, trimDecimal } from '@/lib/format'
+import { groupThousands } from '@/lib/report-format'
+import { presetPeriod, ReportService } from '@/services/report.service'
 import { publishNotificationsChanged } from '@/lib/realtime'
 import { EMAIL_JOB_OPTIONS, getEmailQueue, NOTIFICATION_EMAIL, type NotificationEmailJob } from '@/lib/queue'
 import { PurchaseOrderRepository } from '@/repositories/purchase-order.repository'
@@ -34,6 +36,9 @@ const ORDERING_ROLES: Role[] = [Role.PROCUREMENT_MANAGER, Role.ADMIN]
 /** Roles that act on lots near expiry — sell, convert or write them off (Week 7 Task 3, X3). */
 const EXPIRY_ROLES: Role[] = [Role.PRODUCTION_MANAGER, Role.ADMIN]
 
+/** Who gets the Monday summary: management that decides (Week 11 Task 7, owner 2026-11-23). */
+const WEEKLY_SUMMARY_ROLES: Role[] = [Role.ADMIN, Role.ACCOUNTING]
+
 /** Roles that close the day: the kitchen, and accounting for the money side (Week 7 Task 4, E4). */
 const END_OF_DAY_ROLES: Role[] = [Role.PRODUCTION_MANAGER, Role.ACCOUNTING, Role.ADMIN]
 
@@ -56,6 +61,8 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   ExpiryCheck:         () => '/inventory/finished-goods',
   // Unlike the other daily jobs, the date matters: the bell opens that day.
   EndOfDaySummary:     date => `/inventory/end-of-day?date=${date}`,
+  // The Monday summary (Week 11 Task 7): "<from>..<to>".
+  WeeklySummary:       ref => `/reports/weekly-summary?from=${ref.slice(0, 10)}&to=${ref.slice(12)}`,
   // A branch manager's evening snapshot (Week 11 Task 6): "<date>:<branchId>".
   EndOfDayBranch:      ref => `/reports/end-of-day?date=${ref.slice(0, 10)}&branch=${ref.slice(11)}`,
   StockReconciliation: () => '/inventory/ledger',
@@ -97,6 +104,8 @@ export const EMAILED_TYPES: ReadonlySet<string> = new Set([
   // The 21:00 close — management's with every branch's snapshot PDF, each
   // branch manager's with their own (Week 11 Task 6).
   'END_OF_DAY', 'END_OF_DAY_BRANCH',
+  // The Monday summary with its PDF (Week 11 Task 7).
+  'WEEKLY_SUMMARY',
   // Still waiting after 24 h, 48 h… (Week 11 Task 3).
   'APPROVAL_OVERDUE',
 ])
@@ -143,8 +152,10 @@ async function push(userIds: string[]): Promise<void> {
  */
 function attachmentFor(row: { type: string; referenceId: string | null }): NotificationEmailJob['attachment'] {
   if (!row.referenceId) return undefined
-  if (row.type === 'END_OF_DAY') return { report: 'end-of-day', date: row.referenceId, branchId: null }
-  if (row.type === 'END_OF_DAY_BRANCH') return { report: 'end-of-day', date: row.referenceId.slice(0, 10), branchId: row.referenceId.slice(11) }
+  if (row.type === 'END_OF_DAY') return { report: 'end-of-day', query: { date: row.referenceId, branchId: null } }
+  if (row.type === 'END_OF_DAY_BRANCH') return { report: 'end-of-day', query: { date: row.referenceId.slice(0, 10), branchId: row.referenceId.slice(11) } }
+  // "<from>..<to>": the week the summary covers (Task 7).
+  if (row.type === 'WEEKLY_SUMMARY') return { report: 'weekly-summary', query: { from: row.referenceId.slice(0, 10), to: row.referenceId.slice(12) } }
   return undefined
 }
 
@@ -604,6 +615,41 @@ export const NotificationService = {
       referenceId:   date,
     })))
     return { movements: day.movementCount, written }
+  },
+
+  /**
+   * The Monday summary (Week 11 Task 7): last week's Weekly Management Summary
+   * to every ADMIN and ACCOUNTING user — the headline in the bell, the PDF by
+   * email. The figures in the text are the report's own (ReportService), so the
+   * bell, the email and the PDF agree. Once per person per week (referenceId
+   * "<from>..<to>"); nothing when nothing was made, bought or written off.
+   */
+  async notifyWeeklySummary(today: string): Promise<{ week: string; written: number }> {
+    const { from, to } = presetPeriod('last-week', today)
+    const week = `${from}..${to}`
+    const report = await ReportService.run('weekly-summary', { from, to }, { userId: '', role: 'ADMIN' })
+    if (!report.success) throw new Error(`Weekly summary: ${report.error}`)
+    const value = (label: string) => report.data.figures.find(figure => figure.label === label)?.value ?? null
+    const peso = (label: string) => groupThousands(formatPeso(String(value(label) ?? '0')))
+    if ([value('Batches signed off'), value('Value ordered'), value('Written off')].every(v => v === null || Number(v) === 0)) {
+      return { week, written: 0 }
+    }
+
+    const [users, alreadyTold] = await Promise.all([
+      UserRepository.findByRoles(WEEKLY_SUMMARY_ROLES),
+      NotificationRepository.userIdsWithReference('WeeklySummary', week),
+    ])
+    const waiting = Number(value('Waiting for approval') ?? 0)
+    const written = await createAndPush(users.filter(user => !alreadyTold.has(user.id)).map(user => ({
+      userId:        user.id,
+      type:          'WEEKLY_SUMMARY',
+      title:         `Weekly summary, ${report.data.periodLabel}: production ${peso('Production cost')}, written off ${peso('Written off')}`,
+      body:          `${value('Batches signed off')} batches, ${peso('Over plan')} over plan. Ordered ${peso('Value ordered')}; received ${peso('Received from suppliers')}, ${peso('Short from suppliers')} short. `
+        + `${waiting} waiting for approval. The full summary is attached to the email and under Reports.`,
+      referenceType: 'WeeklySummary',
+      referenceId:   week,
+    })))
+    return { week, written }
   },
 
   /**

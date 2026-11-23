@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { ReportService } from '@/services/report.service'
 import { ReportFilters } from '@/components/reports/ReportFilters'
 import { ReportView } from '@/components/reports/ReportView'
+import { EmailReportButton } from '@/components/reports/EmailReportButton'
 import { secondaryButtonClass } from '@/components/ui/form'
 
 type PageProps = {
@@ -58,6 +59,11 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
           <div className="flex gap-2">
             <a href={download('xlsx')} className={secondaryButtonClass}>Download Excel</a>
             <a href={download('pdf')} target="_blank" rel="noopener" className={secondaryButtonClass}>Open PDF</a>
+            <EmailReportButton
+              reportKey={key}
+              query={Object.fromEntries(Object.entries(query).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))}
+              canSendToManagement={session.role === 'ADMIN' || session.role === 'ACCOUNTING'}
+            />
           </div>
         )}
       </div>

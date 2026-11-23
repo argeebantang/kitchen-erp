@@ -1,9 +1,12 @@
 import { BranchType } from '@prisma/client'
 import { addDays, addMonths, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { UserRepository } from '@/repositories/user.repository'
+import { EMAIL_JOB_OPTIONS, getEmailQueue, REPORT_EMAIL, type ReportEmailJob } from '@/lib/queue'
 import { costPerBatchReport, productionSummaryReport } from '@/services/production-report.service'
 import { inventoryMovementReport, procurementReport, wasteReport } from '@/services/operations-report.service'
 import { endOfDaySnapshotReport } from '@/services/end-of-day-report.service'
+import { weeklySummaryReport } from '@/services/weekly-summary-report.service'
 
 /**
  * Reports (Week 11, Tasks 4–6): one engine, many reports. A report is a
@@ -48,6 +51,8 @@ export type ReportDto = {
   periodLabel: string
   /** The branch filter's name; null = all. */
   branchName: string | null
+  /** And its id — what an emailed copy is generated for (Task 7). */
+  branchId: string | null
   /** ISO — when this was generated. */
   generatedAt: string
   figures: ReportFigureDto[]
@@ -82,10 +87,10 @@ type ReportDefinition = {
   ownBranchForManagers?: boolean
   /** 'day': one business day (Today, Yesterday or a date) — the End-of-Day Snapshot (Task 6). Default: a period. */
   span?: 'period' | 'day'
-  build: (params: ReportParams) => Promise<Omit<ReportDto, 'key' | 'title' | 'from' | 'to' | 'periodLabel' | 'branchName' | 'generatedAt'>>
+  build: (params: ReportParams) => Promise<Omit<ReportDto, 'key' | 'title' | 'from' | 'to' | 'periodLabel' | 'branchName' | 'branchId' | 'generatedAt'>>
 }
 
-export const REPORT_KEYS = ['production-summary', 'cost-per-batch', 'inventory-movement', 'procurement', 'waste', 'end-of-day'] as const
+export const REPORT_KEYS = ['production-summary', 'cost-per-batch', 'inventory-movement', 'procurement', 'waste', 'end-of-day', 'weekly-summary'] as const
 export type ReportKey = (typeof REPORT_KEYS)[number]
 
 export function isReportKey(value: string): value is ReportKey {
@@ -152,6 +157,14 @@ const REPORTS: Record<ReportKey, ReportDefinition> = {
     ownBranchForManagers: true,
     span:         'day',
     build:        endOfDaySnapshotReport,
+  },
+  'weekly-summary': {
+    key:          'weekly-summary',
+    title:        'Weekly Management Summary',
+    description:  'The week on a few pages: production, waste, purchasing and stock at a glance, with KitchenAI\'s waste findings. Emailed to management every Monday at 07:00.',
+    roles:        MANAGEMENT,
+    branchFilter: 'none',
+    build:        weeklySummaryReport,
   },
 }
 
@@ -237,6 +250,16 @@ export type ReportOptionsDto = {
 
 type Viewer = { userId: string; role: string }
 
+/** Who "Email to management" reaches, and who may send to them (owner, 2026-11-23). */
+const MANAGEMENT_RECIPIENT_ROLES = ['ADMIN', 'ACCOUNTING'] as const
+
+export type ReportEmailResult = {
+  /** How many emails were queued — one per person with a notification address. */
+  queued: number
+  /** Those it could not go to: no notification address. */
+  withoutAddress: string[]
+}
+
 function definitionFor(key: string, viewer: Viewer): ReportResult<ReportDefinition> {
   if (!isReportKey(key)) return { success: false, error: 'No such report', status: 404 }
   const definition = REPORTS[key]
@@ -287,6 +310,44 @@ async function managersBranch(definition: ReportDefinition, viewer: Viewer): Pro
 }
 
 export const ReportService = {
+  /**
+   * "Email this report" (Week 11 Task 7): the report as the viewer sees it now
+   * — their role, period and branch rules applied by running it — emailed as
+   * a PDF to themselves, or by ADMIN / ACCOUNTING to management. One
+   * REPORT_EMAIL job per person on the email queue, with the period and
+   * branch fixed, so what arrives is what was on screen.
+   */
+  async email(key: string, query: ReportQuery, recipients: 'me' | 'management', viewer: Viewer): Promise<ReportResult<ReportEmailResult>> {
+    if (recipients === 'management' && !(MANAGEMENT_RECIPIENT_ROLES as readonly string[]).includes(viewer.role)) {
+      return { success: false, error: 'Only admin and accounting can email a report to management', status: 403 }
+    }
+    const report = await ReportService.run(key, query, viewer)
+    if (!report.success) return report
+    const { data } = report
+
+    const everyone = await UserRepository.listWithNotificationEmail()
+    const sender = everyone.find(user => user.id === viewer.userId)
+    const people = recipients === 'me'
+      ? everyone.filter(user => user.id === viewer.userId)
+      : everyone.filter(user => (MANAGEMENT_RECIPIENT_ROLES as readonly string[]).includes(user.role))
+    const reachable = people.filter(user => user.notificationEmail !== null)
+
+    const fixed: ReportEmailJob['query'] = REPORTS[data.key].span === 'day'
+      ? { date: data.from, branchId: data.branchId }
+      : { from: data.from, to: data.to, branchId: data.branchId }
+    if (reachable.length > 0) {
+      await getEmailQueue().addBulk(reachable.map(user => ({
+        name: REPORT_EMAIL,
+        data: { report: data.key, query: fixed, userId: user.id, requestedByName: sender?.name ?? 'Someone' } satisfies ReportEmailJob,
+        opts: EMAIL_JOB_OPTIONS,
+      })))
+    }
+    return {
+      success: true,
+      data: { queued: reachable.length, withoutAddress: people.filter(user => user.notificationEmail === null).map(user => user.name) },
+    }
+  },
+
   /** The reports this role may open, for the Reports page. */
   list(viewer: Viewer): ReportListItemDto[] {
     return REPORT_KEYS
@@ -356,6 +417,7 @@ export const ReportService = {
         to,
         periodLabel: label,
         branchName:  branch?.name ?? null,
+        branchId:    branch?.id ?? null,
         generatedAt: new Date().toISOString(),
         ...built,
       },
