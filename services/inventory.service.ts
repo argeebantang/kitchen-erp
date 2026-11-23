@@ -6,7 +6,7 @@ import { ReceivingReportRepository } from '@/repositories/receiving-report.repos
 import { ProductionOrderRepository } from '@/repositories/production-order.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
-import { expiryFlag, type ExpiryFlag, type ExpiryStatus } from '@/lib/dates'
+import { businessDayRange, expiryFlag, type ExpiryFlag, type ExpiryStatus } from '@/lib/dates'
 import { FinishedGoodStockRepository } from '@/repositories/finished-good-stock.repository'
 
 /** The document a movement came from, as the ledger shows it. */
@@ -222,7 +222,81 @@ export type FinishedGoodTotalDto = {
   value: string | null
 }
 
+/** One material at one branch over a period (Week 11 Task 5): the Stock Ledger summed. Quantities signed, out negative. */
+export type MaterialFlowDto = {
+  materialCode: string
+  materialName: string
+  unitAbbreviation: string
+  branchName: string
+  opening: string
+  received: string
+  usedInProduction: string
+  usedInConversions: string
+  other: string
+  closing: string
+  /** The movements' own values (quantity × unit cost), as the ledger shows them; null where none moved. */
+  receivedValue: string | null
+  usedInProductionValue: string | null
+  usedInConversionsValue: string | null
+  otherValue: string | null
+  movementCount: number
+}
+
+export type MaterialFlowsDto = {
+  rows: MaterialFlowDto[]
+  totals: { receivedValue: string; usedInProductionValue: string; usedInConversionsValue: string; otherValue: string }
+  movementCount: number
+}
+
 export const InventoryService = {
+  /**
+   * Raw materials over [from, to] (Manila dates, inclusive), per material and
+   * branch: the Stock Ledger summed (InventoryRepository.periodFlows) — for
+   * the Inventory Movement report (Week 11 Task 5). Pairs with no stock and
+   * no movement are left out.
+   */
+  async materialFlows(from: string, to: string, branchId: string | null): Promise<MaterialFlowsDto> {
+    const rows = await InventoryRepository.periodFlows(businessDayRange(from).start, businessDayRange(to).end, branchId)
+    const zero = new Prisma.Decimal(0)
+    const totals = { receivedValue: zero, usedInProductionValue: zero, usedInConversionsValue: zero, otherValue: zero }
+    const dtos = rows
+      .filter(row => Number(row.movementCount) > 0 || !(row.openingQty ?? zero).isZero() || !(row.closingQty ?? zero).isZero())
+      .map<MaterialFlowDto>(row => {
+        totals.receivedValue          = totals.receivedValue.add(row.receivedValue ?? zero)
+        totals.usedInProductionValue  = totals.usedInProductionValue.add(row.productionValue ?? zero)
+        totals.usedInConversionsValue = totals.usedInConversionsValue.add(row.conversionValue ?? zero)
+        totals.otherValue             = totals.otherValue.add(row.otherValue ?? zero)
+        const value = (v: Prisma.Decimal | null) => (v === null ? null : toDecimalString(v))
+        return {
+          materialCode:           row.materialCode,
+          materialName:           row.materialName,
+          unitAbbreviation:       row.unitAbbreviation,
+          branchName:             row.branchName,
+          opening:                toDecimalString(row.openingQty ?? zero),
+          received:               toDecimalString(row.receivedQty ?? zero),
+          usedInProduction:       toDecimalString(row.productionQty ?? zero),
+          usedInConversions:      toDecimalString(row.conversionQty ?? zero),
+          other:                  toDecimalString(row.otherQty ?? zero),
+          closing:                toDecimalString(row.closingQty ?? zero),
+          receivedValue:          value(row.receivedValue),
+          usedInProductionValue:  value(row.productionValue),
+          usedInConversionsValue: value(row.conversionValue),
+          otherValue:             value(row.otherValue),
+          movementCount:          Number(row.movementCount),
+        }
+      })
+    return {
+      rows:   dtos,
+      totals: {
+        receivedValue:          toDecimalString(totals.receivedValue),
+        usedInProductionValue:  toDecimalString(totals.usedInProductionValue),
+        usedInConversionsValue: toDecimalString(totals.usedInConversionsValue),
+        otherValue:             toDecimalString(totals.otherValue),
+      },
+      movementCount: dtos.reduce((count, row) => count + row.movementCount, 0),
+    }
+  },
+
   /**
    * The stock ledger, newest first. Readable by every signed-in role, like the
    * Stock Levels page; there is no branch isolation (docs/database.md).

@@ -516,19 +516,22 @@ export const ProductionOrderRepository = {
    * Signed-off runs whose lot was produced in [from, to) — the costing
    * dashboard's batches (Week 8 Task 6, C4). producedOn is date-only (UTC
    * midnight), so the bounds are date labels at UTC midnight too. Only
-   * COMPLETED runs have a lot and recorded costs.
+   * COMPLETED runs have a lot and recorded costs. `branchId` narrows to one
+   * kitchen (the Week 11 reports); null is every kitchen.
    */
-  async findCompletedProducedBetween(from: Date, to: Date) {
+  async findCompletedProducedBetween(from: Date, to: Date, branchId: string | null = null) {
     return prisma.productionOrder.findMany({
-      where:  { status: ProductionStatus.COMPLETED, lot: { producedOn: { gte: from, lt: to } } },
+      where:  { status: ProductionStatus.COMPLETED, lot: { producedOn: { gte: from, lt: to } }, ...(branchId ? { branchId } : {}) },
       select: {
         id:           true,
         orderNumber:  true,
+        plannedQty:   true,
+        plannedCost:  true,
         actualQty:    true,
         actualCost:   true,
         costPerUnit:  true,
         costVariance: true,
-        branch:       { select: { name: true } },
+        branch:       { select: { id: true, name: true } },
         finishedGood: { select: { id: true, code: true, name: true, unit: { select: { abbreviation: true } } } },
         lot:          { select: { lotNumber: true, producedOn: true } },
       },
@@ -539,9 +542,23 @@ export const ProductionOrderRepository = {
    * Runs reported done in [start, end) that accounting has not signed off yet
    * — not on the costing dashboard until they are (Week 8 Task 6, C4).
    */
-  async countAwaitingCompletionBetween(start: Date, end: Date): Promise<number> {
+  async countAwaitingCompletionBetween(start: Date, end: Date, branchId: string | null = null): Promise<number> {
     return prisma.productionOrder.count({
-      where: { status: ProductionStatus.PENDING_COMPLETION, completedAt: { gte: start, lt: end } },
+      where: { status: ProductionStatus.PENDING_COMPLETION, completedAt: { gte: start, lt: end }, ...(branchId ? { branchId } : {}) },
     })
+  },
+
+  /**
+   * Orders planned for [from, to) — plannedDate is date-only (UTC midnight)
+   * — counted by status, for the Production Summary (Week 11 Task 4): what was
+   * planned and where it stands. Drafts are left out: nobody committed to them.
+   */
+  async countByStatusPlannedBetween(from: Date, to: Date, branchId: string | null): Promise<{ status: ProductionStatus; count: number }[]> {
+    const rows = await prisma.productionOrder.groupBy({
+      by:     ['status'],
+      where:  { plannedDate: { gte: from, lt: to }, status: { not: ProductionStatus.DRAFT }, ...(branchId ? { branchId } : {}) },
+      _count: { _all: true },
+    })
+    return rows.map(row => ({ status: row.status, count: row._count._all }))
   },
 }

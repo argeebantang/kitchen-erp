@@ -317,98 +317,261 @@ export type ProductionCostsDto = {
   awaitingSignOff: number
 }
 
+/** One signed-off run in a period, with what it was planned at — the Cost per Batch report (Week 11 Task 4). */
+export type PeriodRunDto = PeriodBatchDto & {
+  branch: string
+  plannedQty: string
+  /** The BOM at reference prices on the planned date; null on a run planned before Week 6 costed plans. */
+  plannedCost: string | null
+  /** actualQty ÷ plannedQty × 100, one decimal — as the approvals inbox shows a completion. */
+  percentOfPlan: string
+}
+
+/** One approved conversion in a period (Week 11 Task 4): its source, what was added, and the output's cost. */
+export type PeriodConversionDto = {
+  orderNumber: string
+  product: string
+  unit: string
+  branch: string
+  producedOn: string
+  source: string
+  sourceUnit: string
+  sourceQty: string
+  quantity: string
+  /** The source lots' recorded cost. */
+  sourceCost: string
+  /** conversionCost: the ingredients added. */
+  addedCost: string
+  /** sourceCost + addedCost. */
+  cost: string
+  costPerUnit: string
+}
+
+/** A period's figures for one kitchen or one day — the same sums as the totals, split. */
+export type PeriodGroupDto = {
+  key: string
+  batchCount: number
+  batchCost: string
+  overPlan: string
+  conversionCount: number
+  conversionCost: string
+  productionCost: string
+}
+
+/**
+ * Everything behind a period's production cost (Week 11 Task 4): the summary
+ * the assistant gets (ProductionCostsDto) plus every run and conversion, and
+ * the totals per kitchen and per day — for the Production Summary and Cost
+ * per Batch reports. One calculation with productionCosts (periodFigures).
+ */
+export type ProductionDetailDto = ProductionCostsDto & {
+  branchId: string | null
+  runs: PeriodRunDto[]
+  conversions: PeriodConversionDto[]
+  /** Σ plannedCost of the runs that have one. */
+  plannedCost: string
+  byKitchen: PeriodGroupDto[]
+  byDay: PeriodGroupDto[]
+  /** Orders planned for a day in the period, by status (drafts left out). */
+  ordersByStatus: { status: string; count: number }[]
+}
+
 function peso(value: Prisma.Decimal): string {
   return toDecimalString(value.toDecimalPlaces(2))
+}
+
+type GroupTotals = { batchCount: number; batchCost: Prisma.Decimal; overPlan: Prisma.Decimal; conversionCount: number; conversionCost: Prisma.Decimal }
+
+const emptyGroup = (): GroupTotals => ({ batchCount: 0, batchCost: ZERO, overPlan: ZERO, conversionCount: 0, conversionCost: ZERO })
+
+function toGroupDto(key: string, group: GroupTotals): PeriodGroupDto {
+  return {
+    key,
+    batchCount:      group.batchCount,
+    batchCost:       peso(group.batchCost),
+    overPlan:        peso(group.overPlan),
+    conversionCount: group.conversionCount,
+    conversionCost:  peso(group.conversionCost),
+    productionCost:  peso(group.batchCost.plus(group.conversionCost)),
+  }
+}
+
+/**
+ * The period's runs and conversions, summed once: the summary
+ * (productionCosts, the assistant) and the detail (productionDetail, the
+ * reports) both come from here, so a report and the assistant cannot
+ * disagree. Signed-off runs and approved conversions by their lot's
+ * production date, as the dashboard (C4). `branchId` null = every kitchen.
+ */
+async function periodFigures(from: string, to: string, branchId: string | null) {
+  const endExclusive = addDays(to, 1)
+  const [runs, conversions, awaitingSignOff] = await Promise.all([
+    ProductionOrderRepository.findCompletedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`), branchId),
+    ConversionOrderRepository.findApprovedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`), branchId),
+    ProductionOrderRepository.countAwaitingCompletionBetween(businessDayRange(from).start, businessDayRange(endExclusive).start, branchId),
+  ])
+
+  type Made = { product: string; unit: string; batchCount: number; conversionCount: number; quantity: Prisma.Decimal; cost: Prisma.Decimal }
+  const made = new Map<string, Made>()
+  const madeOf = (good: { id: string; name: string; unit: { abbreviation: string } }) => {
+    let entry = made.get(good.id)
+    if (!entry) {
+      entry = { product: good.name, unit: good.unit.abbreviation, batchCount: 0, conversionCount: 0, quantity: ZERO, cost: ZERO }
+      made.set(good.id, entry)
+    }
+    return entry
+  }
+  const kitchens = new Map<string, GroupTotals>()
+  const days = new Map<string, GroupTotals>()
+  const groupOf = (map: Map<string, GroupTotals>, key: string) => {
+    let group = map.get(key)
+    if (!group) map.set(key, group = emptyGroup())
+    return group
+  }
+
+  let batchCost = ZERO
+  let overPlan = ZERO
+  let plannedCost = ZERO
+  const batches: { cost: Prisma.Decimal; dto: PeriodRunDto }[] = []
+  for (const run of runs) {
+    const { lot, actualCost, actualQty, costPerUnit, costVariance } = run
+    batchCost = batchCost.plus(actualCost ?? ZERO)
+    overPlan = overPlan.plus(costVariance ?? ZERO)
+    plannedCost = plannedCost.plus(run.plannedCost ?? ZERO)
+    for (const group of [groupOf(kitchens, run.branch.name), ...(lot ? [groupOf(days, dateLabel(lot.producedOn))] : [])]) {
+      group.batchCount += 1
+      group.batchCost = group.batchCost.plus(actualCost ?? ZERO)
+      group.overPlan = group.overPlan.plus(costVariance ?? ZERO)
+    }
+    if (!lot || actualCost === null || actualQty === null || costPerUnit === null || costVariance === null) continue
+    const entry = madeOf(run.finishedGood)
+    entry.batchCount += 1
+    entry.quantity = entry.quantity.plus(actualQty)
+    entry.cost = entry.cost.plus(actualCost)
+    batches.push({
+      cost: actualCost,
+      dto: {
+        orderNumber:   run.orderNumber,
+        product:       run.finishedGood.name,
+        unit:          run.finishedGood.unit.abbreviation,
+        producedOn:    dateLabel(lot.producedOn),
+        quantity:      toDecimalString(actualQty),
+        cost:          peso(actualCost),
+        costPerUnit:   peso(costPerUnit),
+        overPlan:      peso(costVariance),
+        branch:        run.branch.name,
+        plannedQty:    toDecimalString(run.plannedQty),
+        plannedCost:   run.plannedCost === null ? null : peso(run.plannedCost),
+        percentOfPlan: toDecimalString(actualQty.div(run.plannedQty).mul(100).toDecimalPlaces(1)),
+      },
+    })
+  }
+
+  let conversionCost = ZERO
+  const conversionDtos: PeriodConversionDto[] = []
+  for (const conversion of conversions) {
+    conversionCost = conversionCost.plus(conversion.conversionCost ?? ZERO)
+    for (const group of [groupOf(kitchens, conversion.branch.name), ...(conversion.lot ? [groupOf(days, dateLabel(conversion.lot.producedOn))] : [])]) {
+      group.conversionCount += 1
+      group.conversionCost = group.conversionCost.plus(conversion.conversionCost ?? ZERO)
+    }
+    if (conversion.sourceCost === null || conversion.conversionCost === null) continue
+    const entry = madeOf(conversion.finishedGood)
+    entry.conversionCount += 1
+    entry.quantity = entry.quantity.plus(conversion.outputQty)
+    entry.cost = entry.cost.plus(conversion.sourceCost).plus(conversion.conversionCost)
+    if (conversion.lot && conversion.costPerUnit !== null) {
+      conversionDtos.push({
+        orderNumber: conversion.orderNumber,
+        product:     conversion.finishedGood.name,
+        unit:        conversion.finishedGood.unit.abbreviation,
+        branch:      conversion.branch.name,
+        producedOn:  dateLabel(conversion.lot.producedOn),
+        source:      conversion.sourceFinishedGood.name,
+        sourceUnit:  conversion.sourceFinishedGood.unit.abbreviation,
+        sourceQty:   toDecimalString(conversion.sourceQty),
+        quantity:    toDecimalString(conversion.outputQty),
+        sourceCost:  peso(conversion.sourceCost),
+        addedCost:   peso(conversion.conversionCost),
+        cost:        peso(conversion.sourceCost.plus(conversion.conversionCost)),
+        costPerUnit: peso(conversion.costPerUnit),
+      })
+    }
+  }
+
+  const summary: ProductionCostsDto = {
+    from,
+    to,
+    batchCount:      runs.length,
+    batchCost:       peso(batchCost),
+    overPlan:        peso(overPlan),
+    conversionCount: conversions.length,
+    conversionCost:  peso(conversionCost),
+    productionCost:  peso(batchCost.plus(conversionCost)),
+    byProduct: [...made.values()]
+      .filter(entry => entry.quantity.greaterThan(0))
+      .sort((a, b) => b.cost.comparedTo(a.cost))
+      .map(entry => ({
+        product:         entry.product,
+        unit:            entry.unit,
+        batchCount:      entry.batchCount,
+        conversionCount: entry.conversionCount,
+        quantityMade:    toDecimalString(entry.quantity),
+        cost:            peso(entry.cost),
+        costPerUnit:     peso(entry.cost.div(entry.quantity)),
+      })),
+    // Most expensive first; between equals, the more recent — as the dashboard.
+    costliestBatches: [...batches]
+      .sort((a, b) => b.cost.comparedTo(a.cost) || b.dto.producedOn.localeCompare(a.dto.producedOn))
+      .slice(0, COSTLIEST_BATCH_LIMIT)
+      .map(({ dto }) => ({
+        orderNumber: dto.orderNumber, product: dto.product, unit: dto.unit, producedOn: dto.producedOn,
+        quantity: dto.quantity, cost: dto.cost, costPerUnit: dto.costPerUnit, overPlan: dto.overPlan,
+      })),
+    awaitingSignOff,
+  }
+
+  // In the order they were made; a day's runs by number.
+  const byDate = (a: { producedOn: string; orderNumber: string }, b: { producedOn: string; orderNumber: string }) =>
+    a.producedOn.localeCompare(b.producedOn) || a.orderNumber.localeCompare(b.orderNumber)
+  return {
+    summary,
+    runs:        batches.map(batch => batch.dto).sort(byDate),
+    conversions: conversionDtos.sort(byDate),
+    plannedCost: peso(plannedCost),
+    byKitchen:   [...kitchens].sort(([a], [b]) => a.localeCompare(b)).map(([key, group]) => toGroupDto(key, group)),
+    byDay:       [...days].sort(([a], [b]) => a.localeCompare(b)).map(([key, group]) => toGroupDto(key, group)),
+  }
 }
 
 export const CostingService = {
   /** `from` and `to` are inclusive business dates (YYYY-MM-DD); the caller checks from ≤ to. */
   async productionCosts(from: string, to: string): Promise<ProductionCostsDto> {
-    const endExclusive = addDays(to, 1)
-    const [runs, conversions, awaitingSignOff] = await Promise.all([
-      ProductionOrderRepository.findCompletedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`)),
-      ConversionOrderRepository.findApprovedProducedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`)),
-      ProductionOrderRepository.countAwaitingCompletionBetween(businessDayRange(from).start, businessDayRange(endExclusive).start),
-    ])
-
-    type Made = { product: string; unit: string; batchCount: number; conversionCount: number; quantity: Prisma.Decimal; cost: Prisma.Decimal }
-    const made = new Map<string, Made>()
-    const madeOf = (good: { id: string; name: string; unit: { abbreviation: string } }) => {
-      let entry = made.get(good.id)
-      if (!entry) {
-        entry = { product: good.name, unit: good.unit.abbreviation, batchCount: 0, conversionCount: 0, quantity: ZERO, cost: ZERO }
-        made.set(good.id, entry)
-      }
-      return entry
-    }
-
-    let batchCost = ZERO
-    let overPlan = ZERO
-    const batches: { cost: Prisma.Decimal; dto: PeriodBatchDto }[] = []
-    for (const run of runs) {
-      const { lot, actualCost, actualQty, costPerUnit, costVariance } = run
-      batchCost = batchCost.plus(actualCost ?? ZERO)
-      overPlan = overPlan.plus(costVariance ?? ZERO)
-      if (!lot || actualCost === null || actualQty === null || costPerUnit === null || costVariance === null) continue
-      const entry = madeOf(run.finishedGood)
-      entry.batchCount += 1
-      entry.quantity = entry.quantity.plus(actualQty)
-      entry.cost = entry.cost.plus(actualCost)
-      batches.push({
-        cost: actualCost,
-        dto: {
-          orderNumber: run.orderNumber,
-          product:     run.finishedGood.name,
-          unit:        run.finishedGood.unit.abbreviation,
-          producedOn:  dateLabel(lot.producedOn),
-          quantity:    toDecimalString(actualQty),
-          cost:        peso(actualCost),
-          costPerUnit: peso(costPerUnit),
-          overPlan:    peso(costVariance),
-        },
-      })
-    }
-
-    let conversionCost = ZERO
-    for (const conversion of conversions) {
-      conversionCost = conversionCost.plus(conversion.conversionCost ?? ZERO)
-      if (conversion.sourceCost === null || conversion.conversionCost === null) continue
-      const entry = madeOf(conversion.finishedGood)
-      entry.conversionCount += 1
-      entry.quantity = entry.quantity.plus(conversion.outputQty)
-      entry.cost = entry.cost.plus(conversion.sourceCost).plus(conversion.conversionCost)
-    }
-
-    return {
-      from,
-      to,
-      batchCount:      runs.length,
-      batchCost:       peso(batchCost),
-      overPlan:        peso(overPlan),
-      conversionCount: conversions.length,
-      conversionCost:  peso(conversionCost),
-      productionCost:  peso(batchCost.plus(conversionCost)),
-      byProduct: [...made.values()]
-        .filter(entry => entry.quantity.greaterThan(0))
-        .sort((a, b) => b.cost.comparedTo(a.cost))
-        .map(entry => ({
-          product:         entry.product,
-          unit:            entry.unit,
-          batchCount:      entry.batchCount,
-          conversionCount: entry.conversionCount,
-          quantityMade:    toDecimalString(entry.quantity),
-          cost:            peso(entry.cost),
-          costPerUnit:     peso(entry.cost.div(entry.quantity)),
-        })),
-      // Most expensive first; between equals, the more recent — as the dashboard.
-      costliestBatches: batches
-        .sort((a, b) => b.cost.comparedTo(a.cost) || b.dto.producedOn.localeCompare(a.dto.producedOn))
-        .slice(0, COSTLIEST_BATCH_LIMIT)
-        .map(batch => batch.dto),
-      awaitingSignOff,
-    }
+    return (await periodFigures(from, to, null)).summary
   },
 
+  /**
+   * The same period with every run and conversion and the splits by kitchen
+   * and day (Week 11 Task 4) — the Production Summary and Cost per Batch
+   * reports. `branchId` null = every kitchen; the caller checks the dates.
+   */
+  async productionDetail(from: string, to: string, branchId: string | null): Promise<ProductionDetailDto> {
+    const endExclusive = addDays(to, 1)
+    const [figures, ordersByStatus] = await Promise.all([
+      periodFigures(from, to, branchId),
+      ProductionOrderRepository.countByStatusPlannedBetween(new Date(`${from}T00:00:00Z`), new Date(`${endExclusive}T00:00:00Z`), branchId),
+    ])
+    return {
+      ...figures.summary,
+      branchId,
+      runs:           figures.runs,
+      conversions:    figures.conversions,
+      plannedCost:    figures.plannedCost,
+      byKitchen:      figures.byKitchen,
+      byDay:          figures.byDay,
+      ordersByStatus,
+    }
+  },
 
   async dashboard(range: CostingRange, viewer: CostingViewer): Promise<CostingDashboardDto> {
     const currentStart = weekStartOf(todayIsoDate())

@@ -21,6 +21,7 @@ import {
   CalendarCheck,
   Sparkles,
   Mail,
+  FileText,
   Receipt
 } from 'lucide-react'
 
@@ -85,6 +86,13 @@ export const navigation: NavGroup[] = [
     items: [
       // Week 8 Task 6: cost per week, per good, per batch, and what was lost.
       { label: 'Costing Dashboard', href: '/costing', icon: Coins, roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'VIEWER'] },
+    ],
+  },
+  {
+    group: 'Reports',
+    items: [
+      // Week 11 Task 4: Excel / PDF reports from the same figures as the pages.
+      { label: 'Reports', href: '/reports', icon: FileText, roles: ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER'] },
     ],
   },
   {

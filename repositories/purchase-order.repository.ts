@@ -15,6 +15,24 @@ export type CreateDraftFromRequestInput = {
 }
 
 export const PurchaseOrderRepository = {
+  /**
+   * Purchase orders approved in [start, end) — by the approval's time, from
+   * the Approval log — per supplier: how many and their total (Week 11 Task 5:
+   * the Procurement report's spend committed). Most first.
+   */
+  async approvedBySupplierBetween(start: Date, end: Date): Promise<{ supplierName: string | null; orders: bigint; value: Prisma.Decimal | null }[]> {
+    return prisma.$queryRaw`
+      SELECT s.name AS "supplierName", COUNT(*) AS orders, SUM(po."totalAmount") AS value
+      FROM "Approval" a
+      JOIN "PurchaseOrder" po ON po.id = a."referenceId"
+      LEFT JOIN "Supplier" s ON s.id = po."supplierId"
+      WHERE a."referenceType" = 'PurchaseOrder' AND a.decision = 'APPROVED'
+        AND a."decidedAt" >= ${start} AND a."decidedAt" < ${end}
+      GROUP BY s.name
+      ORDER BY value DESC NULLS LAST
+    `
+  },
+
   
 
  async findMany(filters: PurchaseOrderListFilters = {}) {

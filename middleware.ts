@@ -104,6 +104,10 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Week 8 Task 6 (C2): management's view of cost and loss.
   { path: '/costing',                  roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'VIEWER'] },
   { path: '/admin',                 roles: ['ADMIN'] },
+  // Week 11 Task 4: the roles with at least one report; which report each
+  // may open is checked in ReportService (REPORTS[key].roles).
+  { path: '/reports',               roles: ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER'] },
+  { path: '/api/reports',           roles: ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER'] },
   // Week 9 Task 1 (D10): the Test connection button on AI Settings spends
   // real money. Each AI feature's own endpoint gets its own guard.
   { path: '/api/ai/test',           roles: ['ADMIN'] },

@@ -251,4 +251,56 @@ export const InventoryRepository = {
       orderBy: { createdAt: 'asc' },
     })
   },
+
+  /**
+   * Raw materials over a period, per material and branch, from the Stock
+   * Ledger alone (Week 11 Task 5: the Inventory Movement report) — the same
+   * rows the ledger page lists, summed: the balance before `start`, each flow
+   * within [start, end) by its source document, and the balance before `end`.
+   * Received = receiving reports in; production / conversions = their
+   * ingredients out; anything else (adjustments, a type added later) lands in
+   * `other`, so opening + flows = closing always holds. Values are each
+   * movement's quantity × its own unit cost, as the ledger shows them — raw
+   * stock itself is not valued, so there is no opening or closing value. One
+   * statement, one snapshot. A pair with nothing before `end` is left out.
+   */
+  async periodFlows(start: Date, end: Date, branchId: string | null): Promise<{
+    materialId: string; materialCode: string; materialName: string; unitAbbreviation: string
+    branchId: string; branchName: string
+    openingQty: Prisma.Decimal | null
+    receivedQty: Prisma.Decimal | null; receivedValue: Prisma.Decimal | null
+    productionQty: Prisma.Decimal | null; productionValue: Prisma.Decimal | null
+    conversionQty: Prisma.Decimal | null; conversionValue: Prisma.Decimal | null
+    otherQty: Prisma.Decimal | null; otherValue: Prisma.Decimal | null
+    closingQty: Prisma.Decimal | null
+    movementCount: bigint
+  }[]> {
+    const inPeriod = Prisma.sql`m."createdAt" >= ${start} AND m."createdAt" < ${end}`
+    const received   = Prisma.sql`m.type = 'IN' AND m."referenceType" = 'ReceivingReport'`
+    const production = Prisma.sql`m.type = 'OUT' AND m."referenceType" = 'ProductionOrder'`
+    const conversion = Prisma.sql`m.type = 'OUT' AND m."referenceType" = 'ConversionOrder'`
+    return prisma.$queryRaw`
+      SELECT mat.id AS "materialId", mat.code AS "materialCode", mat.name AS "materialName",
+             unit.abbreviation AS "unitAbbreviation", branch.id AS "branchId", branch.name AS "branchName",
+             SUM(m.quantity) FILTER (WHERE m."createdAt" < ${start}) AS "openingQty",
+             SUM(m.quantity)              FILTER (WHERE ${inPeriod} AND ${received})   AS "receivedQty",
+             SUM(m.quantity * m."unitCost") FILTER (WHERE ${inPeriod} AND ${received})   AS "receivedValue",
+             SUM(m.quantity)              FILTER (WHERE ${inPeriod} AND ${production}) AS "productionQty",
+             SUM(m.quantity * m."unitCost") FILTER (WHERE ${inPeriod} AND ${production}) AS "productionValue",
+             SUM(m.quantity)              FILTER (WHERE ${inPeriod} AND ${conversion}) AS "conversionQty",
+             SUM(m.quantity * m."unitCost") FILTER (WHERE ${inPeriod} AND ${conversion}) AS "conversionValue",
+             SUM(m.quantity)              FILTER (WHERE ${inPeriod} AND NOT (${received}) AND NOT (${production}) AND NOT (${conversion})) AS "otherQty",
+             SUM(m.quantity * m."unitCost") FILTER (WHERE ${inPeriod} AND NOT (${received}) AND NOT (${production}) AND NOT (${conversion})) AS "otherValue",
+             SUM(m.quantity) AS "closingQty",
+             COUNT(*) FILTER (WHERE ${inPeriod}) AS "movementCount"
+      FROM "StockMovement" AS m
+      JOIN "Material" AS mat    ON mat.id = m."materialId"
+      JOIN "Unit"     AS unit   ON unit.id = mat."unitId"
+      JOIN "Branch"   AS branch ON branch.id = m."branchId"
+      WHERE m."createdAt" < ${end}
+        ${branchId === null ? Prisma.empty : Prisma.sql`AND m."branchId" = ${branchId}`}
+      GROUP BY mat.id, mat.code, mat.name, unit.abbreviation, branch.id, branch.name
+      ORDER BY branch.name, mat.name
+    `
+  },
 }

@@ -88,6 +88,15 @@ export type EndOfDayDto = {
   documents: EndOfDayDocumentDto[]
 }
 
+/** Finished goods over a period (Week 11 Task 5): forDay's rows and totals, without the documents. */
+export type EndOfDayPeriodDto = {
+  from: string
+  to: string
+  rows: EndOfDayRowDto[]
+  totals: EndOfDayDto['totals']
+  movementCount: number
+}
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 
 /** A valid YYYY-MM-DD no later than today, else today. */
@@ -102,6 +111,60 @@ const zero = new Prisma.Decimal(0)
 function figure(quantity: Prisma.Decimal | null, value: Prisma.Decimal | null): EndOfDayFigureDto {
   // A flow with no movements is SUM over nothing (null): zero, and worth zero.
   return { quantity: toDecimalString(quantity ?? zero), value: toDecimalString(value ?? zero) }
+}
+
+type DayFlowRow = Awaited<ReturnType<typeof FinishedGoodStockRepository.dayFlows>>[number]
+type FlowTotals = Record<'opening' | 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'sold' | 'distributed' | 'closing', Prisma.Decimal>
+
+/**
+ * The ledger's rows as the page shows them, and the pesos summed by figure —
+ * one day (forDay) or a period (forPeriod, Week 11 Task 5), the same code.
+ * `checkStock`: the period ends today, so closing can be compared with what
+ * the stock levels hold now.
+ */
+function toFlowRows(rows: DayFlowRow[], levelOf: Map<string, Prisma.Decimal>, checkStock: boolean): { rows: EndOfDayRowDto[]; totals: FlowTotals } {
+  const sums = { opening: zero, produced: zero, convertedIn: zero, convertedOut: zero, writtenOff: zero, sold: zero, distributed: zero, closing: zero }
+  const dtos = rows
+    // A good with nothing on the books before or during the day, and nothing
+    // left, has nothing to say about this day.
+    .filter(row => Number(row.movementCount) > 0 || !(row.openingQty ?? zero).isZero() || !(row.closingQty ?? zero).isZero())
+    .map<EndOfDayRowDto>(row => {
+      // The named flows only: a movement that fits none of them lands in
+      // `other` and breaks this, which is the point of the check.
+      const flows = [row.producedQty, row.convertedInQty, row.convertedOutQty, row.writtenOffQty, row.soldQty, row.distributedQty]
+      const expected = flows.reduce<Prisma.Decimal>((sum, flow) => sum.add(flow ?? zero), row.openingQty ?? zero)
+      const closing  = row.closingQty ?? zero
+      sums.opening      = sums.opening.add(row.openingValue ?? zero)
+      sums.produced     = sums.produced.add(row.producedValue ?? zero)
+      sums.convertedIn  = sums.convertedIn.add(row.convertedInValue ?? zero)
+      sums.convertedOut = sums.convertedOut.add(row.convertedOutValue ?? zero)
+      sums.writtenOff   = sums.writtenOff.add(row.writtenOffValue ?? zero)
+      sums.sold         = sums.sold.add(row.soldValue ?? zero)
+      sums.distributed  = sums.distributed.add(row.distributedValue ?? zero)
+      sums.closing      = sums.closing.add(row.closingValue ?? zero)
+      const level = levelOf.get(`${row.finishedGoodId}:${row.branchId}`) ?? zero
+      return {
+        finishedGoodId:   row.finishedGoodId,
+        finishedGoodCode: row.finishedGoodCode,
+        finishedGoodName: row.finishedGoodName,
+        unitAbbreviation: row.unitAbbreviation,
+        branchId:         row.branchId,
+        branchName:       row.branchName,
+        opening:          figure(row.openingQty, row.openingValue),
+        produced:         figure(row.producedQty, row.producedValue),
+        convertedIn:      figure(row.convertedInQty, row.convertedInValue),
+        convertedOut:     figure(row.convertedOutQty, row.convertedOutValue),
+        writtenOff:       figure(row.writtenOffQty, row.writtenOffValue),
+        sold:             figure(row.soldQty, row.soldValue),
+        distributed:      figure(row.distributedQty, row.distributedValue),
+        other:            figure(row.otherQty, row.otherValue),
+        closing:          figure(row.closingQty, row.closingValue),
+        movementCount:    Number(row.movementCount),
+        balanced:         expected.equals(closing),
+        matchesStock:     checkStock ? level.equals(closing) : null,
+      }
+    })
+  return { rows: dtos, totals: sums }
 }
 
 export const EndOfDayService = {
@@ -122,47 +185,7 @@ export const EndOfDayService = {
     ])
     const levelOf = new Map(levels.map(level => [`${level.finishedGoodId}:${level.branchId}`, level.quantity]))
 
-    const sums = { opening: zero, produced: zero, convertedIn: zero, convertedOut: zero, writtenOff: zero, sold: zero, distributed: zero, closing: zero }
-    const dtos = rows
-      // A good with nothing on the books before or during the day, and nothing
-      // left, has nothing to say about this day.
-      .filter(row => Number(row.movementCount) > 0 || !(row.openingQty ?? zero).isZero() || !(row.closingQty ?? zero).isZero())
-      .map<EndOfDayRowDto>(row => {
-        // The named flows only: a movement that fits none of them lands in
-        // `other` and breaks this, which is the point of the check.
-        const flows = [row.producedQty, row.convertedInQty, row.convertedOutQty, row.writtenOffQty, row.soldQty, row.distributedQty]
-        const expected = flows.reduce<Prisma.Decimal>((sum, flow) => sum.add(flow ?? zero), row.openingQty ?? zero)
-        const closing  = row.closingQty ?? zero
-        sums.opening      = sums.opening.add(row.openingValue ?? zero)
-        sums.produced     = sums.produced.add(row.producedValue ?? zero)
-        sums.convertedIn  = sums.convertedIn.add(row.convertedInValue ?? zero)
-        sums.convertedOut = sums.convertedOut.add(row.convertedOutValue ?? zero)
-        sums.writtenOff   = sums.writtenOff.add(row.writtenOffValue ?? zero)
-        sums.sold         = sums.sold.add(row.soldValue ?? zero)
-        sums.distributed  = sums.distributed.add(row.distributedValue ?? zero)
-        sums.closing      = sums.closing.add(row.closingValue ?? zero)
-        const level = levelOf.get(`${row.finishedGoodId}:${row.branchId}`) ?? zero
-        return {
-          finishedGoodId:   row.finishedGoodId,
-          finishedGoodCode: row.finishedGoodCode,
-          finishedGoodName: row.finishedGoodName,
-          unitAbbreviation: row.unitAbbreviation,
-          branchId:         row.branchId,
-          branchName:       row.branchName,
-          opening:          figure(row.openingQty, row.openingValue),
-          produced:         figure(row.producedQty, row.producedValue),
-          convertedIn:      figure(row.convertedInQty, row.convertedInValue),
-          convertedOut:     figure(row.convertedOutQty, row.convertedOutValue),
-          writtenOff:       figure(row.writtenOffQty, row.writtenOffValue),
-          sold:             figure(row.soldQty, row.soldValue),
-          distributed:      figure(row.distributedQty, row.distributedValue),
-          other:            figure(row.otherQty, row.otherValue),
-          closing:          figure(row.closingQty, row.closingValue),
-          movementCount:    Number(row.movementCount),
-          balanced:         expected.equals(closing),
-          matchesStock:     isToday ? level.equals(closing) : null,
-        }
-      })
+    const { rows: dtos, totals: sums } = toFlowRows(rows, levelOf, isToday)
 
     // Document numbers: one query per document type for the whole day.
     const idsOf = (type: string) => [...new Set(documentRows.filter(row => row.referenceType === type).map(row => row.referenceId))]
@@ -207,18 +230,46 @@ export const EndOfDayService = {
       nextDate:     isToday ? null : addDays(date, 1),
       isToday,
       rows:         dtos,
-      totals: {
-        opening:      toDecimalString(sums.opening),
-        produced:     toDecimalString(sums.produced),
-        convertedIn:  toDecimalString(sums.convertedIn),
-        convertedOut: toDecimalString(sums.convertedOut),
-        writtenOff:   toDecimalString(sums.writtenOff),
-        sold:         toDecimalString(sums.sold),
-        distributed:  toDecimalString(sums.distributed),
-        closing:      toDecimalString(sums.closing),
-      },
+      totals:        totalsDto(sums),
       movementCount: dtos.reduce((count, row) => count + row.movementCount, 0),
       documents,
     }
   },
+
+  /**
+   * Finished goods over a period (Week 11 Task 5: the Inventory Movement
+   * report) — the same ledger query and rows as forDay, from the opening of
+   * `from` to the close of `to` (Manila). No documents: a period has too many
+   * to list; the End of Day page has them day by day. Closing is checked
+   * against the stock levels only when the period ends today.
+   */
+  async forPeriod(from: string, to: string, branchId: string | null): Promise<EndOfDayPeriodDto> {
+    const checkStock = to === todayIsoDate()
+    const [rows, levels] = await Promise.all([
+      FinishedGoodStockRepository.dayFlows(businessDayRange(from).start, businessDayRange(to).end, branchId),
+      checkStock ? FinishedGoodStockRepository.levelTotals(branchId) : Promise.resolve([]),
+    ])
+    const levelOf = new Map(levels.map(level => [`${level.finishedGoodId}:${level.branchId}`, level.quantity]))
+    const { rows: dtos, totals } = toFlowRows(rows, levelOf, checkStock)
+    return {
+      from,
+      to,
+      rows:          dtos,
+      totals:        totalsDto(totals),
+      movementCount: dtos.reduce((count, row) => count + row.movementCount, 0),
+    }
+  },
+}
+
+function totalsDto(sums: FlowTotals): EndOfDayDto['totals'] {
+  return {
+    opening:      toDecimalString(sums.opening),
+    produced:     toDecimalString(sums.produced),
+    convertedIn:  toDecimalString(sums.convertedIn),
+    convertedOut: toDecimalString(sums.convertedOut),
+    writtenOff:   toDecimalString(sums.writtenOff),
+    sold:         toDecimalString(sums.sold),
+    distributed:  toDecimalString(sums.distributed),
+    closing:      toDecimalString(sums.closing),
+  }
 }

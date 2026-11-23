@@ -1,5 +1,5 @@
 import { AiFeature, AiInsightStatus, AiInsightType, Prisma } from '@prisma/client'
-import { addMonths, businessDayRange, MONTH_PATTERN, todayIsoDate } from '@/lib/dates'
+import { addDays, addMonths, businessDayRange, MONTH_PATTERN, todayIsoDate } from '@/lib/dates'
 import { AI_JOB_OPTIONS, getAiQueue, SUPPLIER_PERFORMANCE_REPORT, type SupplierPerformanceJob } from '@/lib/queue'
 import { AiInsightRepository, type AiInsightReference } from '@/repositories/ai-insight.repository'
 import { SupplierReportRepository, type MonthWindow } from '@/repositories/supplier-report.repository'
@@ -124,7 +124,29 @@ export function lastCompleteMonth(today = todayIsoDate()): string {
 
 async function facts(month: string): Promise<SupplierFacts | null> {
   const span = monthWindow(month)
-  if (!span) return null
+  return span ? factsFor(span, month, { scope: 'month', materialRows: MATERIAL_ROWS }) : null
+}
+
+/**
+ * Any period's supplier figures (Week 11 Task 5: the Procurement report) —
+ * the same calculation as the monthly AI report, over [from, to] (Manila
+ * dates, inclusive), with every material that came short.
+ */
+async function periodFacts(from: string, to: string): Promise<SupplierFacts> {
+  const window = { start: businessDayRange(from).start, end: businessDayRange(addDays(to, 1)).start }
+  return factsFor({ window, from, to }, `${from}..${to}`, { scope: 'period', materialRows: null })
+}
+
+/**
+ * The one calculation behind the monthly report, its dashboard card and the
+ * Procurement report. `label` is what facts.month says; `materialRows` caps
+ * the short materials (null = all of them).
+ */
+async function factsFor(
+  span: { window: MonthWindow; from: string; to: string },
+  label: string,
+  options: { scope: 'month' | 'period'; materialRows: number | null },
+): Promise<SupplierFacts> {
   const [deliveries, shorts, timeliness, suppliers] = await Promise.all([
     SupplierReportRepository.deliveries(span.window),
     SupplierReportRepository.materialShorts(span.window),
@@ -182,7 +204,7 @@ async function facts(month: string): Promise<SupplierFacts | null> {
 
   const materials: SupplierMaterialFact[] = [...shorts]
     .sort((a, b) => Number(b.shortLines) - Number(a.shortLines) || (b.shortValue ?? zero).comparedTo(a.shortValue ?? zero))
-    .slice(0, MATERIAL_ROWS)
+    .slice(0, options.materialRows ?? undefined)
     .map((row, index) => ({
       id: `M${index + 1}`,
       supplier: row.supplierName,
@@ -197,8 +219,8 @@ async function facts(month: string): Promise<SupplierFacts | null> {
 
   const sum = (pick: (row: (typeof deliveries)[number]) => Prisma.Decimal | null) => deliveries.reduce((total, row) => total.add(pick(row) ?? zero), zero)
   return {
-    month, from: span.from, to: span.to, currency: 'PHP',
-    flagRule: `Flagged when at least ${FLAG_MIN_COUNT} deliveries came short and they are at least ${FLAG_MIN_PCT}% of the month's deliveries; the same for orders arriving after the promised date.`,
+    month: label, from: span.from, to: span.to, currency: 'PHP',
+    flagRule: `Flagged when at least ${FLAG_MIN_COUNT} deliveries came short and they are at least ${FLAG_MIN_PCT}% of the ${options.scope}'s deliveries; the same for orders arriving after the promised date.`,
     totals: {
       suppliers: rows.length,
       deliveries: rows.reduce((n, row) => n + row.deliveries, 0),
@@ -367,6 +389,7 @@ async function dashboard(options: { month?: string; supplier?: string } = {}): P
 
 export const SupplierPerformanceService = {
   facts,
+  periodFacts,
   request,
   write,
   giveUp,
