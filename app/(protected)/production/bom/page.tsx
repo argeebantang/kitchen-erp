@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, SearchX, BookOpen } from 'lucide-react'
 import { BomService } from '@/services/bom.service'
 import { trimDecimal } from '@/lib/format'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   searchParams: Promise<{ finishedGoodId?: string; includeSuperseded?: string }>
@@ -37,12 +38,13 @@ export default async function BomListPage({ searchParams }: PageProps) {
       </div>
 
       {boms.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No BOMs yet</p>
-          <p className="mt-1 text-sm text-gray-400">
+        finishedGoodId ? (
+          <EmptyState icon={SearchX} title="No BOM for this finished good" action={{ href: '/production/bom', label: 'Show every BOM' }} />
+        ) : (
+          <EmptyState icon={BookOpen} title="No BOMs yet">
             Create a finished good in Master Data, then define its recipe here.
-          </p>
-        </div>
+          </EmptyState>
+        )
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {boms.map(bom => (

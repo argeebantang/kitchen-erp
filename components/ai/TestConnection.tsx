@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Sparkles } from 'lucide-react'
 import type { AiCompletion } from '@/services/ai.service'
 import { formatUsd } from '@/lib/format'
+import { requestJson } from '@/lib/http'
 import { inputClass, primaryButtonClass } from '@/components/ui/form'
 
 // In Filipino on purpose: the reply should come back in Filipino too (D7).
@@ -33,19 +34,12 @@ export function TestConnection({ maxLength }: { maxLength: number }) {
     setError(null)
     setReply(null)
     try {
-      const response = await fetch('/api/ai/test', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ message }),
-      })
-      const body = await response.json()
-      if (!response.ok) {
-        setError(body.error ?? 'The test failed.')
+      const result = await requestJson<{ completion: AiCompletion }>('/api/ai/test', { body: { message } })
+      if (!result.ok) {
+        setError(result.error)
       } else {
-        setReply(body.completion)
+        setReply(result.data.completion)
       }
-    } catch {
-      setError('Could not reach the server.')
     } finally {
       setBusy(false)
       // Failures are recorded too, so the list changes either way.

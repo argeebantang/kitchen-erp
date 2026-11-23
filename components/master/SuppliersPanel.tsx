@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { inputClass, secondaryButtonClass } from '@/components/ui/form'
 // Type-only, so nothing from the service is bundled into the browser.
 import type { LeadTimeSource, SupplierDto } from '@/services/supplier.service'
+import { EmptyState } from '@/components/ui/states'
+import { Users } from 'lucide-react'
 
 const SOURCE_LABELS: Record<LeadTimeSource, string> = {
   measured: 'measured',
@@ -19,7 +21,7 @@ const SOURCE_LABELS: Record<LeadTimeSource, string> = {
  */
 export function SuppliersPanel({ suppliers }: { suppliers: SupplierDto[] }) {
   if (suppliers.length === 0) {
-    return <p className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">No suppliers yet.</p>
+    return <EmptyState icon={Users} title="No suppliers yet" />
   }
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">

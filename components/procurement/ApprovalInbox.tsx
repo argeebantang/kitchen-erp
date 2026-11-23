@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import type { ApprovalInboxDto, ApprovalItemDto, ApprovalType } from '@/services/approval-inbox.service'
 import { formatPeso, formatWaited } from '@/lib/format'
 import { formatDateTime } from '@/lib/dates'
+import { EmptyState } from '@/components/ui/states'
+import { CircleCheck, SearchX } from 'lucide-react'
 
 type Decision = 'APPROVED' | 'REJECTED'
 type Filter = ApprovalType | 'ALL' | 'OVERDUE'
@@ -119,17 +121,15 @@ export function ApprovalInbox({
       )}
 
       {open.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">Inbox clear</p>
-          <p className="mt-1 text-sm text-gray-400">Anything submitted for approval will appear here, oldest first.</p>
-        </div>
+        <EmptyState icon={CircleCheck} title="Inbox clear">
+          Anything submitted for approval will appear here, oldest first.
+        </EmptyState>
       ) : shown.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm text-gray-500">Nothing left under this filter.</p>
+        <EmptyState icon={SearchX} title="Nothing left under this filter">
           <button type="button" onClick={() => setFilter('ALL')} className="mt-2 text-sm font-medium text-orange-600 hover:underline">
             Show all
           </button>
-        </div>
+        </EmptyState>
       ) : (
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
           {shown.map(item => (

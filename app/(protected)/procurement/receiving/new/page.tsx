@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { todayIsoDate } from '@/lib/dates'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { ReceivingReportForm } from '@/components/procurement/ReceivingReportForm'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   searchParams: Promise<{ po?: string }>
@@ -64,9 +65,6 @@ export default async function NewReceivingReportPage({ searchParams }: PageProps
 
 function Blocked({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-      <p className="text-sm font-medium text-gray-600">{title}</p>
-      <p className="mt-1 text-sm text-gray-400">{body}</p>
-    </div>
+    <EmptyState title={title}>{body}</EmptyState>
   )
 }

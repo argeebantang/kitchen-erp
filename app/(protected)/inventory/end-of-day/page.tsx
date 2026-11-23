@@ -1,12 +1,13 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { EndOfDayService, endOfDayDate, type EndOfDayDocumentDto, type EndOfDayFigureDto } from '@/services/end-of-day.service'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   searchParams: Promise<{ date?: string; branch?: string }>
@@ -85,10 +86,9 @@ export default async function EndOfDayPage({ searchParams }: PageProps) {
       </h2>
 
       {day.rows.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No finished goods on the books this day</p>
-          <p className="mt-1 text-sm text-gray-400">Nothing was on hand, and nothing was produced, converted or written off.</p>
-        </div>
+        <EmptyState icon={CalendarDays} title="No finished goods on the books this day">
+          Nothing was on hand, and nothing was produced, converted or written off.
+        </EmptyState>
       ) : (
         <>
           {unbalanced.length > 0 ? (

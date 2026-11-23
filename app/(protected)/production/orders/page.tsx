@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
-import { CalendarDays, Plus } from 'lucide-react'
+import { CalendarDays, ClipboardList, Plus, SearchX } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { trimDecimal } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { isProductionStatus, PRODUCTION_STATUSES, ProductionOrderService } from '@/services/production-order.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { EmptyState } from '@/components/ui/states'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 const PAGE_SIZE = 50
 
@@ -85,15 +87,19 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
         {status && <Link href="/production/orders" className={secondaryButtonClass}>Clear</Link>}
       </form>
 
-      {productionOrders.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">
-            {status ? 'No production orders with this status' : 'No production orders yet'}
-          </p>
-          <p className="mt-1 text-sm text-gray-400">
-            {canPlan ? <>Click <span className="font-medium">New Production Order</span> to plan one.</> : 'Production plans orders here.'}
-          </p>
-        </div>
+      {/* Empty because of the filter, or empty for real — they need different next steps. */}
+      {productionOrders.length === 0 && status ? (
+        <EmptyState icon={SearchX} title="No production orders with this status" action={{ href: '/production/orders', label: 'Clear filter' }}>
+          Nothing is {status.replace(/_/g, ' ').toLowerCase()} right now.
+        </EmptyState>
+      ) : productionOrders.length === 0 ? (
+        <EmptyState
+          icon={ClipboardList}
+          title="No production orders yet"
+          action={canPlan ? { href: '/production/orders/new', label: 'New Production Order' } : undefined}
+        >
+          {canPlan ? 'Plan a run of a finished good from its active BOM.' : 'Production plans orders here; they show up once planned.'}
+        </EmptyState>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -148,8 +154,8 @@ export default async function ProductionOrderListPage({ searchParams }: PageProp
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} orders</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

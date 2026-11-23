@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 export const MASTER_TABS = [
   { key: 'materials',      label: 'Materials' },
@@ -36,6 +37,7 @@ export function MasterTabs({ active }: { active: MasterTabKey }) {
             }`}
           >
             {tab.label}
+            <PendingSpinner />
           </Link>
         )
       })}

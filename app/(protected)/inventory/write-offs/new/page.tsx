@@ -1,7 +1,8 @@
 import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, PackageOpen } from 'lucide-react'
 import { WRITE_OFF_REASONS, WriteOffService } from '@/services/write-off.service'
 import { WriteOffForm } from '@/components/inventory/WriteOffForm'
+import { EmptyState } from '@/components/ui/states'
 
 type PageProps = {
   searchParams: Promise<{ lot?: string; branch?: string }>
@@ -32,13 +33,9 @@ export default async function NewWriteOffPage({ searchParams }: PageProps) {
       </p>
 
       {lot === null ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">Choose a lot to write off</p>
-          <p className="mt-1 text-sm text-gray-400">
-            Open Finished Goods and click <span className="font-medium">Write off</span> on the lot. This lot has nothing on
-            hand at that branch, or the link is incomplete.
-          </p>
-        </div>
+        <EmptyState icon={PackageOpen} title="Choose a lot to write off" action={{ href: '/inventory/finished-goods', label: 'Open Finished Goods' }}>
+          Click Write off on the lot in Finished Goods. This lot has nothing on hand at that branch, or the link is incomplete.
+        </EmptyState>
       ) : (
         // A Client Component cannot import values from services/, so the reasons come in as props.
         <WriteOffForm lot={lot} reasons={WRITE_OFF_REASONS} />

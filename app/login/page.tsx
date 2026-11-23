@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { requestJson } from '@/lib/http'
 
 // Dev-only quick login. Matches prisma/seed.ts — every seeded account shares
 // this password. Never rendered outside development (see isDev below).
@@ -27,16 +28,13 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    const res = await fetch('/api/auth/login', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(overrides ?? { email, password }),
+    const result = await requestJson('/api/auth/login', {
+      body:   overrides ?? { email, password },
+      fields: { email: 'Email', password: 'Password' },
     })
 
-    const data = await res.json()
-
-    if (!res.ok) {
-      setError(data.error ?? 'Login failed')
+    if (!result.ok) {
+      setError(result.error)
       setLoading(false)
       return
     }

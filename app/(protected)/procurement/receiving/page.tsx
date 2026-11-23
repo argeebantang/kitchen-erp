@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { ReceivingReportService } from '@/services/receiving-report.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { VarianceBadge } from '@/components/procurement/VarianceChips'
+import { EmptyState } from '@/components/ui/states'
+import { Truck } from 'lucide-react'
 
 export default async function ReceivingReportListPage() {
   // No getSession(), like the purchase order list: reports are not scoped to a
@@ -21,14 +23,9 @@ export default async function ReceivingReportListPage() {
       </div>
 
       {receivingReports.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No deliveries recorded yet</p>
-          <p className="mt-1 text-sm text-gray-400">
-            Open a sent order on{' '}
-            <Link href="/procurement/orders" className="text-orange-600 hover:underline">Purchase Orders</Link>
-            {' '}and click Receive delivery.
-          </p>
-        </div>
+        <EmptyState icon={Truck} title="No deliveries recorded yet" action={{ href: '/procurement/orders', label: 'Purchase Orders' }}>
+          Open a sent order on Purchase Orders and click Receive delivery.
+        </EmptyState>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">

@@ -8,6 +8,9 @@ import { BranchRepository } from '@/repositories/branch.repository'
 import { isTransferStatus, StockTransferService, TRANSFER_STATUSES, transferStatusLabel } from '@/services/stock-transfer.service'
 import { ReturnBadge } from '@/components/inventory/BranchTransfers'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
+import { EmptyState } from '@/components/ui/states'
+import { Store, SearchX, ArrowLeftRight } from 'lucide-react'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 const PAGE_SIZE = 50
 
@@ -127,19 +130,21 @@ export default async function TransferListPage({ searchParams }: PageProps) {
       )}
 
       {managesNoBranch ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">You don&apos;t manage a branch yet</p>
-          <p className="mt-1 text-sm text-gray-400">An admin assigns branch managers in Master Data → Branches.</p>
-        </div>
+        <EmptyState icon={Store} title="You don't manage a branch yet">
+          An admin assigns branch managers in Master Data → Branches.
+        </EmptyState>
       ) : transfers.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">{filtered ? 'No transfers match these filters' : 'No transfers yet'}</p>
-          <p className="mt-1 text-sm text-gray-400">
-            {canRecord
-              ? <>Click <Link href="/inventory/transfers/new" className="text-orange-600 hover:underline">New transfer</Link> to send finished goods to a branch.</>
-              : 'The kitchen records what it sends to each branch here.'}
-          </p>
-        </div>
+        filtered ? (
+          <EmptyState icon={SearchX} title="No transfers match these filters" action={{ href: '/inventory/transfers', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState
+            icon={ArrowLeftRight}
+            title="No transfers yet"
+            action={canRecord ? { href: '/inventory/transfers/new', label: 'New transfer' } : undefined}
+          >
+            {canRecord ? 'Send finished goods from a kitchen to a branch.' : 'The kitchen records what it sends to each branch here.'}
+          </EmptyState>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -195,8 +200,8 @@ export default async function TransferListPage({ searchParams }: PageProps) {
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} transfers</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

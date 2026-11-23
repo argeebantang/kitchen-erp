@@ -13,6 +13,8 @@ import {
 } from '@/services/stock-request.service'
 import { StatusBadge } from '@/components/procurement/StatusBadge'
 import { LateBadge } from '@/components/inventory/LateBadge'
+import { EmptyState } from '@/components/ui/states'
+import { Store, SearchX, ClipboardList } from 'lucide-react'
 
 type PageProps = {
   searchParams: Promise<{ status?: string; kitchen?: string }>
@@ -81,19 +83,21 @@ export default async function StockRequestListPage({ searchParams }: PageProps) 
       )}
 
       {managesNoBranch ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">You don&apos;t manage an outlet yet</p>
-          <p className="mt-1 text-sm text-gray-400">An admin assigns branch managers in Master Data → Branches.</p>
-        </div>
+        <EmptyState icon={Store} title="You don't manage an outlet yet">
+          An admin assigns branch managers in Master Data → Branches.
+        </EmptyState>
       ) : requests.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">{filtered ? 'No requests match these filters' : 'No stock requests yet'}</p>
-          <p className="mt-1 text-sm text-gray-400">
-            {canRequest
-              ? <>Click <Link href="/inventory/requests/new" className="text-orange-600 hover:underline">New request</Link> to ask a kitchen for finished goods.</>
-              : 'Outlets ask a kitchen for what they need here.'}
-          </p>
-        </div>
+        filtered ? (
+          <EmptyState icon={SearchX} title="No requests match these filters" action={{ href: '/inventory/requests', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState
+            icon={ClipboardList}
+            title="No stock requests yet"
+            action={canRequest ? { href: '/inventory/requests/new', label: 'New request' } : undefined}
+          >
+            {canRequest ? 'Ask a kitchen for the finished goods your outlet needs.' : 'Outlets ask a kitchen for what they need here.'}
+          </EmptyState>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">

@@ -10,6 +10,8 @@ import { shortDateLabel } from '@/lib/dates'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { STATUS_STYLES, STOCK_STATUSES } from '@/components/inventory/StockTile'
 import { StockMap } from '@/components/inventory/StockMap'
+import { EmptyState } from '@/components/ui/states'
+import { SearchX, Warehouse } from 'lucide-react'
 
 const REFRESH_SECONDS = 30
 
@@ -141,9 +143,13 @@ export default async function StockLevelsPage({ searchParams }: PageProps) {
       )}
 
       {branches.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">{branch ? 'No kitchen matches this filter' : 'No active kitchens'}</p>
-        </div>
+        filtered ? (
+          <EmptyState icon={SearchX} title="No kitchen matches these filters" action={{ href: '/inventory/stock', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState icon={Warehouse} title="No active kitchens">
+            An admin sets up kitchens in Master Data → Branches.
+          </EmptyState>
+        )
       ) : (
         <StockMap branches={branches} reorder={reorder} />
       )}

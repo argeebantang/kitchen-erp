@@ -16,9 +16,14 @@ export function useNotifications() {
   const [data, setData] = useState<NotificationListDto | null>(null)
 
   // The only way the data changes. An event means "reload", nothing more.
+  // A failed load keeps the last list; the next event or reconnect reloads.
   const load = useCallback(async () => {
-    const res = await fetch('/api/notifications', { cache: 'no-store' })
-    if (res.ok) setData(await res.json())
+    try {
+      const res = await fetch('/api/notifications', { cache: 'no-store' })
+      if (res.ok) setData(await res.json())
+    } catch {
+      // offline or server unreachable
+    }
   }, [])
 
   useEffect(() => {
@@ -42,7 +47,7 @@ export function useNotifications() {
         // CONNECTING: the browser is already reconnecting by itself (network
         // blip, server restart), after the server's `retry:` delay.
         // CLOSED: it has given up — the response was not an event stream,
-        // e.g. the session expired and middleware redirected to /login, or
+        // e.g. the session expired and middleware answered 401, or
         // Redis was down (503). Retry ourselves, backing off to 30 s.
         if (source?.readyState === EventSource.CLOSED) {
           source = null

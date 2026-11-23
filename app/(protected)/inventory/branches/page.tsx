@@ -5,6 +5,8 @@ import { formatPeso } from '@/lib/format'
 import { BranchInventoryService } from '@/services/branch-inventory.service'
 import { BranchHeadline } from '@/components/inventory/BranchHeadline'
 import { LiveRefresh } from '@/components/ui/LiveRefresh'
+import { EmptyState } from '@/components/ui/states'
+import { Store } from 'lucide-react'
 
 /**
  * Branch Inventory (Week 8 Task 5, I1): a card per active branch, each opening
@@ -34,10 +36,9 @@ export default async function BranchInventoryIndexPage() {
       </div>
 
       {overview.kind === 'none' ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">You don&apos;t manage a branch yet</p>
-          <p className="mt-1 text-sm text-gray-400">An admin assigns branch managers in Master Data → Branches.</p>
-        </div>
+        <EmptyState icon={Store} title="You don't manage a branch yet">
+          An admin assigns branch managers in Master Data → Branches.
+        </EmptyState>
       ) : (
         <>
           {overview.truncated && (

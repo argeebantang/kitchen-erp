@@ -732,13 +732,19 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
 Order (owner, 2026-11-23): polish first, deploy last — UI polish (Task 1 app-wide states, Task 2 per-screen sweep), PWA,
 demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the live URL).
 
-- [~] UI polish (loading/empty/error states):
+- [x] UI polish (loading/empty/error states):
       - [x] **Task 1, 2026-11-23** — app-wide page states (`docs/2026-11-23-week12-ui-states.md`): a loading skeleton
         on every screen (a `loading.tsx` in each folder with sub-pages), error screens with Try again inside and
         outside the layout, not-found pages for unknown links and for records without their own; shared
         `EmptyState` / `PageSkeleton` / `ErrorState`; the browser tab says KitchenERP.
-      - [ ] Task 2 — per-screen sweep: empty states on every list and panel ("nothing yet" vs "nothing matches"),
-        form and button errors (403, 409, validation, offline), retry on panels loaded in the browser.
+      - [x] **Task 2, 2026-11-24** — per-screen sweep (`docs/2026-11-24-week12-empty-and-error-states.md`):
+        - API calls refused by the middleware get JSON 401 / 403 instead of a redirect that forms took for success
+        - `requestJson` (`lib/http.ts`): forms never hang on "Saving…"; readable messages (offline, role, session,
+          "Field: rule"); used by Master Data (Materials, Finished Goods, Branches, Reference Data), login, sign-out,
+          the bell and the AI test; Deactivate shows progress and failures; price history loads with Try again
+        - about 35 empty states moved to `EmptyState`: "No X match these filters" + Clear filters vs "No X yet" + the
+          next step for roles that can take it
+        - a spinner on tabs, chips and paging links (`PendingSpinner`), which never show the page skeleton
 - [ ] PWA setup
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for

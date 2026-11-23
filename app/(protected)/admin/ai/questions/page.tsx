@@ -3,6 +3,9 @@ import { formatDateTime, shortDateLabel } from '@/lib/dates'
 import { formatPeso, formatQuantity, formatUsd } from '@/lib/format'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { AI_QUERY_PAGE_SIZE, AiQueryService, type AiQueryDto } from '@/services/ai-query.service'
+import { EmptyState } from '@/components/ui/states'
+import { SearchX, MessageSquare } from 'lucide-react'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 type PageProps = {
   searchParams: Promise<{ user?: string; conversation?: string; page?: string }>
@@ -122,10 +125,13 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
       )}
 
       {questions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">{filtered ? 'No questions match these filters' : 'No questions yet'}</p>
-          <p className="mt-1 text-sm text-gray-400">Questions appear here as people ask the assistant on the Dashboard.</p>
-        </div>
+        filtered ? (
+          <EmptyState icon={SearchX} title="No questions match these filters" action={{ href: '/admin/ai/questions', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState icon={MessageSquare} title="No questions yet">
+            Questions appear here as people ask the assistant on the Dashboard.
+          </EmptyState>
+        )
       ) : (
         <ul className="divide-y divide-gray-100 overflow-hidden rounded-xl border border-gray-200 bg-white">
           {questions.map(question => (
@@ -222,8 +228,8 @@ export default async function AssistantQuestionsPage({ searchParams }: PageProps
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} questions</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={href({ page: page - 1 })} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={href({ page: page + 1 })} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={href({ page: page - 1 })} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={href({ page: page + 1 })} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

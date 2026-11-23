@@ -7,6 +7,8 @@ import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/c
 import { trimDecimal } from '@/lib/format'
 // Type-only, so nothing from the service (or Prisma behind it) is bundled into the browser.
 import type { OutletSaleFormDto } from '@/services/outlet-sale.service'
+import { EmptyState } from '@/components/ui/states'
+import { Store } from 'lucide-react'
 
 type Props = OutletSaleFormDto & { initialBranchId?: string }
 
@@ -32,10 +34,9 @@ export function OutletSaleForm({ outlets, today, yesterday, initialBranchId }: P
 
   if (!outlet) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-gray-600">No outlet to record for</p>
-        <p className="mt-1 text-sm text-gray-400">Sales are recorded by an outlet&apos;s manager — you do not run an active outlet.</p>
-      </div>
+      <EmptyState icon={Store} title="No outlet to record for">
+        Sales are recorded by an outlet&apos;s manager, and you do not run an active outlet.
+      </EmptyState>
     )
   }
 

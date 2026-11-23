@@ -6,6 +6,9 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from '@/componen
 import { InventoryService } from '@/services/inventory.service'
 import { MaterialService } from '@/services/material.service'
 import { BranchRepository } from '@/repositories/branch.repository'
+import { EmptyState } from '@/components/ui/states'
+import { SearchX, History } from 'lucide-react'
+import { PendingSpinner } from '@/components/ui/PendingSpinner'
 
 const PAGE_SIZE = 50
 
@@ -105,12 +108,13 @@ export default async function StockLedgerPage({ searchParams }: PageProps) {
       )}
 
       {movements.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-          <p className="text-sm font-medium text-gray-600">No stock movements</p>
-          <p className="mt-1 text-sm text-gray-400">
-            {material || branch ? 'Nothing matches these filters.' : 'Stock changes when accounting approves a receiving report.'}
-          </p>
-        </div>
+        material || branch ? (
+          <EmptyState icon={SearchX} title="No stock movements match these filters" action={{ href: '/inventory/ledger', label: 'Clear filters' }} />
+        ) : (
+          <EmptyState icon={History} title="No stock movements yet">
+            Stock changes when accounting approves a receiving report.
+          </EmptyState>
+        )
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           <table className="w-full text-sm">
@@ -176,8 +180,8 @@ export default async function StockLedgerPage({ searchParams }: PageProps) {
         <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
           <span>Page {page} of {pageCount} · {total} movements</span>
           <div className="flex gap-2">
-            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer</Link>}
-            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older</Link>}
+            {page > 1 && <Link href={pageHref(page - 1)} className={secondaryButtonClass}>Newer<PendingSpinner /></Link>}
+            {page < pageCount && <Link href={pageHref(page + 1)} className={secondaryButtonClass}>Older<PendingSpinner /></Link>}
           </div>
         </div>
       )}

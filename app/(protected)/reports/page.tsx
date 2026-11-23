@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/session'
 import { ReportService } from '@/services/report.service'
+import { EmptyState } from '@/components/ui/states'
+import { FileChartColumn } from 'lucide-react'
 
 /**
  * Reports (Week 11): the reports this role may open. Each opens on last week
@@ -22,7 +24,7 @@ export default async function ReportsPage() {
         </p>
       </div>
       {reports.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-400">No reports for your role yet.</div>
+        <EmptyState icon={FileChartColumn} title="No reports for your role yet" />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {reports.map(report => (

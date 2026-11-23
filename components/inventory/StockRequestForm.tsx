@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Store } from 'lucide-react'
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
 import { addDays, timeOfDayAt } from '@/lib/dates'
 // Type-only, so nothing from the service (or Prisma behind it) is bundled into the browser.
 import type { StockRequestFormDto } from '@/services/stock-request.service'
+import { EmptyState } from '@/components/ui/states'
 
 type Line = { key: number; finishedGoodId: string; quantity: string }
 
@@ -85,10 +86,9 @@ export function StockRequestForm({ outlets, kitchens, finishedGoods, today, cuto
 
   if (outlets.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-gray-600">No outlet to request for</p>
-        <p className="mt-1 text-sm text-gray-400">Stock requests are made by an outlet&apos;s manager — you do not run an active outlet.</p>
-      </div>
+      <EmptyState icon={Store} title="No outlet to request for">
+        Stock requests are made by an outlet&apos;s manager, and you do not run an active outlet.
+      </EmptyState>
     )
   }
 

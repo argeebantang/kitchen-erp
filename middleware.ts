@@ -122,6 +122,23 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/ai/assistant',      roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER'] },
 ]
 
+/**
+ * A refusal: a redirect for a page, JSON for an API call made from code.
+ * fetch follows a redirect silently and gets a 200 HTML page back, which
+ * forms took for success (Week 12 Task 2). A link the browser opens itself —
+ * a PDF or Excel download under /api — still gets the page it can show.
+ */
+function refuse(req: NextRequest, status: 401 | 403): NextResponse {
+  const isApiCall = req.nextUrl.pathname.startsWith('/api/') && req.headers.get('sec-fetch-mode') !== 'navigate'
+  if (isApiCall) {
+    return NextResponse.json(
+      { error: status === 401 ? 'Your session has ended. Sign in again.' : 'Your role cannot do this.' },
+      { status },
+    )
+  }
+  return NextResponse.redirect(new URL(status === 401 ? '/login' : '/unauthorized', req.url))
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
@@ -134,14 +151,14 @@ export async function middleware(req: NextRequest) {
   const token = req.cookies.get(COOKIE_NAME)?.value
 
   if (!token) {
-    return NextResponse.redirect(new URL('/login', req.url))
+    return refuse(req, 401)
   }
 
   const payload = await verifyToken(token)
 
   if (!payload) {
-    // Clear the invalid cookie and redirect
-    const res = NextResponse.redirect(new URL('/login', req.url))
+    // Clear the invalid cookie and refuse
+    const res = refuse(req, 401)
     res.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: '/' })
     return res
   }
@@ -150,7 +167,7 @@ export async function middleware(req: NextRequest) {
   for (const guard of ROLE_GUARDS) {
     if (guard.methods && !guard.methods.includes(req.method)) continue
     if (pathname.startsWith(guard.path) && !guard.roles.includes(payload.role as Role)) {
-      return NextResponse.redirect(new URL('/unauthorized', req.url))
+      return refuse(req, 403)
     }
   }
 
