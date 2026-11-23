@@ -25,6 +25,15 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
   const options = await ReportService.options(key, viewer)
   if (!options.success) {
     if (options.status === 404) notFound()
+    // A branch manager with no branch yet may open the report — say why it is empty.
+    if (options.error.startsWith('You do not manage')) {
+      return (
+        <div>
+          <Link href="/reports" className="text-sm text-orange-600 hover:underline">← Reports</Link>
+          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{options.error}</p>
+        </div>
+      )
+    }
     redirect('/unauthorized')
   }
 
@@ -42,7 +51,7 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
           <Link href="/reports" className="text-sm text-orange-600 hover:underline">← Reports</Link>
           <h1 className="mt-1 text-2xl font-bold text-gray-800">{options.data.title}</h1>
           <p className="mt-1 text-sm text-gray-400">
-            {result.success ? `${result.data.periodLabel} · ${result.data.branchName ?? 'All kitchens'}` : options.data.description}
+            {result.success ? `${result.data.periodLabel} · ${result.data.branchName ?? options.data.allLabel}` : options.data.description}
           </p>
         </div>
         {result.success && (
@@ -58,13 +67,14 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
         presets={options.data.presets}
         branches={options.data.branches}
         branchLabel={options.data.branchLabel}
+        branchFixed={options.data.branchFixed}
         maxDays={options.data.maxDays}
         current={{
           // An unknown preset falls back to last week, as the report itself does.
           preset:   query.from || query.to ? null : (options.data.presets.find(option => option.value === query.preset)?.value ?? 'last-week'),
           from:     result.success ? result.data.from : (query.from ?? ''),
           to:       result.success ? result.data.to : (query.to ?? ''),
-          branchId: query.branch ?? null,
+          branchId: options.data.branchFixed ? (options.data.branches[0]?.id ?? null) : (query.branch ?? null),
         }}
       />
 

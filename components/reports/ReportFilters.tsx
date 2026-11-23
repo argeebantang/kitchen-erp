@@ -9,6 +9,8 @@ type Props = {
   presets: { value: string; label: string }[]
   branches: { id: string; name: string }[]
   branchLabel: string | null
+  /** Held to one branch (a branch manager): the select shows it, with no "All". */
+  branchFixed: boolean
   maxDays: number
   /** What the page shows now. */
   current: { preset: string | null; from: string; to: string; branchId: string | null }
@@ -21,7 +23,7 @@ const CUSTOM = 'custom'
  * can be bookmarked or shared. Apply navigates; the downloads below use the
  * same query, so the Excel and PDF are exactly what is on screen.
  */
-export function ReportFilters({ reportKey, presets, branches, branchLabel, maxDays, current }: Props) {
+export function ReportFilters({ reportKey, presets, branches, branchLabel, branchFixed, maxDays, current }: Props) {
   const router = useRouter()
   const [preset, setPreset] = useState(current.preset ?? CUSTOM)
   const [from, setFrom] = useState(current.from)
@@ -68,7 +70,7 @@ export function ReportFilters({ reportKey, presets, branches, branchLabel, maxDa
         <label className="text-sm">
           <span className="mb-1 block font-medium text-gray-700">{branchLabel}</span>
           <select value={branchId} onChange={event => setBranchId(event.target.value)} className={fieldClass}>
-            <option value="">All</option>
+            {!branchFixed && <option value="">All</option>}
             {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         </label>

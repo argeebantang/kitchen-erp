@@ -695,7 +695,7 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
         it opens the inbox on "Over 24 h".
       - `ApprovalReminder` (new) claims each (approver, document, step) under a unique key, so no reminder goes
         twice even if runs overlap. Waiting time and the list are the inbox's own.
-- [~] 5 reports with Excel/PDF export (CSV in the plan; the owner chose Excel instead, 2026-11-23) — **Task 4, 2026-11-23** (`docs/2026-11-23-week11-reports-engine.md`): the reports
+- [x] 5 reports with Excel/PDF export (CSV in the plan; the owner chose Excel instead, 2026-11-23) — **Tasks 4–5, 2026-11-23** (`docs/2026-11-23-week11-reports-engine.md`): the reports
       engine (one DTO → page, Excel, PDF; periods; roles; kitchen filter) and the first two:
       - **Production Summary:** production cost, batches, over plan, conversions, awaiting sign-off; by product, by
         kitchen, by day; orders planned for the period by status.
@@ -705,7 +705,11 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
         in Excel (no alignment or formatting) and chose Excel.
       - Both read `CostingService.productionDetail`, which shares one calculation with the assistant's production
         costs (proved identical before and after) and the Costing dashboard's rules.
-      - Task 5: Inventory Movement, Procurement, Waste & Write-off.
+      - **Task 5** (`docs/2026-11-23-week11-reports-stock-procurement-waste.md`): **Inventory Movement** (End of Day
+        over a period + the Stock Ledger summed), **Procurement** (Supplier Performance over any period + orders
+        approved and requests decided), **Waste & Write-off** (the weekly waste figures over any period). Each source
+        now takes any period; each refactor proved identical to the old code. A branch manager sees stock movement
+        at their own branch only.
 - [ ] End-of-day branch snapshot report
 - [ ] Weekly report scheduler
 

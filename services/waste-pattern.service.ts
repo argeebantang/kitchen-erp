@@ -141,17 +141,30 @@ const php = (value: Prisma.Decimal) => value.toDecimalPlaces(2).toFixed(2)
 const pct = (part: Prisma.Decimal, whole: Prisma.Decimal) => (whole.isZero() ? null : part.div(whole).mul(100).toDecimalPlaces(1).toFixed(1))
 const change = (now: Prisma.Decimal, before: Prisma.Decimal) => (before.isZero() ? null : now.sub(before).div(before).mul(100).toDecimalPlaces(1).toFixed(1))
 
-/** The 30 days before a week's Monday, and the 30 before those. Null for a malformed key. */
-export function windowsFor(week: string): { from: string; to: string; current: WasteWindow; previous: WasteWindow } | null {
-  const monday = weekKeyStart(week)
-  if (!monday) return null
-  const from = addDays(monday, -WASTE_WINDOW_DAYS)
-  const previousFrom = addDays(from, -WASTE_WINDOW_DAYS)
+/** A period's windows: [from, to] inclusive, and the same number of days just before it. */
+type WasteWindows = { from: string; to: string; days: number; current: WasteWindow; previous: WasteWindow }
+
+/**
+ * The windows for any period (Week 11 Task 5: the Waste & Write-off report),
+ * compared with the same number of days before it. The weekly AI report is
+ * the 30-day case (windowsFor).
+ */
+export function periodWindows(from: string, to: string): WasteWindows {
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+  const endExclusive = addDays(to, 1)
+  const previousFrom = addDays(from, -days)
   const window = (start: string, end: string): WasteWindow => ({
     start: businessDayRange(start).start, end: businessDayRange(end).start,
     startDate: new Date(`${start}T00:00:00.000Z`), endDate: new Date(`${end}T00:00:00.000Z`),
   })
-  return { from, to: addDays(monday, -1), current: window(from, monday), previous: window(previousFrom, from) }
+  return { from, to, days, current: window(from, endExclusive), previous: window(previousFrom, from) }
+}
+
+/** The 30 days before a week's Monday, and the 30 before those. Null for a malformed key. */
+export function windowsFor(week: string): WasteWindows | null {
+  const monday = weekKeyStart(week)
+  if (!monday) return null
+  return periodWindows(addDays(monday, -WASTE_WINDOW_DAYS), addDays(monday, -1))
 }
 
 /**
@@ -161,7 +174,15 @@ export function windowsFor(week: string): { from: string; to: string; current: W
  */
 async function figures(week: string): Promise<{ facts: WasteFacts; allRows: WasteRowFact[] } | null> {
   const windows = windowsFor(week)
-  if (!windows) return null
+  return windows ? figuresFor(windows, week) : null
+}
+
+/**
+ * The figures for any windows — the one calculation behind the weekly AI
+ * report, its dashboard card and the Waste & Write-off report (Week 11
+ * Task 5). `label` is what facts.week says: the ISO week, or the period.
+ */
+async function figuresFor(windows: WasteWindows, label: string): Promise<{ facts: WasteFacts; allRows: WasteRowFact[] }> {
   const { current, previous } = windows
 
   const [writeOffs, writeOffDays, previousWriteOffs, flows, sold, routes, conversions, productionCost] = await Promise.all([
@@ -201,7 +222,7 @@ async function figures(week: string): Promise<{ facts: WasteFacts; allRows: Wast
   }
   const flowOf = new Map(flows.map(row => [`${row.branchId}:${row.finishedGoodId}`, row]))
   const soldOf = new Map(sold.map(row => [`${row.branchId}:${row.finishedGoodId}`, row.kg]))
-  const days = new Prisma.Decimal(WASTE_WINDOW_DAYS)
+  const days = new Prisma.Decimal(windows.days)
 
   const sorted = [...pairs.entries()].sort(([, a], [, b]) => b.value.comparedTo(a.value))
   const allRows: WasteRowFact[] = sorted.map(([key, pair], index) => {
@@ -281,7 +302,7 @@ async function figures(week: string): Promise<{ facts: WasteFacts; allRows: Wast
   const lostValue       = writtenOffValue.add(transitValue)
 
   const facts: WasteFacts = {
-    week, from: windows.from, to: windows.to, days: WASTE_WINDOW_DAYS, currency: 'PHP',
+    week: label, from: windows.from, to: windows.to, days: windows.days, currency: 'PHP',
     totals: {
       writtenOffKg: kg(writtenOffKg),
       writtenOffValue: php(writtenOffValue),
@@ -544,8 +565,20 @@ async function dashboard(options: { branchId?: string; today?: string } = {}): P
   }
 }
 
+/**
+ * Any period's figures, for every branch or narrowed to one by name (the
+ * Waste & Write-off report, Week 11 Task 5) — the same calculation and the
+ * same narrowing as the dashboard card. `rows` are all of them, not the top
+ * WASTE_ROWS Claude is given.
+ */
+async function periodFigures(from: string, to: string, branchName: string | null): Promise<WasteFacts> {
+  const { facts: all, allRows } = await figuresFor(periodWindows(from, to), `${from}..${to}`)
+  return branchName ? scoped(all, allRows, branchName) : { ...all, rows: allRows, otherRows: 0 }
+}
+
 export const WastePatternService = {
   facts,
+  periodFigures,
   request,
   write,
   giveUp,

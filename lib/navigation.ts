@@ -92,7 +92,7 @@ export const navigation: NavGroup[] = [
     group: 'Reports',
     items: [
       // Week 11 Task 4: Excel / PDF reports from the same figures as the pages.
-      { label: 'Reports', href: '/reports', icon: FileText, roles: ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER'] },
+      { label: 'Reports', href: '/reports', icon: FileText, roles: ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER'] },
     ],
   },
   {

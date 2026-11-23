@@ -31,7 +31,7 @@ The browser is the only client. Server Components read through services directly
 | `/api/transfers` (incl. `/preview`, `/returns`, `/[id]/receive`) | all | ADMIN, PRODUCTION_MANAGER, BRANCH_MANAGER — creating and previewing a delivery re-check ADMIN / PRODUCTION_MANAGER in the route (403); `/returns` and `?kind=return` re-check ADMIN / BRANCH_MANAGER, the service the outlet; receiving checks the branch (a return: production) in the service |
 | `/api/ai/test` | all | ADMIN — spends real money; each AI feature's endpoint gets its own guard |
 | `/api/email` (incl. `/test`, `/recipients/[userId]`) | all | ADMIN — Admin → Email (Week 11 Task 2) |
-| `/api/reports` | all | ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER (Week 11 Task 4) — which report each role may open is checked in `ReportService` |
+| `/api/reports` | all | ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER, PROCUREMENT_MANAGER, BRANCH_MANAGER (Week 11 Tasks 4–5) — which report each role may open is checked in `ReportService` |
 | `/api/materials` (incl. `/prices`), `/api/finished-goods`, `/api/categories`, `/api/units` | POST, PUT, PATCH, DELETE | ADMIN |
 | `/api/boms` | POST, PUT, PATCH, DELETE | ADMIN, PRODUCTION_MANAGER |
 | `/api/branches` (incl. `/deactivate`, `/reactivate`) | POST, PUT, PATCH, DELETE | ADMIN |
@@ -309,7 +309,12 @@ Week 11 Task 4 (`docs/2026-11-23-week11-reports-engine.md`). Generated on reques
 |---|---|---|---|---|
 | GET | `/api/reports/[key]` | `format` (`json` default · `xlsx` · `pdf`); `preset` (`last-week` default · `this-week` · `last-month` · `this-month`) **or** `from` + `to` (YYYY-MM-DD, inclusive, ≤ today, ≤ 92 days); `branch` (a branch id, where the report has a branch filter) | `json`: 200 `{ report: { key, title, from, to, periodLabel, branchName, generatedAt, figures: [{ label, value, kind, note? }], tables: [{ title, description?, columns: [{ key, label, kind }], rows, total, emptyText }], notes } }` — numbers as decimal strings. `xlsx`: a formatted Excel workbook (Summary sheet + one sheet per table: real numbers and dates with ₱ / quantity / % formats, bold frozen header, filters, totals), attachment `<key>[_<branch>]_<from>_<to>.xlsx`. `pdf`: `application/pdf`, inline, same name | 400 bad format / dates / period over 92 days / ending after today / not a kitchen · 401 · 403 the role cannot open this report · 404 no such report |
 
-Keys so far: `production-summary`, `cost-per-batch` (ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER; `branch` = a kitchen).
+| Key | Who | `branch` |
+|---|---|---|
+| `production-summary`, `cost-per-batch` | ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER | a kitchen |
+| `inventory-movement` (Task 5) | ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER, PROCUREMENT_MANAGER, BRANCH_MANAGER | any branch; a BRANCH_MANAGER is held to the branch they manage (`Branch.managerId`) — another branch's id is 403, none means theirs, managing none is 403 |
+| `procurement` (Task 5) | ADMIN, ACCOUNTING, VIEWER, PROCUREMENT_MANAGER | not accepted (400): company-wide |
+| `waste` (Task 5) | ADMIN, ACCOUNTING, VIEWER, PRODUCTION_MANAGER | any branch |
 
 ## Known gaps
 

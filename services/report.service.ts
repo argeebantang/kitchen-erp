@@ -2,6 +2,7 @@ import { BranchType } from '@prisma/client'
 import { addDays, addMonths, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { costPerBatchReport, productionSummaryReport } from '@/services/production-report.service'
+import { inventoryMovementReport, procurementReport, wasteReport } from '@/services/operations-report.service'
 
 /**
  * Reports (Week 11, Tasks 4–6): one engine, many reports. A report is a
@@ -63,8 +64,8 @@ export type ReportParams = {
 
 // ─── The registry ─────────────────────────────────────────────────────────────
 
-/** Which branches a report can be narrowed to. */
-type BranchFilter = 'kitchens' | 'none'
+/** Which branches a report can be narrowed to: kitchens only, any branch, or none (company-wide). */
+type BranchFilter = 'kitchens' | 'branches' | 'none'
 
 type ReportDefinition = {
   key: ReportKey
@@ -73,18 +74,29 @@ type ReportDefinition = {
   /** Who may open it (owner, 2026-11-23). */
   roles: string[]
   branchFilter: BranchFilter
+  /**
+   * A branch manager sees only the branch they manage (owner, 2026-11-23):
+   * the filter is fixed to it, read from Branch.managerId, not the token.
+   */
+  ownBranchForManagers?: boolean
   build: (params: ReportParams) => Promise<Omit<ReportDto, 'key' | 'title' | 'from' | 'to' | 'periodLabel' | 'branchName' | 'generatedAt'>>
 }
 
-export const REPORT_KEYS = ['production-summary', 'cost-per-batch'] as const
+export const REPORT_KEYS = ['production-summary', 'cost-per-batch', 'inventory-movement', 'procurement', 'waste'] as const
 export type ReportKey = (typeof REPORT_KEYS)[number]
 
 export function isReportKey(value: string): value is ReportKey {
   return (REPORT_KEYS as readonly string[]).includes(value)
 }
 
-/** Management sees every report; production its own (owner, 2026-11-23). */
-const PRODUCTION_REPORT_ROLES = ['ADMIN', 'ACCOUNTING', 'VIEWER', 'PRODUCTION_MANAGER']
+/**
+ * Who opens what (owner, 2026-11-23): management (admin, accounting, viewer)
+ * every report; production its production, waste and stock reports;
+ * procurement its own and stock; a branch manager stock movement at their
+ * own branch.
+ */
+const MANAGEMENT = ['ADMIN', 'ACCOUNTING', 'VIEWER']
+const PRODUCTION_REPORT_ROLES = [...MANAGEMENT, 'PRODUCTION_MANAGER']
 
 const REPORTS: Record<ReportKey, ReportDefinition> = {
   'production-summary': {
@@ -102,6 +114,31 @@ const REPORTS: Record<ReportKey, ReportDefinition> = {
     roles:        PRODUCTION_REPORT_ROLES,
     branchFilter: 'kitchens',
     build:        costPerBatchReport,
+  },
+  'inventory-movement': {
+    key:          'inventory-movement',
+    title:        'Inventory Movement',
+    description:  'Finished goods and raw materials at each branch: opening, what came in and went out, and closing.',
+    roles:        [...MANAGEMENT, 'PRODUCTION_MANAGER', 'PROCUREMENT_MANAGER', 'BRANCH_MANAGER'],
+    branchFilter: 'branches',
+    ownBranchForManagers: true,
+    build:        inventoryMovementReport,
+  },
+  procurement: {
+    key:          'procurement',
+    title:        'Procurement',
+    description:  'Orders approved and their value, deliveries by supplier — short, rejected, late — and materials that came short.',
+    roles:        [...MANAGEMENT, 'PROCUREMENT_MANAGER'],
+    branchFilter: 'none',
+    build:        procurementReport,
+  },
+  waste: {
+    key:          'waste',
+    title:        'Waste & Write-off',
+    description:  'What was written off and lost in transit, by branch and good and by reason, against the period before.',
+    roles:        PRODUCTION_REPORT_ROLES,
+    branchFilter: 'branches',
+    build:        wasteReport,
   },
 }
 
@@ -168,6 +205,10 @@ export type ReportOptionsDto = {
   presets: { value: string; label: string }[]
   branches: { id: string; name: string }[]
   branchLabel: string | null
+  /** What "no branch chosen" covers: "All kitchens", "All branches", "Company-wide". */
+  allLabel: string
+  /** A branch manager held to their own branch: no "All" to choose. */
+  branchFixed: boolean
   maxDays: number
 }
 
@@ -197,7 +238,17 @@ function resolvePeriod(query: ReportQuery): ReportResult<{ from: string; to: str
 }
 
 async function branchesFor(filter: BranchFilter): Promise<{ id: string; name: string }[]> {
-  return filter === 'kitchens' ? BranchRepository.findActiveKitchens() : []
+  if (filter === 'kitchens') return BranchRepository.findActiveKitchens()
+  if (filter === 'branches') return BranchRepository.findAllActive()
+  return []
+}
+
+/** The branch a branch manager is held to, when the report does that; undefined when it does not apply. */
+async function managersBranch(definition: ReportDefinition, viewer: Viewer): Promise<ReportResult<{ id: string; name: string }> | undefined> {
+  if (!definition.ownBranchForManagers || viewer.role !== 'BRANCH_MANAGER') return undefined
+  const managed = await BranchRepository.findManagedBy(viewer.userId)
+  if (!managed) return { success: false, error: 'You do not manage a branch yet — ask an admin to assign you one', status: 403 }
+  return { success: true, data: { id: managed.id, name: managed.name } }
 }
 
 export const ReportService = {
@@ -214,6 +265,8 @@ export const ReportService = {
     const found = definitionFor(key, viewer)
     if (!found.success) return found
     const definition = found.data
+    const own = await managersBranch(definition, viewer)
+    if (own && !own.success) return own
     return {
       success: true,
       data: {
@@ -221,8 +274,10 @@ export const ReportService = {
         title:       definition.title,
         description: definition.description,
         presets:     REPORT_PRESETS.map(({ value, label }) => ({ value, label })),
-        branches:    await branchesFor(definition.branchFilter),
-        branchLabel: definition.branchFilter === 'kitchens' ? 'Kitchen' : null,
+        branches:    own ? [own.data] : await branchesFor(definition.branchFilter),
+        branchLabel: definition.branchFilter === 'kitchens' ? 'Kitchen' : definition.branchFilter === 'branches' ? 'Branch' : null,
+        allLabel:    definition.branchFilter === 'kitchens' ? 'All kitchens' : definition.branchFilter === 'branches' ? 'All branches' : 'Company-wide',
+        branchFixed: own !== undefined,
         maxDays:     MAX_REPORT_DAYS,
       },
     }
@@ -237,12 +292,18 @@ export const ReportService = {
     if (!period.success) return period
 
     let branch: { id: string; name: string } | null = null
-    if (query.branchId) {
+    const own = await managersBranch(definition, viewer)
+    if (own && !own.success) return own
+    if (own) {
+      // Held to their own branch: another branch's id is refused, none means theirs.
+      if (query.branchId && query.branchId !== own.data.id) return { success: false, error: 'You can only see your own branch', status: 403 }
+      branch = own.data
+    } else if (query.branchId) {
       if (definition.branchFilter === 'none') return { success: false, error: 'This report covers every branch', status: 400 }
       const row = await BranchRepository.findById(query.branchId)
       // Inactive kitchens still open: a past period may have one.
       if (!row || (definition.branchFilter === 'kitchens' && row.type !== BranchType.COMMISSARY)) {
-        return { success: false, error: 'Choose one of the kitchens', status: 400 }
+        return { success: false, error: definition.branchFilter === 'kitchens' ? 'Choose one of the kitchens' : 'Choose one of the branches', status: 400 }
       }
       branch = { id: row.id, name: row.name }
     }

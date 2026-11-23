@@ -30,4 +30,18 @@ export const ApprovalRepository = {
       orderBy: { decidedAt: 'desc' },
     })
   },
+
+  /**
+   * How many decisions of one kind were made in [start, end), by decision
+   * (Week 11 Task 5: the Procurement report's purchase requests). A document
+   * decided twice counts twice — this counts decisions, not documents.
+   */
+  async decisionCountsBetween(referenceType: string, start: Date, end: Date): Promise<{ decision: string; count: number }[]> {
+    const rows = await prisma.approval.groupBy({
+      by:     ['decision'],
+      where:  { referenceType, decidedAt: { gte: start, lt: end } },
+      _count: { _all: true },
+    })
+    return rows.map(row => ({ decision: row.decision, count: row._count._all }))
+  },
 }
