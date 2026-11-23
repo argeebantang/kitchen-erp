@@ -612,13 +612,22 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         reorders use. Measured if there are 3+ orders in 180 days, else promised, else 2 days (`SupplierService.leadTimes`,
         for F4).
       - Migration `20261123120000_supplier_performance`.
-- [ ] Decision Simulator — what-if batch plan vs live BOM/stock/prices; shortages, cost, cost/kg, resulting stock (read-only)
+- [x] Decision Simulator — what-if batch plan vs live BOM/stock/prices — **done 2026-11-23** (`docs/2026-11-23-week10-decision-simulator.md`, Task 6).
+      - **Production → Plan → Simulate a run** (linked from Costing): goods and batches, starting from the plan's.
+      - **Worked out exactly as a real order:**
+        - per ingredient: need, free (on hand − approved runs), short, stock after against the reorder point;
+        - per good: cost at the day's prices, cost per kg planned and per kg out (with the kitchen's yield), and the
+          most batches the stock allows.
+      - **Create order →** opens the order form pre-filled. Nothing is written.
+      - **Simulate and ask KitchenAI** (about $0.007, synchronous, not stored): explains and recommends one adjustment,
+        e.g. "cut Dinuguan to 6 batches or order the 6 kg of Pork Belly first".
+      - `POST /api/production/simulate`; migration `20261123200000_decision_simulator` (enum value only).
 - [~] AI badge + Regenerate button on all AI insights — **built 2026-11-23** (Task 2) as shared pieces.
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
         "regenerate failed").
       - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
-      - On Feature 1 (cost explanation), Feature 3, Feature 6, Feature 4 (the stock map popup) and Feature 5 (Plan) so
-        far. Task 7 sweeps the rest.
+      - On Features 1, 3, 6, 4 and 5 so far. Feature 7's explanation carries the badge but has no Regenerate: it is not
+        stored, so asking again is the same button. Task 7 sweeps the rest.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

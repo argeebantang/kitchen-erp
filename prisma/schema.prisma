@@ -177,6 +177,8 @@ enum AiFeature {
   REORDER_RECOMMENDATION
   /// Feature 5 (Week 10 Task 5): what a kitchen should cook on a day, and why.
   DEMAND_FORECAST
+  /// Feature 7 (Week 10 Task 6): a what-if production run explained, with one adjustment. Not stored — the call is the record.
+  DECISION_SIMULATOR
 }
 
 /// How a Claude API call ended (D4).

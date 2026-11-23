@@ -451,7 +451,7 @@ function scaleOrder(bom: BomWithDetail, batchWeight: Prisma.Decimal, plannedQty:
  * order (Week 6 Task 2, D2). The approval transaction writes exactly this, and
  * the approver's preview shows exactly this, so the two cannot disagree.
  */
-function consumptionByMaterial(
+export function consumptionByMaterial(
   bom: BomWithDetail,
   batchWeight: Prisma.Decimal,
   plannedQty: Prisma.Decimal,
@@ -703,6 +703,24 @@ async function completionStock(orderId: string): Promise<CompletionStockDto> {
 }
 
 /**
+ * What the approved, in-progress and completion-pending runs at a branch will
+ * still take, per material ("committed"): stock leaves the shelf only when a
+ * run is signed off (Week 6). Shared by the stock check and the Decision
+ * Simulator (Week 10 Task 6).
+ */
+export async function committedAtBranch(branchId: string, excludeOrderId: string | null = null): Promise<Map<string, Prisma.Decimal>> {
+  const zero = new Prisma.Decimal(0)
+  const committed = new Map<string, Prisma.Decimal>()
+  for (const order of await ProductionOrderRepository.findCommittedAtBranch(branchId, excludeOrderId)) {
+    for (const line of scaleOrder(order.bom, order.batchWeight, order.plannedQty)) {
+      const materialId = line.item.materialId
+      committed.set(materialId, (committed.get(materialId) ?? zero).add(line.total))
+    }
+  }
+  return committed
+}
+
+/**
  * Required vs available per line, at one branch, right now (Task 3).
  * Available is on hand minus what approved / in-progress orders there still
  * need: stock only leaves the shelf when a run completes (Week 6), so without
@@ -715,18 +733,10 @@ async function stockFor(
   excludeOrderId: string | null,
 ): Promise<Map<string, LineStockDto>> {
   const zero = new Prisma.Decimal(0)
-  const [onHand, committedOrders] = await Promise.all([
+  const [onHand, committed] = await Promise.all([
     InventoryRepository.levelsAtBranch(branchId, lines.map(line => line.item.materialId)),
-    ProductionOrderRepository.findCommittedAtBranch(branchId, excludeOrderId),
+    committedAtBranch(branchId, excludeOrderId),
   ])
-
-  const committed = new Map<string, Prisma.Decimal>()
-  for (const order of committedOrders) {
-    for (const line of scaleOrder(order.bom, order.batchWeight, order.plannedQty)) {
-      const materialId = line.item.materialId
-      committed.set(materialId, (committed.get(materialId) ?? zero).add(line.total))
-    }
-  }
 
   return new Map(lines.map(line => {
     const materialId    = line.item.materialId

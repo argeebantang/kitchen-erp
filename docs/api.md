@@ -255,6 +255,16 @@ Week 10 Task 5 (`docs/2026-11-23-week10-demand-forecaster.md`). Master Data → 
 | PATCH | `/api/holidays/[id]` | same | 200 `{ holiday }` | 400; 404; 409 the new date is taken |
 | DELETE | `/api/holidays/[id]` | — | 200 `{ id }` | 404 |
 
+### Decision Simulator
+
+Week 10 Task 6 (`docs/2026-11-23-week10-decision-simulator.md`). Production → Plan's "Simulate a run".
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/production/simulate` | `{ kitchenId, date: YYYY-MM-DD (today … +14), lines: [{ finishedGoodId, batches: 1–50 }] (1–8, each good once), explain? }` | 200 `{ simulation: { kitchen, date, lines[], ingredients[], totals, feasible }, explanation: { text, model, costUsd } \| null, explainError? }` — writes nothing; with `explain`, one `DECISION_SIMULATOR` AiCall against the caller | 400 validation, an outlet, a day outside the window, a good twice or without an active recipe, extra fields; 403 `explain` for a role outside ADMIN, PRODUCTION_MANAGER, ACCOUNTING |
+
+Guard: ADMIN, PRODUCTION_MANAGER, ACCOUNTING (middleware).
+
 ADMIN only (middleware). Production → Plan (Feature 5) has no endpoint of its own: `DemandForecastService.forecast(kitchenId, date)` in the Server Component; its explanation is `POST /api/ai/insights` with `type: 'DEMAND_FORECAST'`, `referenceId: '<kitchenId>:<YYYY-MM-DD>'` (ADMIN, PRODUCTION_MANAGER; 409 for an inactive kitchen, a day outside today … +14 or nothing to plan).
 
 ### Dashboard assistant

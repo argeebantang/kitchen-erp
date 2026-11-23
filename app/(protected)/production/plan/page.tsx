@@ -4,6 +4,10 @@ import { addDays } from '@/lib/dates'
 import { inputClass, primaryButtonClass } from '@/components/ui/form'
 import { DemandForecastService, FORECAST_GENERATE_ROLES } from '@/services/demand-forecast.service'
 import { DemandPlan } from '@/components/production/DemandPlan'
+import { DecisionSimulator } from '@/components/production/DecisionSimulator'
+import {
+  DecisionSimulatorService, SIMULATOR_EXPLAIN_ROLES, SIMULATOR_ORDER_ROLES,
+} from '@/services/decision-simulator.service'
 
 type PageProps = {
   searchParams: Promise<{ kitchen?: string; date?: string }>
@@ -12,8 +16,9 @@ type PageProps = {
 /**
  * Production → Plan (Week 10 Task 5): what a kitchen should cook on a day —
  * Feature 5, the Demand Forecaster. One kitchen and one day, tomorrow by
- * default (requests close the afternoon before, owner 2026-11-21). The
- * Decision Simulator (Feature 7) joins this page in Task 6.
+ * default (requests close the afternoon before, owner 2026-11-21). Below it,
+ * Feature 7, the Decision Simulator (Task 6): what if the kitchen cooks these
+ * batches — starting from the plan's.
  */
 export default async function ProductionPlanPage({ searchParams }: PageProps) {
   const session = await getSession()
@@ -23,7 +28,10 @@ export default async function ProductionPlanPage({ searchParams }: PageProps) {
   const kitchenId = options.kitchens.some(option => option.id === kitchen) ? kitchen : options.kitchens[0]?.id
   const tomorrow = addDays(options.from, 1)
   const day = date >= options.from && date <= options.to ? date : tomorrow
-  const forecast = kitchenId ? await DemandForecastService.forecast(kitchenId, day) : null
+  const [forecast, goods] = await Promise.all([
+    kitchenId ? DemandForecastService.forecast(kitchenId, day) : null,
+    DecisionSimulatorService.goods(),
+  ])
   const canPlan = FORECAST_GENERATE_ROLES.includes(session.role)
 
   return (
@@ -52,7 +60,21 @@ export default async function ProductionPlanPage({ searchParams }: PageProps) {
       </form>
 
       {forecast ? (
-        <DemandPlan forecast={forecast} canPlan={canPlan} canExplain={canPlan} />
+        <div className="space-y-6">
+          <DemandPlan forecast={forecast} canPlan={canPlan} canExplain={canPlan} />
+          <div id="simulate">
+            {/* Keyed by kitchen and day, so a new pick starts from that plan, not the last simulation. */}
+            <DecisionSimulator
+              key={forecast.position}
+              kitchen={forecast.kitchen}
+              date={forecast.date}
+              goods={goods}
+              initial={forecast.goods.filter(good => good.batches > 0).map(good => ({ finishedGoodId: good.finishedGoodId, batches: good.batches }))}
+              canExplain={SIMULATOR_EXPLAIN_ROLES.includes(session.role)}
+              canOrder={SIMULATOR_ORDER_ROLES.includes(session.role)}
+            />
+          </div>
+        </div>
       ) : (
         <div className="rounded-xl border border-dashed border-gray-200 bg-white p-10 text-center text-sm text-gray-500">
           No active kitchen to plan for.

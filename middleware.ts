@@ -66,6 +66,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/production/bom',        roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/production/orders/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/production-orders', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // The Decision Simulator (Week 10 Task 6): read-only what-if runs, from Production → Plan and Costing.
+  { path: '/api/production/simulate', roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   // Conversions (Week 7 Task 1): the same split — accounting reads
   // /production/conversions and decides through /api/approvals; only
   // production records one.
