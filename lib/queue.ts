@@ -105,6 +105,14 @@ export const EXPIRY_CHECK = 'expiry-check'
 export const END_OF_DAY_SUMMARY = 'end-of-day-summary'
 
 /**
+ * The Weekly Management Summary (Week 11 Task 7): Mondays 07:00 — after the
+ * 06:00 KitchenAI waste report, whose findings it includes — last week's
+ * summary to management, in the bell and by email with the PDF. No payload:
+ * the week is the run's own.
+ */
+export const WEEKLY_SUMMARY = 'weekly-summary'
+
+/**
  * The overdue sweep (Week 11 Task 3): hourly, 07:00–21:00 Manila, remind the
  * approvers of anything waiting 24 h or more — again at 48 h, 72 h… No
  * payload: it reads the inbox when it runs.
@@ -187,6 +195,7 @@ export const DAILY_JOBS: { name: string; pattern: string }[] = [
   { name: EXPIRY_CHECK,         pattern: '0 6 * * *' }, // before service: what to sell, convert or write off first
   { name: END_OF_DAY_SUMMARY,   pattern: '0 21 * * *' }, // 21:00, after the kitchen closes (Week 7 Task 4)
   { name: APPROVAL_ESCALATION,  pattern: '0 7-21 * * *' }, // hourly 07:00–21:00, no reminders at night (Week 11 Task 3)
+  { name: WEEKLY_SUMMARY,       pattern: '0 7 * * 1' },    // Mondays 07:00, after the 06:00 waste report (Week 11 Task 7)
 ]
 
 /**
@@ -226,11 +235,26 @@ export type ReceivingReportJob = {
 export type NotificationEmailJob = {
   notificationId: string
   /**
-   * A report PDF to attach (Week 11 Task 6), named, not rendered: the email
-   * worker generates it when it sends, so the job stays small and nothing is
-   * stored. Only the End-of-Day Snapshot so far.
+   * A report PDF to attach (Week 11 Tasks 6–7), named, not rendered: the
+   * email worker generates it when it sends, so the job stays small and
+   * nothing is stored.
    */
-  attachment?: { report: 'end-of-day'; date: string; branchId: string | null }
+  attachment?: ReportAttachment
+}
+
+/** Which report, for which period and branch — ReportService.run's key and query. */
+export type ReportAttachment = {
+  report: string
+  query: { preset?: string; from?: string; to?: string; date?: string; branchId?: string | null }
+}
+
+/** "Email this report" (Week 11 Task 7): one report PDF to one user, on the email queue. */
+export const REPORT_EMAIL = 'report-email'
+
+export type ReportEmailJob = ReportAttachment & {
+  userId: string
+  /** Who pressed the button — named in the email. */
+  requestedByName: string
 }
 
 export type ProductionOrderJob = {
