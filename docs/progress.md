@@ -745,6 +745,8 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
         - about 35 empty states moved to `EmptyState`: "No X match these filters" + Clear filters vs "No X yet" + the
           next step for roles that can take it
         - a spinner on tabs, chips and paging links (`PendingSpinner`), which never show the page skeleton
+- [x] Sidebar search and collapse — **2026-11-24**, owner request (`docs/2026-11-24-sidebar-search-collapse.md`): search the
+      menu (abbreviations too, Enter opens the best match, `/` focuses it), collapse to icons, remembered in a cookie.
 - [ ] PWA setup
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for

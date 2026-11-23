@@ -70,6 +70,7 @@ Planned (see the roadmap): raw-material write-offs and stock adjustments; the re
 
 * `app/` — Next.js App Router pages and route handlers
   * `app/login/`, `app/unauthorized/`, `app/roadmap/` — outside the protected layout
+  * `app/(protected)/layout.tsx` — sidebar (search, collapse — the `sidebar` cookie) and topbar around every protected page
   * `app/error.tsx`, `app/global-error.tsx`, `app/not-found.tsx` — app-wide error and not-found pages; `app/(protected)/` has its own `error.tsx`, `not-found.tsx` and a `loading.tsx` in every folder with sub-pages
   * `app/(protected)/` — authenticated route group: `dashboard/`, `procurement/` (`requests`, `orders`, `approvals`, `receiving`), `inventory/stock`, `inventory/finished-goods`, `inventory/ledger`, `inventory/write-offs`, `inventory/transfers`, `inventory/requests`, `inventory/sales`, `inventory/end-of-day`, `production/bom`, `production/orders`, `production/schedule`, `production/conversions`, `costing`, `admin/master`, `admin/ai`
   * `app/api/` — `auth/*`, `materials`, `finished-goods`, `categories`, `units`, `boms`, `purchase-requests`, `purchase-orders` (incl. `submit`, `send`, `pdf`), `approvals`, `receiving-reports`, `production-orders`, `conversion-orders` (incl. `preview`), `write-offs`, `branches` (incl. `deactivate`, `reactivate`), `transfers` (incl. `preview`, `[id]/receive`, `returns`), `stock-requests`, `outlet-sales`, `inventory/stream`, `notifications` (incl. `stream`, `read`), `ai/test`
