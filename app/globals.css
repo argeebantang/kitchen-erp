@@ -36,6 +36,19 @@
  * not just re-adding these two variables.
  */
 
+/*
+ * Loading skeletons (components/ui/states.tsx) stay invisible for 150 ms, then
+ * fade in — a page that answers quickly never flashes one.
+ */
+@keyframes appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@utility animate-appear {
+  animation: appear 200ms ease-out 150ms both;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

@@ -1,8 +1,27 @@
 'use client'
 
-import Link from 'next/link'
+import Link, { useLinkStatus } from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
 import { navigation } from '@/lib/navigation'
+
+/**
+ * Instant feedback on a click (Week 12 Task 1): a spinner from the moment the
+ * link is clicked until its page shows. The page's skeleton only appears once
+ * the server answers — at once in production, where links preload it, but not
+ * in development, where nothing preloads. `useLinkStatus` must sit inside the
+ * <Link>; the `data-pending` marker lets the link restyle itself via :has().
+ */
+function PendingSpinner() {
+  const { pending } = useLinkStatus()
+  if (!pending) return null
+  return (
+    <span data-pending className="ml-auto" role="status">
+      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+      <span className="sr-only">Loading…</span>
+    </span>
+  )
+}
 
 type Props = {
   name: string
@@ -55,11 +74,12 @@ export function Sidebar({ name, role }: Props) {
                         className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${
                           isActive
                             ? 'bg-orange-500 text-white'
-                            : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                            : 'text-gray-400 hover:bg-gray-800 hover:text-white has-[[data-pending]]:bg-gray-800 has-[[data-pending]]:text-white'
                         }`}
                       >
                         <Icon size={16} />
                         {item.label}
+                        <PendingSpinner />
                       </Link>
                     </li>
                   )

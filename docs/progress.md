@@ -729,12 +729,21 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
 **Week 11 complete (2026-11-23).** Next: Week 12, Deploy, Polish & Portfolio.
 
 ### Week 12 — Deploy, Polish & Portfolio
-- [ ] AWS deploy (EC2, RDS, S3)
-- [ ] CI/CD to main
+Order (owner, 2026-11-23): polish first, deploy last — UI polish (Task 1 app-wide states, Task 2 per-screen sweep), PWA,
+demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the live URL).
+
+- [~] UI polish (loading/empty/error states):
+      - [x] **Task 1, 2026-11-23** — app-wide page states (`docs/2026-11-23-week12-ui-states.md`): a loading skeleton
+        on every screen (a `loading.tsx` in each folder with sub-pages), error screens with Try again inside and
+        outside the layout, not-found pages for unknown links and for records without their own; shared
+        `EmptyState` / `PageSkeleton` / `ErrorState`; the browser tab says KitchenERP.
+      - [ ] Task 2 — per-screen sweep: empty states on every list and panel ("nothing yet" vs "nothing matches"),
+        form and button errors (403, 409, validation, offline), retry on panels loaded in the browser.
 - [ ] PWA setup
-- [ ] UI polish (loading/empty/error states)
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
       the demo.
+- [ ] AWS deploy (EC2, RDS, S3)
+- [ ] CI/CD to main
 - [ ] README + architecture diagram
 - [ ] Demo video + LinkedIn post
