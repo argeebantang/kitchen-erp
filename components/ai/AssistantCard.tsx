@@ -7,6 +7,7 @@ import type { AssistantActionDto } from '@/services/assistant-action.service'
 import { formatUsd } from '@/lib/format'
 import { primaryButtonClass } from '@/components/ui/form'
 import { ACTION_NAME, AssistantActionPanel } from '@/components/ai/AssistantActionPanel'
+import { AiBadge } from '@/components/ai/AiBadge'
 
 type Turn =
   | { role: 'user'; content: string }
@@ -109,7 +110,7 @@ export function AssistantCard({ maxLength, history }: { maxLength: number; histo
     <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex items-center justify-between">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-gray-800">
-          <Sparkles size={16} className="text-purple-600" aria-hidden="true" /> Ask KitchenAI
+          <Sparkles size={16} className="text-purple-600" aria-hidden="true" /> Ask KitchenAI <AiBadge />
         </p>
         {turns.length > 0 && (
           <button

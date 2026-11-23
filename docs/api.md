@@ -227,7 +227,7 @@ Week 10 Task 2 (see `docs/2026-11-23-week10-waste-pattern-detector.md`). One end
 
 | Method | Path | Body | Success | Errors |
 |---|---|---|---|---|
-| POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN` · `SUPPLIER_PERFORMANCE` · `REORDER_RECOMMENDATION`), `referenceId` (a production order id, an ISO week such as `2026-W48`, a month such as `2026-10` that has ended, or a stock position `<branchId>:<materialId>`), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER; `SUPPLIER_PERFORMANCE`: ADMIN, ACCOUNTING, PROCUREMENT_MANAGER; `REORDER_RECOMMENDATION`: ADMIN, PROCUREMENT_MANAGER, PRODUCTION_MANAGER); 404 unknown order; 409 an order not completed and costed, or a stock position that is not a kitchen material at or below its reorder point (400 if malformed) |
+| POST | `/api/ai/insights` | `type` (`COST_VARIANCE` · `WASTE_PATTERN` · `SUPPLIER_PERFORMANCE` · `REORDER_RECOMMENDATION` · `DEMAND_FORECAST`), `referenceId` (a production order id, an ISO week such as `2026-W48`, a month such as `2026-10` that has ended, a stock position `<branchId>:<materialId>`, or a kitchen and day `<kitchenId>:<YYYY-MM-DD>`), `regenerate?` (rewrite a written one; the earlier text stays until the new one is ready) | 200 `{ queued: true }`; 200 `{ queued: false }` — already being written, already written (without `regenerate`), or not written yet (with `regenerate`): nothing queued, nothing spent | 400 validation, unknown type, unknown week, a week not started; 403 the type's roles (`COST_VARIANCE` and `WASTE_PATTERN`: ADMIN, ACCOUNTING, PRODUCTION_MANAGER; `SUPPLIER_PERFORMANCE`: ADMIN, ACCOUNTING, PROCUREMENT_MANAGER; `REORDER_RECOMMENDATION`: ADMIN, PROCUREMENT_MANAGER, PRODUCTION_MANAGER; `DEMAND_FORECAST`: ADMIN, PRODUCTION_MANAGER); 404 unknown order; 409 an order not completed and costed, or a stock position that is not a kitchen material at or below its reorder point (400 if malformed) |
 
 Guard: ADMIN, ACCOUNTING, PRODUCTION_MANAGER, PROCUREMENT_MANAGER (others → `/unauthorized`). The monthly supplier review is also asked for by `supplier-performance-monthly` (the 1st, 06:00).
 
@@ -244,6 +244,28 @@ Week 10 Task 3. Master Data → Suppliers (a Server Component reading `SupplierS
 | PATCH | `/api/suppliers/[id]` | `{ leadTimeDays: 1–60 \| null }` — the promised lead time in whole days; null clears it | 200 `{ supplier: { id, leadTimeDays } }` | 400 validation; 404 unknown supplier |
 
 ADMIN only (middleware). The caller is recorded on the `AiCall`. The weekly waste report is also asked for by the clock job `waste-pattern-weekly` (Mondays 06:00), recorded as a background call. The dashboard reads the report in a Server Component (`WastePatternService.dashboard`), no endpoint.
+
+### Holidays
+
+Week 10 Task 5 (`docs/2026-11-23-week10-demand-forecaster.md`). Master Data → Holidays (a Server Component reading `HolidayService.list(year)`); the Demand Forecaster reads them through `HolidayService.between`.
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/holidays` | `{ date: YYYY-MM-DD, name: 1–100 chars, type: REGULAR \| SPECIAL_NON_WORKING \| SPECIAL_WORKING \| LOCAL }` | 201 `{ holiday: { id, date, name, type } }` | 400 validation; 409 the date already has a holiday |
+| PATCH | `/api/holidays/[id]` | same | 200 `{ holiday }` | 400; 404; 409 the new date is taken |
+| DELETE | `/api/holidays/[id]` | — | 200 `{ id }` | 404 |
+
+### Decision Simulator
+
+Week 10 Task 6 (`docs/2026-11-23-week10-decision-simulator.md`). Production → Plan's "Simulate a run".
+
+| Method | Path | Body | Success | Errors |
+|---|---|---|---|---|
+| POST | `/api/production/simulate` | `{ kitchenId, date: YYYY-MM-DD (today … +14), lines: [{ finishedGoodId, batches: 1–50 }] (1–8, each good once), explain? }` | 200 `{ simulation: { kitchen, date, lines[], ingredients[], totals, feasible }, explanation: { text, model, costUsd } \| null, explainError? }` — writes nothing; with `explain`, one `DECISION_SIMULATOR` AiCall against the caller | 400 validation, an outlet, a day outside the window, a good twice or without an active recipe, extra fields; 403 `explain` for a role outside ADMIN, PRODUCTION_MANAGER, ACCOUNTING |
+
+Guard: ADMIN, PRODUCTION_MANAGER, ACCOUNTING (middleware).
+
+ADMIN only (middleware). Production → Plan (Feature 5) has no endpoint of its own: `DemandForecastService.forecast(kitchenId, date)` in the Server Component; its explanation is `POST /api/ai/insights` with `type: 'DEMAND_FORECAST'`, `referenceId: '<kitchenId>:<YYYY-MM-DD>'` (ADMIN, PRODUCTION_MANAGER; 409 for an inactive kitchen, a day outside today … +14 or nothing to plan).
 
 ### Dashboard assistant
 

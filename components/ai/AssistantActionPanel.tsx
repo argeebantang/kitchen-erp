@@ -12,6 +12,7 @@ import type {
 import { formatDateTime, shortDateLabel } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
 import { primaryButtonClass, secondaryButtonClass } from '@/components/ui/form'
+import { AiBadge } from '@/components/ai/AiBadge'
 
 const STATUS_STYLE: Record<AssistantActionDto['status'], string> = {
   PROPOSED:  'bg-amber-50 text-amber-700',
@@ -148,6 +149,7 @@ export function AssistantActionPanel({ action, onChange }: {
         <FileText size={14} className="text-purple-600" aria-hidden="true" />
         {name.title}
         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[action.status]}`}>{STATUS_LABEL[action.status]}</span>
+        <AiBadge label="Drafted by AI" />
       </p>
 
       {action.type === 'PURCHASE_REQUEST'

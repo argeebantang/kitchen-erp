@@ -586,7 +586,18 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         and the Reorder Recommender counts what is on order per kitchen from it. Old documents were backfilled from
         their deliveries and notes.
       - Migrations `20261123150000_reorder_recommendation` (enum values only) and `20261123160000_purchase_deliver_to`.
-- [ ] Demand Forecaster
+- [x] Demand Forecaster — **done 2026-11-23** (`docs/2026-11-23-week10-demand-forecaster.md`, Task 5).
+      - **Production → Plan** (new): one kitchen, one day (tomorrow by default, up to 14 days ahead).
+      - **Per good, worked out by the system:** the requests (or, while they are open, the usual amount for that
+        weekday over 8 weeks, holidays left out), − stock still good, ÷ the kitchen's yield (Las Piñas Bopis 90.7 %),
+        − runs already planned, giving batches. **Plan production →** opens the order form pre-filled.
+      - Also on the page: the weekday profile, the day's holiday badge, and how past holidays went (All Saints' and
+        All Souls' Day ×1.8 for Lechon).
+      - **About this plan** (AI badge): Explain / Regenerate, about a cent; Claude may advise an extra batch on a
+        holiday, as advice.
+      - **Master Data → Holidays** (new, ADMIN): the 2026 Philippine regular and special non-working days pre-filled.
+        Add Eid'l Fitr / Eid'l Adha when proclaimed, 2027, and your own days.
+      - Migration `20261123180000_holidays_demand_forecast` (`Holiday`, 36 models).
 - [x] Supplier Performance Analyzer (monthly BullMQ job) — **done 2026-11-23** (`docs/2026-11-23-week10-supplier-performance.md`, Task 3).
       - **Dashboard → KitchenAI insights → Suppliers — <month>** (ADMIN, ACCOUNTING, PROCUREMENT_MANAGER, VIEWER), with
         a month picker and a supplier filter.
@@ -601,13 +612,32 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
         reorders use. Measured if there are 3+ orders in 180 days, else promised, else 2 days (`SupplierService.leadTimes`,
         for F4).
       - Migration `20261123120000_supplier_performance`.
-- [ ] Decision Simulator — what-if batch plan vs live BOM/stock/prices; shortages, cost, cost/kg, resulting stock (read-only)
-- [~] AI badge + Regenerate button on all AI insights — **built 2026-11-23** (Task 2) as shared pieces.
+- [x] Decision Simulator — what-if batch plan vs live BOM/stock/prices — **done 2026-11-23** (`docs/2026-11-23-week10-decision-simulator.md`, Task 6).
+      - **Production → Plan → Simulate a run** (linked from Costing): goods and batches, starting from the plan's.
+      - **Worked out exactly as a real order:**
+        - per ingredient: need, free (on hand − approved runs), short, stock after against the reorder point;
+        - per good: cost at the day's prices, cost per kg planned and per kg out (with the kitchen's yield), and the
+          most batches the stock allows.
+      - **Create order →** opens the order form pre-filled. Nothing is written.
+      - **Simulate and ask KitchenAI** (about $0.007, synchronous, not stored): explains and recommends one adjustment,
+        e.g. "cut Dinuguan to 6 batches or order the 6 kg of Pork Belly first".
+      - `POST /api/production/simulate`; migration `20261123200000_decision_simulator` (enum value only).
+- [x] AI badge + Regenerate button on all AI insights — **done 2026-11-23** (built in Task 2, swept in Task 7,
+      `docs/2026-11-23-week10-consistency-sweep.md`).
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
         "regenerate failed").
       - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
-      - On Feature 1 (cost explanation), Feature 3, Feature 6 and Feature 4 (the stock map popup) so far. Task 7 sweeps
-        the rest.
+      - Every stored insight (Features 1, 3, 4, 5, 6) has Regenerate. The assistant's answers and drafts (Feature 2)
+        and the simulator's explanation (Feature 7) carry the badge. They are not stored, so asking again is their
+        "regenerate".
+- [x] Head-office dashboard (Week 10 deliverable) — **done 2026-11-23** (Task 7).
+      - **KitchenAI insights:** a tile per feature the role may use, 1–7, each a live headline from the system and a
+        link (latest run's cost change, waste lost, what to reorder first, tomorrow's batches per kitchen, flagged
+        suppliers, the simulator), then the waste and supplier reports in full.
+      - **The stat cards are live** (they were placeholders since Week 1): purchase requests to approve, production
+        runs today, finished-goods lots to use first, raw materials to reorder. None for a branch manager.
+      - **AI Settings:** failed calls and the average cost a call, per feature.
+**Week 10 complete (2026-11-23).** Next: Week 11, Approvals Hub & Reports.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

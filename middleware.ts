@@ -54,6 +54,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/api/branches',          roles: ['ADMIN'], methods: WRITE_METHODS },
   // Master Data → Suppliers (Week 10 Task 3): the promised lead time.
   { path: '/api/suppliers',         roles: ['ADMIN'] },
+  // Master Data → Holidays (Week 10 Task 5): the calendar the Demand Forecaster reads.
+  { path: '/api/holidays',          roles: ['ADMIN'] },
   // BOMs belong to production, same roles as the /production pages.
   { path: '/api/boms',              roles: ['ADMIN', 'PRODUCTION_MANAGER'], methods: WRITE_METHODS },
   // Accounting reads production orders to approve them (the decision itself
@@ -64,6 +66,8 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   { path: '/production/bom',        roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/production/orders/new', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
   { path: '/api/production-orders', roles: ['ADMIN', 'PRODUCTION_MANAGER'] },
+  // The Decision Simulator (Week 10 Task 6): read-only what-if runs, from Production → Plan and Costing.
+  { path: '/api/production/simulate', roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'] },
   // Conversions (Week 7 Task 1): the same split — accounting reads
   // /production/conversions and decides through /api/approvals; only
   // production records one.

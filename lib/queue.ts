@@ -124,6 +124,9 @@ export const SUPPLIER_PERFORMANCE_MONTHLY = 'supplier-performance-monthly'
 /** Explain one kitchen's reorder of one material (FEATURE 4, Week 10 Task 4): from the stock map's popup. */
 export const REORDER_EXPLAIN = 'reorder-explain'
 
+/** Explain one kitchen's production plan for one day (FEATURE 5, Week 10 Task 5): from Production → Plan. */
+export const DEMAND_FORECAST_EXPLAIN = 'demand-forecast-explain'
+
 /**
  * Retries for AI jobs: only a failure worth retrying (busy, overloaded,
  * unreachable) throws and comes back — 30 s, then 60 s. Anything else marks
@@ -210,6 +213,12 @@ export type SupplierPerformanceJob = {
 
 /** The stock position ('<branchId>:<materialId>'); its figures are worked out again when the job runs. */
 export type ReorderJob = {
+  position: string
+  requestedById: string | null
+}
+
+/** The kitchen and day ('<kitchenId>:<YYYY-MM-DD>'); the forecast is worked out again when the job runs. */
+export type DemandForecastJob = {
   position: string
   requestedById: string | null
 }

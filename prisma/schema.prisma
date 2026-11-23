@@ -175,6 +175,10 @@ enum AiFeature {
   SUPPLIER_PERFORMANCE
   /// Feature 4 (Week 10 Task 4): why a kitchen should reorder a material, how much and by when.
   REORDER_RECOMMENDATION
+  /// Feature 5 (Week 10 Task 5): what a kitchen should cook on a day, and why.
+  DEMAND_FORECAST
+  /// Feature 7 (Week 10 Task 6): a what-if production run explained, with one adjustment. Not stored — the call is the record.
+  DECISION_SIMULATOR
 }
 
 /// How a Claude API call ended (D4).
@@ -201,6 +205,18 @@ enum AiInsightType {
   SUPPLIER_PERFORMANCE
   /// Feature 4 (Week 10 Task 4): one per kitchen and material, referenceType 'StockPosition', referenceId '<branchId>:<materialId>'.
   REORDER_RECOMMENDATION
+  /// Feature 5 (Week 10 Task 5): one per kitchen and day, referenceType 'KitchenDay', referenceId '<kitchenId>:<YYYY-MM-DD>'.
+  DEMAND_FORECAST
+}
+
+/// What kind of day a Holiday is (Week 10 Task 5). The national ones follow
+/// the yearly proclamation; LOCAL is the business's own: a town fiesta, an
+/// event near an outlet.
+enum HolidayType {
+  REGULAR
+  SPECIAL_NON_WORKING
+  SPECIAL_WORKING
+  LOCAL
 }
 
 /// PENDING → READY | FAILED. A FAILED one can be asked for again (back to
@@ -1311,4 +1327,20 @@ model AiInsight {
   updatedAt     DateTime        @updatedAt
 
   @@unique([type, referenceType, referenceId])
+}
+
+// ─── CALENDAR ─────────────────────────────────────────────────────────────────
+
+/// A day that changes demand (Week 10 Task 5): the Demand Forecaster leaves it
+/// out of its weekday averages and shows how past ones went. Kept by an admin
+/// in Master Data → Holidays — national days change every year by
+/// proclamation, and fiestas and events are the business's own.
+model Holiday {
+  id        String      @id @default(cuid())
+  /// Midnight UTC of the business date, like ProductionOrder.plannedDate. One entry per day.
+  date      DateTime    @unique
+  name      String
+  type      HolidayType
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 }

@@ -46,17 +46,22 @@ export const AiCallRepository = {
 
   /** Spend and call count per feature since a moment. Features with no calls are absent. */
   async spendByFeatureSince(since: Date) {
+    // By outcome too, so AI Settings can say how many failed (Week 10 Task 7).
     const groups = await prisma.aiCall.groupBy({
-      by:     ['feature'],
+      by:     ['feature', 'outcome'],
       where:  { createdAt: { gte: since } },
       _sum:   { costUsd: true },
       _count: { _all: true },
     })
-    return groups.map(group => ({
-      feature: group.feature,
-      costUsd: group._sum.costUsd ?? new Prisma.Decimal(0),
-      calls:   group._count._all,
-    }))
+    const byFeature = new Map<AiFeature, { feature: AiFeature; costUsd: Prisma.Decimal; calls: number; failed: number }>()
+    for (const group of groups) {
+      const row = byFeature.get(group.feature) ?? { feature: group.feature, costUsd: new Prisma.Decimal(0), calls: 0, failed: 0 }
+      row.costUsd = row.costUsd.add(group._sum.costUsd ?? 0)
+      row.calls  += group._count._all
+      if (group.outcome !== AiCallOutcome.COMPLETED) row.failed += group._count._all
+      byFeature.set(group.feature, row)
+    }
+    return [...byFeature.values()]
   },
 
   /** The newest calls, newest first; id breaks ties between calls in the same millisecond. */

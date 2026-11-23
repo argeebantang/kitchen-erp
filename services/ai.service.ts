@@ -188,6 +188,10 @@ export type AiFeatureOverviewDto = {
   maxTokens: number
   spentUsd: string
   calls: number
+  /** Of the calls, those that did not complete — refused, cut off, errors, over budget (Week 10 Task 7). */
+  failed: number
+  /** spentUsd ÷ calls; null with no calls. */
+  averageUsd: string | null
 }
 
 export type AiCallDto = {
@@ -259,8 +263,10 @@ async function overview(now = new Date()): Promise<AiOverviewDto> {
       return {
         feature,
         ...AI_FEATURES[feature],
-        spentUsd: toDecimalString(spend?.costUsd ?? new Prisma.Decimal(0)),
-        calls:    spend?.calls ?? 0,
+        spentUsd:   toDecimalString(spend?.costUsd ?? new Prisma.Decimal(0)),
+        calls:      spend?.calls ?? 0,
+        failed:     spend?.failed ?? 0,
+        averageUsd: spend && spend.calls > 0 ? toDecimalString(spend.costUsd.div(spend.calls)) : null,
       }
     }),
     latestCalls: latest.map(call => ({

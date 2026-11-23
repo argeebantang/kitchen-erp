@@ -52,6 +52,12 @@ export default async function CostingPage({ searchParams }: PageProps) {
             This week is {shortDateLabel(thisWeek.start)} – {shortDateLabel(thisWeek.end)} (Monday to Sunday).
             Figures count once signed off: batches on the day cooked, write-offs on the day recorded, transfer shortfalls on the day received.
           </p>
+          {/* Feature 7 (Week 10 Task 6): what a run would cost before it is planned. Not for VIEWER — /production is closed to it. */}
+          {session.role !== 'VIEWER' && (
+            <Link href="/production/plan#simulate" className="mt-1 inline-block text-sm font-medium text-orange-600 hover:underline">
+              Simulate a run before planning it →
+            </Link>
+          )}
         </div>
 
         <nav aria-label="Range" className="flex overflow-hidden rounded-lg border border-gray-200 bg-white text-sm">

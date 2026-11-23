@@ -24,6 +24,10 @@ const list  = (values: string[]) => values.map(quote).join(', ')
 
 const HISTORY_BRANCH_CODES   = list(HISTORY_BRANCHES.map(b => b.code))
 const HISTORY_SUPPLIER_NAMES = list(HISTORY_SUPPLIERS.filter(s => !s.existing).map(s => s.name))
+/** Names an AI report's stored figures would carry if they were worked out from the history (Week 10 Tasks 2–5). */
+const HISTORY_NAME_PATTERNS  = list([...HISTORY_BRANCHES.map(b => b.name), ...HISTORY_SUPPLIERS.filter(s => !s.existing).map(s => s.name)].map(name => `%${name}%`))
+/** The AI insights a stored report or explanation is (not per document — per week, month, stock position or kitchen day). */
+const REPORT_INSIGHT_TYPES   = list(['WASTE_PATTERN', 'SUPPLIER_PERFORMANCE', 'REORDER_RECOMMENDATION', 'DEMAND_FORECAST'])
 
 /** The document sets, each a temp table of ids, dropped at commit. */
 const COLLECT = [
@@ -72,6 +76,10 @@ const CONFLICTS: { label: string; sql: string }[] = [
     sql: `SELECT count(*) FROM "OutletSale" WHERE "branchId" IN (SELECT id FROM h_branches) AND id NOT IN (SELECT id FROM h_sls)` },
   { label: 'your users assigned to history branches',
     sql: `SELECT count(*) FROM "User" WHERE "branchId" IN (SELECT id FROM h_branches) AND id NOT IN (SELECT id FROM h_users)` },
+  // Week 10 Task 4: a purchase names the kitchen it is for.
+  { label: 'your purchase requests or orders for history kitchens',
+    sql: `SELECT (SELECT count(*) FROM "PurchaseRequest" WHERE "deliverToId" IN (SELECT id FROM h_branches) AND id NOT IN (SELECT id FROM h_pr))
+           + (SELECT count(*) FROM "PurchaseOrder" WHERE "deliverToId" IN (SELECT id FROM h_branches) AND id NOT IN (SELECT id FROM h_po))` },
   { label: 'your purchase orders with history suppliers',
     sql: `SELECT count(*) FROM "PurchaseOrder" WHERE "supplierId" IN (SELECT id FROM h_suppliers) AND id NOT IN (SELECT id FROM h_po)` },
   { label: 'your prices at history suppliers',
@@ -92,6 +100,12 @@ const CONFLICTS: { label: string; sql: string }[] = [
 const DELETE: { label: string; sql: string }[] = [
   { label: 'notifications', sql: `DELETE FROM "Notification" WHERE "userId" IN (SELECT id FROM h_users) OR "referenceId" IN (SELECT id FROM h_docs)` },
   { label: 'AI insights',   sql: `DELETE FROM "AiInsight" WHERE "referenceId" IN (SELECT id FROM h_docs)` },
+  // Week 10 Tasks 2–5: reports and explanations about a history kitchen, or written from figures that name a
+  // history branch or supplier. They would describe data that is gone. The AiCall rows (what was spent) stay.
+  { label: 'AI reports from the history',
+    sql: `DELETE FROM "AiInsight" WHERE type::text IN (${REPORT_INSIGHT_TYPES})
+            AND (split_part("referenceId", ':', 1) IN (SELECT id FROM h_branches)
+                 OR facts::text LIKE ANY (ARRAY[${HISTORY_NAME_PATTERNS}]))` },
   { label: 'approvals',     sql: `DELETE FROM "Approval" WHERE "referenceId" IN (SELECT id FROM h_docs)` },
   { label: 'finished-goods movements', sql: `DELETE FROM "FinishedGoodMovement" WHERE "lotId" IN (SELECT id FROM h_lots) OR "referenceId" IN (SELECT id FROM h_docs)` },
   { label: 'finished-goods levels',    sql: `DELETE FROM "FinishedGoodLevel" WHERE "lotId" IN (SELECT id FROM h_lots) OR "branchId" IN (SELECT id FROM h_branches)` },
