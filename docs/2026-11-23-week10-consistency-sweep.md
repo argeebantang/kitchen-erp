@@ -77,6 +77,27 @@ What Claude checked (2026-11-23):
 - AI Settings lists the two new columns and all seven features.
 - **Checks:** `tsc`, `eslint`, no schema change.
 
+## Cleanup (end of Week 10)
+
+`npm run seed:history -- --clean` was extended for what Weeks 10's later tasks added (`prisma/history/clean.ts`):
+- **AI reports from the history** are deleted: the waste, supplier, reorder and plan insights about a history kitchen
+  or written from figures naming a history branch or supplier. The `AiCall` rows (what was spent) stay.
+- **New refusal:** your purchase requests or orders for a history kitchen ("Deliver to", Task 4).
+
+Run on 2026-11-23, at the owner's request.
+- **Removed first, by hand:** PRD-000561 (the Task 4 catering run, with its status log and 3 notifications) and
+  PR-000246 (the owner's test reorder for Las Piñas).
+- **The clean then removed** 556 production orders, 232 purchase requests, 7,428 stock movements, 6 AI insights,
+  5 branches, 2 suppliers and the 6 history staff, among others.
+- **Also removed by hand:** today's 06:00 low-stock and expiry alerts (4 notifications). They described the history
+  ("59 materials need reordering").
+- **Afterwards:**
+  - Every table in the Task 1 snapshot is identical to before the history; the only difference is the new
+    `sls_number_seq`.
+  - Stock levels match the ledger.
+  - The 18 holidays and the 155 `AiCall` rows remain.
+  - Dashboard, Stock Levels, Plan, AI Settings, Holidays, Branch Inventory and Costing all load.
+
 ## Risks, follow-ups
 
 - **The dashboard reads more now** (stock map, three forecasts, the finished-goods lots) on each visit. It is fine at
