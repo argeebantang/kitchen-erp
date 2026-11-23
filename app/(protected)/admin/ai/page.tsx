@@ -86,6 +86,8 @@ export default async function AiSettingsPage() {
                 <th className="px-5 py-2 font-medium">Effort</th>
                 <th className="px-5 py-2 text-right font-medium">Max tokens</th>
                 <th className="px-5 py-2 text-right font-medium">Calls this month</th>
+                <th className="px-5 py-2 text-right font-medium">Failed</th>
+                <th className="px-5 py-2 text-right font-medium">Average a call</th>
                 <th className="px-5 py-2 text-right font-medium">Spent this month</th>
               </tr>
             </thead>
@@ -97,6 +99,8 @@ export default async function AiSettingsPage() {
                   <td className="px-5 py-2 text-gray-600">{feature.effort}</td>
                   <td className="px-5 py-2 text-right tabular-nums text-gray-600">{feature.maxTokens.toLocaleString('en-PH')}</td>
                   <td className="px-5 py-2 text-right tabular-nums text-gray-600">{feature.calls}</td>
+                  <td className={`px-5 py-2 text-right tabular-nums ${feature.failed > 0 ? 'text-red-700' : 'text-gray-400'}`}>{feature.failed}</td>
+                  <td className="px-5 py-2 text-right tabular-nums text-gray-600">{feature.averageUsd === null ? '—' : formatUsd(feature.averageUsd, 4)}</td>
                   <td className="px-5 py-2 text-right tabular-nums text-gray-800">{formatUsd(feature.spentUsd, 4)}</td>
                 </tr>
               ))}

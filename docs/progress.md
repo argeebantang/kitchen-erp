@@ -622,12 +622,22 @@ Plan (owner, 2026-11-21, "do all recommend"), one task and PR each:
       - **Simulate and ask KitchenAI** (about $0.007, synchronous, not stored): explains and recommends one adjustment,
         e.g. "cut Dinuguan to 6 batches or order the 6 kg of Pork Belly first".
       - `POST /api/production/simulate`; migration `20261123200000_decision_simulator` (enum value only).
-- [~] AI badge + Regenerate button on all AI insights — **built 2026-11-23** (Task 2) as shared pieces.
+- [x] AI badge + Regenerate button on all AI insights — **done 2026-11-23** (built in Task 2, swept in Task 7,
+      `docs/2026-11-23-week10-consistency-sweep.md`).
       - `AiBadge` and `AiInsightPanel` (every state, including "regenerating" with the earlier text kept and
         "regenerate failed").
       - **One endpoint**, `POST /api/ai/insights`, with a registry per insight type; it replaced `/api/ai/cost-variance`.
-      - On Features 1, 3, 6, 4 and 5 so far. Feature 7's explanation carries the badge but has no Regenerate: it is not
-        stored, so asking again is the same button. Task 7 sweeps the rest.
+      - Every stored insight (Features 1, 3, 4, 5, 6) has Regenerate. The assistant's answers and drafts (Feature 2)
+        and the simulator's explanation (Feature 7) carry the badge. They are not stored, so asking again is their
+        "regenerate".
+- [x] Head-office dashboard (Week 10 deliverable) — **done 2026-11-23** (Task 7).
+      - **KitchenAI insights:** a tile per feature the role may use, 1–7, each a live headline from the system and a
+        link (latest run's cost change, waste lost, what to reorder first, tomorrow's batches per kitchen, flagged
+        suppliers, the simulator), then the waste and supplier reports in full.
+      - **The stat cards are live** (they were placeholders since Week 1): purchase requests to approve, production
+        runs today, finished-goods lots to use first, raw materials to reorder. None for a branch manager.
+      - **AI Settings:** failed calls and the average cost a call, per feature.
+**Week 10 complete (2026-11-23).** Next: Week 11, Approvals Hub & Reports.
 
 **Note (2026-08-17):** KitchenAI goes from 6 features to 7 — see `kitchenERP-sprint-v3.jsx`.
 Two additions, both to the AI layer:

@@ -220,7 +220,7 @@ const plan = {
         },
         {
           week: "Week 10",
-          status: "next",
+          status: "done",
           title: "KitchenAI — Predictive Features",
           tag: "ai",
           tasks: [
@@ -231,15 +231,14 @@ const plan = {
             { t: "FEATURE 5 — Demand Forecaster: kitchen supervisor opens production planning screen. Claude looks at historical production by day of week and upcoming calendar (holidays) and suggests how many batches to produce today.", done: true },
             { t: "FEATURE 6 — Supplier Performance Analyzer: Claude reviews all RR variance data per supplier and generates a supplier reliability report monthly. Flags suppliers with consistent short deliveries.", done: true },
             { t: "FEATURE 7 — Decision Simulator: what-if panel on the production planning and costing screens. User sets a hypothetical ('run 5 batches of Dinuguan and 3 of Bopis tomorrow') and the system simulates it against live BOM, stock and price data — which ingredients fall short and by how much, total batch cost, resulting cost per kg, and the stock position after the run. Claude explains the outcome and recommends an adjustment. Read-only: nothing is written to inventory, but an accepted scenario can be handed straight to a real Production Order.", done: true },
-            { t: "All AI features are clearly labeled with an AI badge in the UI",
-              partial: "Shared AiBadge / AiInsightPanel built in Task 2 and used on Features 1, 3, 6, 4, 5 and 7 so far; the later features use it as they land, Task 7 sweeps the rest." },
-            { t: "Each insight has a 'Regenerate' button so users can refresh the analysis",
-              partial: "Built in Task 2 for every insight type (POST /api/ai/insights; the earlier text stays until the new one is written): on Features 1, 3, 6, 4 and 5 so far." },
+            { t: "All AI features are clearly labeled with an AI badge in the UI", done: true },
+            { t: "Each insight has a 'Regenerate' button so users can refresh the analysis", done: true },
           ],
           deliverable: "Head office dashboard shows 7 live AI insights — waste patterns, reorder suggestions, demand forecasts, supplier flags. All generated from real system data, with reorder suggestions clickable straight from the stock map. Simulate tomorrow's production before committing to it.",
         },
         {
           week: "Week 11",
+          status: "next",
           title: "Approvals Hub & Reports",
           tag: null,
           tasks: [
