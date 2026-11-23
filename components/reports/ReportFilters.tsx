@@ -12,6 +12,8 @@ type Props = {
   /** Held to one branch (a branch manager): the select shows it, with no "All". */
   branchFixed: boolean
   maxDays: number
+  /** One day (the End-of-Day Snapshot): a single date instead of from–to. */
+  singleDay: boolean
   /** What the page shows now. */
   current: { preset: string | null; from: string; to: string; branchId: string | null }
 }
@@ -23,7 +25,7 @@ const CUSTOM = 'custom'
  * can be bookmarked or shared. Apply navigates; the downloads below use the
  * same query, so the Excel and PDF are exactly what is on screen.
  */
-export function ReportFilters({ reportKey, presets, branches, branchLabel, branchFixed, maxDays, current }: Props) {
+export function ReportFilters({ reportKey, presets, branches, branchLabel, branchFixed, maxDays, singleDay, current }: Props) {
   const router = useRouter()
   const [preset, setPreset] = useState(current.preset ?? CUSTOM)
   const [from, setFrom] = useState(current.from)
@@ -33,7 +35,9 @@ export function ReportFilters({ reportKey, presets, branches, branchLabel, branc
   function apply(event: React.FormEvent) {
     event.preventDefault()
     const query = new URLSearchParams()
-    if (preset === CUSTOM) {
+    if (preset === CUSTOM && singleDay) {
+      query.set('date', from)
+    } else if (preset === CUSTOM) {
       query.set('from', from)
       query.set('to', to)
     } else {
@@ -51,19 +55,21 @@ export function ReportFilters({ reportKey, presets, branches, branchLabel, branc
         <span className="mb-1 block font-medium text-gray-700">Period</span>
         <select value={preset} onChange={event => setPreset(event.target.value)} className={fieldClass}>
           {presets.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          <option value={CUSTOM}>Custom dates…</option>
+          <option value={CUSTOM}>{singleDay ? 'Pick a date…' : 'Custom dates…'}</option>
         </select>
       </label>
       {preset === CUSTOM && (
         <>
           <label className="text-sm">
-            <span className="mb-1 block font-medium text-gray-700">From</span>
+            <span className="mb-1 block font-medium text-gray-700">{singleDay ? 'Date' : 'From'}</span>
             <input type="date" value={from} onChange={event => setFrom(event.target.value)} required className={fieldClass} />
           </label>
-          <label className="text-sm">
-            <span className="mb-1 block font-medium text-gray-700">To</span>
-            <input type="date" value={to} onChange={event => setTo(event.target.value)} required className={fieldClass} />
-          </label>
+          {!singleDay && (
+            <label className="text-sm">
+              <span className="mb-1 block font-medium text-gray-700">To</span>
+              <input type="date" value={to} onChange={event => setTo(event.target.value)} required className={fieldClass} />
+            </label>
+          )}
         </>
       )}
       {branchLabel && (
@@ -76,7 +82,7 @@ export function ReportFilters({ reportKey, presets, branches, branchLabel, branc
         </label>
       )}
       <button type="submit" className={primaryButtonClass}>Show</button>
-      {preset === CUSTOM && <p className="w-full text-xs text-gray-400">Up to {maxDays} days, ending today at the latest.</p>}
+      {preset === CUSTOM && !singleDay && <p className="w-full text-xs text-gray-400">Up to {maxDays} days, ending today at the latest.</p>}
     </form>
   )
 }

@@ -8,7 +8,7 @@ import { secondaryButtonClass } from '@/components/ui/form'
 
 type PageProps = {
   params: Promise<{ key: string }>
-  searchParams: Promise<{ preset?: string; from?: string; to?: string; branch?: string }>
+  searchParams: Promise<{ preset?: string; from?: string; to?: string; date?: string; branch?: string }>
 }
 
 /**
@@ -37,7 +37,7 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
     redirect('/unauthorized')
   }
 
-  const result = await ReportService.run(key, { preset: query.preset, from: query.from, to: query.to, branchId: query.branch }, viewer)
+  const result = await ReportService.run(key, { preset: query.preset, from: query.from, to: query.to, date: query.date, branchId: query.branch }, viewer)
   const download = (format: 'xlsx' | 'pdf') => {
     const params = new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
     params.set('format', format)
@@ -69,9 +69,10 @@ export default async function ReportPage({ params, searchParams }: PageProps) {
         branchLabel={options.data.branchLabel}
         branchFixed={options.data.branchFixed}
         maxDays={options.data.maxDays}
+        singleDay={options.data.singleDay}
         current={{
-          // An unknown preset falls back to last week, as the report itself does.
-          preset:   query.from || query.to ? null : (options.data.presets.find(option => option.value === query.preset)?.value ?? 'last-week'),
+          // An unknown preset falls back to the default, as the report itself does.
+          preset:   query.from || query.to || query.date ? null : (options.data.presets.find(option => option.value === query.preset)?.value ?? options.data.presets[0].value),
           from:     result.success ? result.data.from : (query.from ?? ''),
           to:       result.success ? result.data.to : (query.to ?? ''),
           branchId: options.data.branchFixed ? (options.data.branches[0]?.id ?? null) : (query.branch ?? null),

@@ -205,6 +205,9 @@ async function handleEndOfDaySummary() {
   console.log(movements === 0
     ? `  → ${date}: no finished-goods movement — nothing sent`
     : `  → ${date}: ${movements} movement(s); wrote ${written} notification(s)`)
+  // Each branch manager's own close, with their branch's snapshot (Week 11 Task 6).
+  const branches = await NotificationService.notifyBranchEndOfDay(date)
+  console.log(`  → ${branches.branches} branch manager(s) sent their branch's end of day`)
 }
 
 async function handleApprovalEscalation() {
@@ -423,7 +426,10 @@ console.log(`[worker] listening on "${AI_QUEUE}" — 2 at a time`)
  */
 async function handleNotificationEmail(job: Job<NotificationEmailJob>) {
   const attempts = job.opts.attempts ?? 1
-  const outcome = await EmailService.sendNotification(job.data.notificationId, { lastAttempt: job.attemptsMade + 1 >= attempts })
+  const outcome = await EmailService.sendNotification(job.data.notificationId, {
+    lastAttempt: job.attemptsMade + 1 >= attempts,
+    attachment:  job.data.attachment,
+  })
   console.log(`  → ${outcome} (attempt ${job.attemptsMade + 1} of ${attempts})`)
   if (outcome === 'RETRY') throw new Error('Resend is busy or unreachable — will retry')
 }
