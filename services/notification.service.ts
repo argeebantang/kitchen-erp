@@ -18,7 +18,7 @@ import { StockRequestRepository, type StockRequestWithDetail } from '@/repositor
 import { BranchRepository } from '@/repositories/branch.repository'
 import { reasonLabel } from '@/services/write-off.service'
 import { transferVarianceReasonLabel } from '@/lib/transfer-variance'
-import { EndOfDayService } from '@/services/end-of-day.service'
+import { EndOfDayService, type EndOfDayDto } from '@/services/end-of-day.service'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { ProductionOrderService } from '@/services/production-order.service'
 import { UserRepository } from '@/repositories/user.repository'
@@ -56,6 +56,8 @@ const REFERENCE_PAGES: Record<string, (referenceId: string) => string> = {
   ExpiryCheck:         () => '/inventory/finished-goods',
   // Unlike the other daily jobs, the date matters: the bell opens that day.
   EndOfDaySummary:     date => `/inventory/end-of-day?date=${date}`,
+  // A branch manager's evening snapshot (Week 11 Task 6): "<date>:<branchId>".
+  EndOfDayBranch:      ref => `/reports/end-of-day?date=${ref.slice(0, 10)}&branch=${ref.slice(11)}`,
   StockReconciliation: () => '/inventory/ledger',
   ProductionOrder:     id => `/production/orders/${id}`,
   // Procurement cannot open production orders; their link is the purchase
@@ -92,8 +94,9 @@ export const EMAILED_TYPES: ReadonlySet<string> = new Set([
   'PRODUCTION_ORDER_APPROVED', 'PRODUCTION_ORDER_REJECTED', 'PRODUCTION_COMPLETION_APPROVED', 'PRODUCTION_COMPLETION_REJECTED',
   'CONVERSION_ORDER_APPROVED', 'CONVERSION_ORDER_REJECTED', 'WRITE_OFF_APPROVED', 'WRITE_OFF_REJECTED',
   'TRANSFER_APPROVED', 'TRANSFER_REJECTED',
-  // The 21:00 close.
-  'END_OF_DAY',
+  // The 21:00 close — management's with every branch's snapshot PDF, each
+  // branch manager's with their own (Week 11 Task 6).
+  'END_OF_DAY', 'END_OF_DAY_BRANCH',
   // Still waiting after 24 h, 48 h… (Week 11 Task 3).
   'APPROVAL_OVERDUE',
 ])
@@ -133,13 +136,25 @@ async function push(userIds: string[]): Promise<void> {
  * email a convenience. The notification id is the job id, so a re-run cannot
  * queue it twice. The worker decides who has an address.
  */
-async function queueEmails(rows: { id: string; type: string }[]): Promise<void> {
+/**
+ * The report PDF an email carries (Week 11 Task 6): the End-of-Day Snapshot —
+ * every branch for the evening summary, the branch for a branch manager's.
+ * Named, not rendered: the email worker renders it when it sends.
+ */
+function attachmentFor(row: { type: string; referenceId: string | null }): NotificationEmailJob['attachment'] {
+  if (!row.referenceId) return undefined
+  if (row.type === 'END_OF_DAY') return { report: 'end-of-day', date: row.referenceId, branchId: null }
+  if (row.type === 'END_OF_DAY_BRANCH') return { report: 'end-of-day', date: row.referenceId.slice(0, 10), branchId: row.referenceId.slice(11) }
+  return undefined
+}
+
+async function queueEmails(rows: { id: string; type: string; referenceId: string | null }[]): Promise<void> {
   const emailed = rows.filter(row => EMAILED_TYPES.has(row.type))
   if (emailed.length === 0) return
   try {
     await getEmailQueue().addBulk(emailed.map(row => ({
       name: NOTIFICATION_EMAIL,
-      data: { notificationId: row.id } satisfies NotificationEmailJob,
+      data: { notificationId: row.id, attachment: attachmentFor(row) } satisfies NotificationEmailJob,
       // No ':' in a custom id — BullMQ refuses it (its own key separator).
       opts: { ...EMAIL_JOB_OPTIONS, jobId: `${NOTIFICATION_EMAIL}-${row.id}` },
     })))
@@ -169,6 +184,56 @@ const HOUR_MS = 3_600_000
 
 /** "1 line", "3 lines". */
 const lineCount = (count: number) => `${count} line${count === 1 ? '' : 's'}`
+
+/**
+ * The end-of-day message: per good that moved, opening → closing and its
+ * flows; the pesos by flow; the closing value; rows not reconciling. One
+ * wording for the evening summary (every branch) and, from Week 11 Task 6,
+ * each branch manager's own (branchName set).
+ */
+function endOfDayMessage(day: EndOfDayDto, date: string, branchName: string | null): { title: string; body: string } {
+  // "+18", "−10" (a true minus).
+  const signed = (quantity: string) => {
+    const shown = formatQuantity(quantity)
+    return shown.startsWith('-') ? `−${shown.slice(1)}` : `+${shown}`
+  }
+  const flowNames = [
+    ['produced', 'produced'], ['convertedIn', 'converted in'], ['convertedOut', 'converted out'],
+    ['writtenOff', 'written off'], ['sold', 'sold'], ['distributed', 'distributed'],
+  ] as const
+  const moved = day.rows.filter(row => row.movementCount > 0)
+  const severalBranches = new Set(day.rows.map(row => row.branchName)).size > 1
+  const goods = moved.slice(0, SUMMARY_NAMES).map(row => {
+    const flows = flowNames
+      .filter(([key]) => formatQuantity(row[key].quantity) !== '0')
+      .map(([key, name]) => `${name} ${signed(row[key].quantity)}`)
+    return `${row.finishedGoodName}${severalBranches ? ` at ${row.branchName}` : ''} `
+      + `${formatQuantity(row.opening.quantity)} → ${formatQuantity(row.closing.quantity)} ${row.unitAbbreviation}`
+      + (flows.length > 0 ? ` (${flows.join(', ')})` : '')
+  })
+  const more  = moved.length - goods.length
+  const pesos = flowNames
+    .filter(([key]) => formatPeso(day.totals[key]) !== '₱0.00')
+    .map(([key, name]) => `${name} ${formatPeso(day.totals[key].replace(/^-/, ''))}`)
+  const unreconciled = day.rows.filter(row => !row.balanced || row.matchesStock === false).length
+
+  const label = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-PH', {
+    timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+  })
+  // A run for today (the 21:00 job) is a snapshot; a past day is complete.
+  const asOf = day.isToday
+    ? `As of ${new Date().toLocaleTimeString('en-PH', { timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit' })}.`
+    : null
+  return {
+    title: `End of day${branchName ? ` at ${branchName}` : ''}, ${label}: ${day.movementCount} movement${day.movementCount === 1 ? '' : 's'} — closing ${formatPeso(day.totals.closing)} at cost`
+      + (unreconciled > 0 ? ` · ${unreconciled} row${unreconciled === 1 ? '' : 's'} not reconciling` : ''),
+    body: [
+      `${goods.join('; ')}${more > 0 ? `; +${more} more` : ''}.`,
+      pesos.length > 0 ? `At cost: ${pesos.join(', ')}.` : null,
+      asOf,
+    ].filter(part => part !== null).join(' '),
+  }
+}
 
 export const NotificationService = {
   /**
@@ -528,53 +593,44 @@ export const NotificationService = {
     ])
     const recipients = users.filter(user => !alreadyTold.has(user.id))
 
-    // "+18", "−10" (a true minus).
-    const signed = (quantity: string) => {
-      const shown = formatQuantity(quantity)
-      return shown.startsWith('-') ? `−${shown.slice(1)}` : `+${shown}`
-    }
-    const flowNames = [
-      ['produced', 'produced'], ['convertedIn', 'converted in'], ['convertedOut', 'converted out'],
-      ['writtenOff', 'written off'], ['sold', 'sold'], ['distributed', 'distributed'],
-    ] as const
-    const moved = day.rows.filter(row => row.movementCount > 0)
-    const severalBranches = new Set(day.rows.map(row => row.branchName)).size > 1
-    const goods = moved.slice(0, SUMMARY_NAMES).map(row => {
-      const flows = flowNames
-        .filter(([key]) => formatQuantity(row[key].quantity) !== '0')
-        .map(([key, name]) => `${name} ${signed(row[key].quantity)}`)
-      return `${row.finishedGoodName}${severalBranches ? ` at ${row.branchName}` : ''} `
-        + `${formatQuantity(row.opening.quantity)} → ${formatQuantity(row.closing.quantity)} ${row.unitAbbreviation}`
-        + (flows.length > 0 ? ` (${flows.join(', ')})` : '')
-    })
-    const more  = moved.length - goods.length
-    const pesos = flowNames
-      .filter(([key]) => formatPeso(day.totals[key]) !== '₱0.00')
-      .map(([key, name]) => `${name} ${formatPeso(day.totals[key].replace(/^-/, ''))}`)
-    const unreconciled = day.rows.filter(row => !row.balanced || row.matchesStock === false).length
-
-    const label = new Date(`${date}T00:00:00Z`).toLocaleDateString('en-PH', {
-      timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
-    })
-    // A run for today (the 21:00 job) is a snapshot; a past day is complete.
-    const asOf = day.isToday
-      ? `As of ${new Date().toLocaleTimeString('en-PH', { timeZone: BUSINESS_TIME_ZONE, hour: 'numeric', minute: '2-digit' })}.`
-      : null
+    const { title, body } = endOfDayMessage(day, date, null)
 
     const written = await createAndPush(recipients.map(user => ({
       userId:        user.id,
       type:          'END_OF_DAY',
-      title:         `End of day, ${label}: ${day.movementCount} movement${day.movementCount === 1 ? '' : 's'} — closing ${formatPeso(day.totals.closing)} at cost`
-        + (unreconciled > 0 ? ` · ${unreconciled} row${unreconciled === 1 ? '' : 's'} not reconciling` : ''),
-      body:          [
-        `${goods.join('; ')}${more > 0 ? `; +${more} more` : ''}.`,
-        pesos.length > 0 ? `At cost: ${pesos.join(', ')}.` : null,
-        asOf,
-      ].filter(part => part !== null).join(' '),
+      title,
+      body,
       referenceType: 'EndOfDaySummary',
       referenceId:   date,
     })))
     return { movements: day.movementCount, written }
+  },
+
+  /**
+   * Each branch manager's evening close (Week 11 Task 6): their branch's
+   * End of Day figures in the same words as the summary, emailed with the
+   * branch's End-of-Day Snapshot PDF. Branch managers had no end-of-day
+   * notification before. Only for branches that moved finished goods today;
+   * once per manager per branch per day (referenceId "<date>:<branchId>").
+   */
+  async notifyBranchEndOfDay(date: string): Promise<{ branches: number; written: number }> {
+    const branches = (await BranchRepository.findAll(false)).filter(branch => branch.manager !== null)
+    let told = 0
+    let written = 0
+    for (const branch of branches) {
+      const manager = branch.manager
+      if (!manager) continue
+      const reference = `${date}:${branch.id}`
+      const [day, alreadyTold] = await Promise.all([
+        EndOfDayService.forDay(date, branch.id, null),
+        NotificationRepository.userIdsWithReference('EndOfDayBranch', reference),
+      ])
+      if (day.movementCount === 0 || alreadyTold.has(manager.id)) continue
+      const { title, body } = endOfDayMessage(day, date, branch.name)
+      written += await createAndPush([{ userId: manager.id, type: 'END_OF_DAY_BRANCH', title, body, referenceType: 'EndOfDayBranch', referenceId: reference }])
+      told += 1
+    }
+    return { branches: told, written }
   },
 
   /**

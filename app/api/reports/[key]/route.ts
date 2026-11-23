@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { renderToBuffer } from '@react-pdf/renderer'
 import { ReportService } from '@/services/report.service'
-import { ReportDocument } from '@/components/pdf/ReportDocument'
+import { renderReportPdf } from '@/lib/report-pdf'
 import { reportFileName } from '@/lib/report-format'
 import { reportToXlsx } from '@/lib/xlsx'
 
@@ -14,6 +13,8 @@ const QuerySchema = z.object({
   preset: z.string().max(20).optional(),
   from:   z.string().max(10).optional(),
   to:     z.string().max(10).optional(),
+  // A one-day report's date (the End-of-Day Snapshot, Task 6).
+  date:   z.string().max(10).optional(),
   branch: z.string().cuid().optional(),
 })
 
@@ -37,10 +38,10 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
     if (!parsed.success) {
       return NextResponse.json({ error: 'Validation failed', fields: parsed.error.flatten().fieldErrors }, { status: 400 })
     }
-    const { format, preset, from, to, branch } = parsed.data
+    const { format, preset, from, to, date, branch } = parsed.data
     const { key } = await params
 
-    const result = await ReportService.run(key, { preset, from, to, branchId: branch }, { userId, role })
+    const result = await ReportService.run(key, { preset, from, to, date, branchId: branch }, { userId, role })
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }
@@ -55,8 +56,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
       })
     }
     if (format === 'pdf') {
-      const buffer = await renderToBuffer(<ReportDocument report={report} />)
-      return new NextResponse(new Uint8Array(buffer), {
+      return new NextResponse(new Uint8Array(await renderReportPdf(report)), {
         headers: {
           'Content-Type':        'application/pdf',
           'Content-Disposition': `inline; filename="${reportFileName(report, 'pdf')}"`,

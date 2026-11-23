@@ -5,6 +5,10 @@ import { EmailLogRepository } from '@/repositories/email-log.repository'
 import { NotificationRepository } from '@/repositories/notification.repository'
 import { UserRepository } from '@/repositories/user.repository'
 import { notificationHref } from '@/services/notification.service'
+import { ReportService } from '@/services/report.service'
+import { renderReportPdf } from '@/lib/report-pdf'
+import { reportFileName } from '@/lib/report-format'
+import type { NotificationEmailJob } from '@/lib/queue'
 
 /**
  * Email (Week 11 Task 2). Every email goes to a user's `notificationEmail` —
@@ -99,6 +103,9 @@ ${paragraphs}${button}
   return { html, text }
 }
 
+/** Who the worker generates an emailed report as: it has no user, and management sees every branch. */
+const REPORT_VIEWER = { userId: '', role: 'ADMIN' }
+
 const NOTIFICATION_FOOTER = 'A copy of a notification in your KitchenERP bell. Your administrator sets where these emails go (Admin → Email).'
 
 export const EmailService = {
@@ -107,7 +114,10 @@ export const EmailService = {
    * outcome once, after the last attempt; a user with no address is not
    * logged — that is by design, not a failure.
    */
-  async sendNotification(notificationId: string, options: { lastAttempt: boolean }): Promise<EmailOutcome> {
+  async sendNotification(
+    notificationId: string,
+    options: { lastAttempt: boolean; attachment?: NotificationEmailJob['attachment'] },
+  ): Promise<EmailOutcome> {
     const notification = await NotificationRepository.findForEmail(notificationId)
     if (!notification) return 'GONE'
     const address = notification.user.notificationEmail
@@ -120,17 +130,37 @@ export const EmailService = {
       return 'SKIPPED'
     }
 
+    // The report PDF it carries (Task 6), generated now from the figures as
+    // they stand — the same report as the Reports page. A failure is retried
+    // like a busy Resend, then logged FAILED: no half email without its PDF.
+    let attachments: EmailAttachment[] | undefined
+    if (options.attachment) {
+      try {
+        const { report, date, branchId } = options.attachment
+        const built = await ReportService.run(report, { date, branchId }, REPORT_VIEWER)
+        if (!built.success) throw new Error(built.error)
+        attachments = [{ filename: reportFileName(built.data, 'pdf'), content: await renderReportPdf(built.data) }]
+      } catch (err) {
+        if (!options.lastAttempt) return 'RETRY'
+        await EmailLogRepository.create({ ...entry, status: EmailStatus.FAILED, error: `Could not build the PDF: ${err instanceof Error ? err.message : 'unknown error'}` })
+        return 'FAILED'
+      }
+    }
+
     const href = notificationHref(notification.referenceType, notification.referenceId)
     const { html, text } = renderEmail({
       greeting:   `Hi ${notification.user.name},`,
       heading:    notification.title,
-      paragraphs: notification.body ? [notification.body] : [],
+      paragraphs: [
+        ...(notification.body ? [notification.body] : []),
+        ...(attachments ? [`The full snapshot is attached as a PDF (${attachments[0].filename}).`] : []),
+      ],
       link:       href ? { url: absoluteUrl(href), label: 'Open in KitchenERP' } : null,
       footer:     NOTIFICATION_FOOTER,
     })
     // The notification id as the idempotency key: a job retried after Resend
     // accepted it (the reply lost) cannot send it twice.
-    const result = await sendEmail({ to: address, subject: notification.title, html, text, idempotencyKey: `notification-${notification.id}` })
+    const result = await sendEmail({ to: address, subject: notification.title, html, text, attachments, idempotencyKey: `notification-${notification.id}` })
     if (result.ok) {
       await EmailLogRepository.create({ ...entry, status: EmailStatus.SENT, providerId: result.id })
       return 'SENT'

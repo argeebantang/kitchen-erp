@@ -710,7 +710,14 @@ Plan (owner, 2026-11-23, "do all recommends"), one task and PR each:
         approved and requests decided), **Waste & Write-off** (the weekly waste figures over any period). Each source
         now takes any period; each refactor proved identical to the old code. A branch manager sees stock movement
         at their own branch only.
-- [ ] End-of-day branch snapshot report
+- [x] End-of-day branch snapshot report — **Task 6, 2026-11-23** (`docs/2026-11-23-week11-eod-snapshot.md`):
+      - Reports → **End-of-Day Snapshot**: one day (Today, Yesterday or a date), one branch or all — End of Day's
+        finished goods with a check per row, raw materials for the day, every document that moved stock, and what
+        still waits for approval at the branch. Excel and PDF.
+      - **21:00:** management's end-of-day email now carries the all-branches snapshot PDF; each branch manager gets
+        a new bell notification and email with their own branch's PDF (on days it moved stock). The worker builds
+        the PDF when it sends.
+      - PDFs render through `lib/report-pdf.ts` (dynamic import), so the worker can render them under tsx.
 - [ ] Weekly report scheduler
 
 ### Week 12 — Deploy, Polish & Portfolio

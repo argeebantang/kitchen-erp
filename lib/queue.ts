@@ -225,6 +225,12 @@ export type ReceivingReportJob = {
 
 export type NotificationEmailJob = {
   notificationId: string
+  /**
+   * A report PDF to attach (Week 11 Task 6), named, not rendered: the email
+   * worker generates it when it sends, so the job stays small and nothing is
+   * stored. Only the End-of-Day Snapshot so far.
+   */
+  attachment?: { report: 'end-of-day'; date: string; branchId: string | null }
 }
 
 export type ProductionOrderJob = {

@@ -1,4 +1,8 @@
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+/** @jsxRuntime automatic */
+// ↑ For the worker (Week 11 Task 6): tsx compiles this file with tsconfig's
+// "jsx": "preserve", which esbuild treats as classic React.createElement;
+// the pragma gives it the automatic runtime Next.js already uses.
+import type * as ReactPdf from '@react-pdf/renderer'
 import type { ReportColumnDto, ReportDto, ReportTableDto, ReportValueKind } from '@/services/report.service'
 import { formatReportValue, isNumericKind } from '@/lib/report-format'
 
@@ -10,7 +14,13 @@ import { formatReportValue, isNumericKind } from '@/lib/report-format'
  * The built-in Helvetica covers Latin-1 (ñ, é, —, ·) but not the peso sign or
  * a true minus, so money prints "PHP 1,234.50" (lib/report-format) and
  * pdfText() swaps the few other characters the reports use.
+ *
+ * The react-pdf library is passed in, not imported (Week 11 Task 6): this file
+ * only names its types, so it loads anywhere. The worker runs under tsx as
+ * CommonJS, where a require() of the ESM-only @react-pdf/renderer fails; the
+ * one place that renders, lib/report-pdf.ts, loads it with import().
  */
+type Pdf = typeof ReactPdf
 const COMPANY_NAME = 'KitchenERP'
 
 const COLOR_TEXT   = '#1f2937'
@@ -27,7 +37,8 @@ const WIDTH_WEIGHT: Record<ReportValueKind, number> = {
   text: 3, date: 2, count: 1.3, quantity: 1.6, peso: 2.2, percent: 1.3,
 }
 
-const styles = StyleSheet.create({
+// Plain objects: StyleSheet.create only returns its argument.
+const styles = {
   page:         { padding: 32, paddingBottom: 48, fontSize: 9, color: COLOR_TEXT },
   header:       { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 },
   company:      { fontSize: 12, fontWeight: 'bold', color: COLOR_ACCENT },
@@ -48,7 +59,7 @@ const styles = StyleSheet.create({
   empty:        { paddingVertical: 6, color: COLOR_MUTED },
   notes:        { marginTop: 14, paddingTop: 6, borderTopWidth: 0.5, borderTopColor: COLOR_RULE, fontSize: 7.5, color: COLOR_MUTED },
   footer:       { position: 'absolute', left: 32, right: 32, bottom: 20, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7, color: COLOR_MUTED },
-})
+} as const
 
 /** Characters the built-in font cannot draw, swapped for ones it can. */
 export function pdfText(text: string): string {
@@ -60,7 +71,8 @@ function widths(columns: ReportColumnDto[]): string[] {
   return columns.map(column => `${(WIDTH_WEIGHT[column.kind] / total) * 100}%`)
 }
 
-function Table({ table }: { table: ReportTableDto }) {
+function Table({ pdf, table }: { pdf: Pdf; table: ReportTableDto }) {
+  const { Text, View } = pdf
   const columnWidths = widths(table.columns)
   const cellStyle = (index: number) => [styles.cell, { width: columnWidths[index], textAlign: isNumericKind(table.columns[index].kind) ? 'right' as const : 'left' as const }]
   const small = table.columns.length >= LANDSCAPE_FROM_COLUMNS ? { fontSize: 7.5 } : {}
@@ -94,7 +106,9 @@ function Table({ table }: { table: ReportTableDto }) {
   )
 }
 
-export function ReportDocument({ report }: { report: ReportDto }) {
+/** The report as a react-pdf <Document>, built with the library it is given. */
+export function reportDocument(pdf: Pdf, report: ReportDto) {
+  const { Document, Page, Text, View } = pdf
   const landscape = report.tables.some(table => table.columns.length >= LANDSCAPE_FROM_COLUMNS)
   const generated = new Date(report.generatedAt).toLocaleString('en-PH', {
     timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short',
@@ -125,7 +139,7 @@ export function ReportDocument({ report }: { report: ReportDto }) {
           ))}
         </View>
 
-        {report.tables.map(table => <Table key={table.title} table={table} />)}
+        {report.tables.map(table => <Table key={table.title} pdf={pdf} table={table} />)}
 
         {report.notes.length > 0 && (
           <View style={styles.notes} wrap={false}>

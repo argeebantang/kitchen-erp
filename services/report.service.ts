@@ -3,6 +3,7 @@ import { addDays, addMonths, todayIsoDate, weekStartOf } from '@/lib/dates'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { costPerBatchReport, productionSummaryReport } from '@/services/production-report.service'
 import { inventoryMovementReport, procurementReport, wasteReport } from '@/services/operations-report.service'
+import { endOfDaySnapshotReport } from '@/services/end-of-day-report.service'
 
 /**
  * Reports (Week 11, Tasks 4–6): one engine, many reports. A report is a
@@ -79,10 +80,12 @@ type ReportDefinition = {
    * the filter is fixed to it, read from Branch.managerId, not the token.
    */
   ownBranchForManagers?: boolean
+  /** 'day': one business day (Today, Yesterday or a date) — the End-of-Day Snapshot (Task 6). Default: a period. */
+  span?: 'period' | 'day'
   build: (params: ReportParams) => Promise<Omit<ReportDto, 'key' | 'title' | 'from' | 'to' | 'periodLabel' | 'branchName' | 'generatedAt'>>
 }
 
-export const REPORT_KEYS = ['production-summary', 'cost-per-batch', 'inventory-movement', 'procurement', 'waste'] as const
+export const REPORT_KEYS = ['production-summary', 'cost-per-batch', 'inventory-movement', 'procurement', 'waste', 'end-of-day'] as const
 export type ReportKey = (typeof REPORT_KEYS)[number]
 
 export function isReportKey(value: string): value is ReportKey {
@@ -140,6 +143,16 @@ const REPORTS: Record<ReportKey, ReportDefinition> = {
     branchFilter: 'branches',
     build:        wasteReport,
   },
+  'end-of-day': {
+    key:          'end-of-day',
+    title:        'End-of-Day Snapshot',
+    description:  'One branch\'s day, or every branch\'s: finished goods in and out, raw materials, what moved and what is still waiting for approval.',
+    roles:        [...MANAGEMENT, 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'],
+    branchFilter: 'branches',
+    ownBranchForManagers: true,
+    span:         'day',
+    build:        endOfDaySnapshotReport,
+  },
 }
 
 // ─── Periods ──────────────────────────────────────────────────────────────────
@@ -151,6 +164,12 @@ export const REPORT_PRESETS = [
   { value: 'this-month', label: 'This month' },
 ] as const
 export type ReportPreset = (typeof REPORT_PRESETS)[number]['value']
+
+/** A one-day report's choices (Task 6); "today" is the default — the evening close. */
+export const DAY_PRESETS = [
+  { value: 'today',     label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+] as const
 
 /** The longest custom period, in days — about a quarter (owner, 2026-11-23). */
 export const MAX_REPORT_DAYS = 92
@@ -189,6 +208,8 @@ export type ReportQuery = {
   preset?: string | null
   from?: string | null
   to?: string | null
+  /** A one-day report's date (YYYY-MM-DD). */
+  date?: string | null
   branchId?: string | null
 }
 
@@ -210,6 +231,8 @@ export type ReportOptionsDto = {
   /** A branch manager held to their own branch: no "All" to choose. */
   branchFixed: boolean
   maxDays: number
+  /** One day, not a period: one date to pick. */
+  singleDay: boolean
 }
 
 type Viewer = { userId: string; role: string }
@@ -219,6 +242,18 @@ function definitionFor(key: string, viewer: Viewer): ReportResult<ReportDefiniti
   const definition = REPORTS[key]
   if (!definition.roles.includes(viewer.role)) return { success: false, error: 'You cannot open this report', status: 403 }
   return { success: true, data: definition }
+}
+
+/** A one-day report's day: a date, or Today / Yesterday (default today). Not after today. */
+function resolveDay(query: ReportQuery): ReportResult<{ from: string; to: string }> {
+  const today = todayIsoDate()
+  if (query.date) {
+    if (!isDate(query.date)) return { success: false, error: 'Give the date as YYYY-MM-DD', status: 400 }
+    if (query.date > today) return { success: false, error: 'The day cannot be after today', status: 400 }
+    return { success: true, data: { from: query.date, to: query.date } }
+  }
+  const day = query.preset === 'yesterday' ? addDays(today, -1) : today
+  return { success: true, data: { from: day, to: day } }
 }
 
 /** The period asked for: a preset, or from–to, else last week. Checked against today and MAX_REPORT_DAYS. */
@@ -273,11 +308,12 @@ export const ReportService = {
         key:         definition.key,
         title:       definition.title,
         description: definition.description,
-        presets:     REPORT_PRESETS.map(({ value, label }) => ({ value, label })),
+        presets:     (definition.span === 'day' ? DAY_PRESETS : REPORT_PRESETS).map(({ value, label }) => ({ value, label })),
         branches:    own ? [own.data] : await branchesFor(definition.branchFilter),
         branchLabel: definition.branchFilter === 'kitchens' ? 'Kitchen' : definition.branchFilter === 'branches' ? 'Branch' : null,
         allLabel:    definition.branchFilter === 'kitchens' ? 'All kitchens' : definition.branchFilter === 'branches' ? 'All branches' : 'Company-wide',
         branchFixed: own !== undefined,
+        singleDay:   definition.span === 'day',
         maxDays:     MAX_REPORT_DAYS,
       },
     }
@@ -288,7 +324,7 @@ export const ReportService = {
     if (!found.success) return found
     const definition = found.data
 
-    const period = resolvePeriod(query)
+    const period = definition.span === 'day' ? resolveDay(query) : resolvePeriod(query)
     if (!period.success) return period
 
     let branch: { id: string; name: string } | null = null
