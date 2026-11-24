@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Offline · KitchenERP</title>
+  <!--
+    Shown by public/sw.js when a page cannot load because there is no
+    connection. Self-contained on purpose — inline styles and icon, no
+    scripts or fonts from the app — because nothing else is cached.
+  -->
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+      padding: 24px; background: #f9fafb; color: #1f2937;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    main { max-width: 360px; text-align: center; }
+    .badge { width: 64px; height: 64px; margin: 0 auto 20px; }
+    h1 { margin: 0 0 8px; font-size: 20px; }
+    p { margin: 0 0 24px; color: #6b7280; font-size: 15px; line-height: 1.5; }
+    button {
+      width: 100%; padding: 14px 20px; border: 0; border-radius: 12px;
+      background: #f97316; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
+    }
+    button:active { background: #ea580c; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg class="badge" viewBox="0 0 512 512" aria-hidden="true">
+      <rect width="512" height="512" rx="112" fill="#f97316"/>
+      <g fill="#fff">
+        <polygon points="152,116 226,116 226,396 152,396"/>
+        <polygon points="196,292 318,116 408,116 264,318"/>
+        <polygon points="226,236 408,396 316,396 196,302"/>
+      </g>
+    </svg>
+    <h1>You're offline</h1>
+    <p>KitchenERP needs a connection to load this page. Nothing was sent or saved. Try again when you have signal or Wi-Fi.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+  </main>
+</body>
+</html>

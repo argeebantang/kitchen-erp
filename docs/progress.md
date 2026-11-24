@@ -760,7 +760,13 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
       - fixed on the way: every `EmptyState` button on a server page had a broken class; "for STR-…" on transfer rows;
         no word hyphenation in PDFs
       - supplier receiving unchanged (owner); next: lot labels and a scan-while-packing check
-- [ ] PWA setup
+- [x] PWA setup — **2026-11-24** (`docs/2026-11-24-pwa.md`):
+      - installable from Chrome or Add to Home Screen: an orange K icon; opens full screen at the dashboard; a Receive
+        shortcut
+      - a minimal service worker that caches only a branded offline page, never pages or data
+      - an offline banner, then "Back online"
+      - fits the phone: `dvh` and safe areas; every field 16px on phones (login and the search boxes were 14px)
+      - out of scope: offline counting, push notifications
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
       the demo.

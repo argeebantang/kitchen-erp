@@ -55,7 +55,7 @@ export function SearchBox({ placeholder }: { placeholder: string }) {
         }}
         placeholder={placeholder}
         aria-label={placeholder}
-        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-8 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 [&::-webkit-search-cancel-button]:hidden"
+        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-8 text-base sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400 [&::-webkit-search-cancel-button]:hidden"
       />
       <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
         {searching ? (

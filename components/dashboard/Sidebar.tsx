@@ -117,11 +117,12 @@ export function Sidebar({ name, role, initialCollapsed, mobileOpen, onMobileClos
     {mobileOpen && (
       <div className="fixed inset-0 z-30 bg-gray-900/50 md:hidden" onClick={onMobileClose} aria-hidden="true" />
     )}
-    {/* Below md a fixed drawer, off-screen until opened; from md up in the layout as before. */}
+    {/* Below md a fixed drawer, off-screen until opened; from md up in the layout as before.
+        The drawer is fixed to the screen, so it keeps clear of the home bar and a landscape notch itself. */}
     <aside
-      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-gray-900 text-gray-100 transition-transform duration-200 ${
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-gray-900 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] text-gray-100 transition-transform duration-200 md:pl-0 ${
         mobileOpen ? 'translate-x-0' : '-translate-x-full'
-      } md:static md:z-auto md:min-h-screen md:translate-x-0 md:transition-[width] ${rail ? 'md:w-16' : 'md:w-64'}`}
+      } md:static md:z-auto md:min-h-dvh md:translate-x-0 md:transition-[width] ${rail ? 'md:w-16' : 'md:w-64'}`}
     >
 
       {/* Logo */}
@@ -173,7 +174,7 @@ export function Sidebar({ name, role, initialCollapsed, mobileOpen, onMobileClos
                 onKeyDown={onSearchKeyDown}
                 placeholder="Search the menu"
                 aria-label="Search the menu"
-                className="w-full rounded-lg border border-gray-700 bg-gray-800 py-2 pl-10 pr-8 text-sm text-gray-100 placeholder:text-gray-500 focus:border-orange-500 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 py-2 pl-10 pr-8 text-base sm:text-sm text-gray-100 placeholder:text-gray-500 focus:border-orange-500 focus:outline-none [&::-webkit-search-cancel-button]:hidden"
               />
               {query ? (
                 <button
