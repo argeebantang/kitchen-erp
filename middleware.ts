@@ -193,6 +193,10 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Run on all paths except Next.js internals and static files
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Run on all paths except Next.js internals and static files — and the PWA
+  // files (Week 12): the browser fetches the manifest, its icons and the
+  // service worker without cookies, so a redirect to /login would make the app
+  // uninstallable; offline.html is cached by the service worker at install.
+  // None of them holds data.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|offline.html|icons/).*)'],
 }

@@ -53,4 +53,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  /* Phones flash a grey box over anything tapped — a browser tell. Buttons
+     have their own hover / active styles. (Week 12 PWA) */
+  -webkit-tap-highlight-color: transparent;
 }

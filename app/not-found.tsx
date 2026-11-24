@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/states'
  */
 export default function AppNotFound() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+    <main className="flex min-h-dvh items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-lg">
         <EmptyState icon={FileQuestion} title="Page not found" action={{ href: '/dashboard', label: 'Go to Dashboard' }}>
           The link may be wrong, or the page has moved.

@@ -53,7 +53,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-dvh flex items-center justify-center bg-gray-50">
       <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200 w-full max-w-sm">
 
         <div className="flex items-center gap-3 mb-8">
@@ -84,7 +84,7 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-base sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
               placeholder="you@kitchen.com"
             />
           </div>
@@ -98,7 +98,7 @@ export default function LoginPage() {
               value={password}
               onChange={e => setPassword(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
-              className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              className="w-full border border-gray-200 bg-white rounded-lg px-3 py-2 text-base sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400"
               placeholder="••••••••"
             />
           </div>
