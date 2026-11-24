@@ -164,6 +164,15 @@ export default async function TransferListPage({ searchParams }: PageProps) {
                       {row.transferNumber}
                     </Link>
                     {row.kind === 'RETURN' && <ReturnBadge />}
+                    {/* Shown because the search matches it too — otherwise "260" finding a transfer sent for STR-000260 looks like a wrong match. */}
+                    {row.stockRequest && (
+                      <span className="mt-0.5 block text-xs text-gray-400">
+                        for{' '}
+                        <Link href={`/inventory/requests/${row.stockRequest.id}`} className="font-mono hover:text-gray-600 hover:underline">
+                          {row.stockRequest.requestNumber}
+                        </Link>
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-700">
                     {row.fromBranch.name} <span className="text-gray-400">→</span> {row.toBranch.name}

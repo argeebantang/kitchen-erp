@@ -1,5 +1,6 @@
 import { EmailStatus } from '@prisma/client'
 import { config } from '@/lib/config'
+import { absoluteUrl } from '@/lib/app-url'
 import { emailConfigured, sendEmail, type EmailAttachment } from '@/lib/email'
 import { EmailLogRepository } from '@/repositories/email-log.repository'
 import { NotificationRepository } from '@/repositories/notification.repository'
@@ -61,10 +62,6 @@ export type EmailOverviewDto = {
 const escapeHtml = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 
-/** A page of the app as a full link for an email. */
-export function absoluteUrl(href: string): string {
-  return `${config.appUrl.replace(/\/+$/, '')}${href.startsWith('/') ? href : `/${href}`}`
-}
 
 /**
  * One email in the app's look: a heading, paragraphs, an optional button.

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Printer } from 'lucide-react'
 import { getSession } from '@/lib/session'
 import { formatDateTime } from '@/lib/dates'
 import { formatPeso, formatQuantity } from '@/lib/format'
@@ -39,6 +39,9 @@ export default async function TransferDetailPage({ params }: PageProps) {
   const isApprover = session.role === 'ACCOUNTING' || session.role === 'ADMIN'
   // Nobody decides a transfer they recorded, ADMIN included (R1).
   const isOwn      = transfer.submittedById === session.userId
+  // The roles /api/transfers admits; the label route re-checks who may see this transfer.
+  const canPrintLabel = transfer.status === 'APPROVED'
+    && ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'].includes(session.role)
 
   return (
     <div>
@@ -51,10 +54,22 @@ export default async function TransferDetailPage({ params }: PageProps) {
       </Link>
 
       <div className="mb-6">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h1 className="font-mono text-2xl font-bold text-gray-800">{transfer.transferNumber}</h1>
           <StatusBadge status={transfer.status} label={transferStatusLabel(transfer)} />
           {transfer.kind === 'RETURN' && <ReturnBadge />}
+          {/* Week 12: the box label, while the goods are on their way — the sender prints it at dispatch. */}
+          {canPrintLabel && (
+            <a
+              href={`/api/transfers/${transfer.id}/label`}
+              target="_blank"
+              rel="noopener"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-sm font-medium text-orange-600 transition-colors hover:bg-orange-50"
+            >
+              <Printer size={15} />
+              Print label
+            </a>
+          )}
         </div>
         <p className="mt-1 text-sm text-gray-400">
           {transfer.fromBranch.name} <span className="text-gray-300">→</span> {transfer.toBranch.name}

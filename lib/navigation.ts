@@ -22,7 +22,8 @@ import {
   Sparkles,
   Mail,
   FileText,
-  Receipt
+  Receipt,
+  PackageCheck
 } from 'lucide-react'
 
 export type NavItem = {
@@ -81,6 +82,7 @@ export const navigation: NavGroup[] = [
       { label: 'Stock Ledger', href: '/inventory/ledger',    icon: ScrollText, roles: [], keywords: ['movements', 'history'] },
       { label: 'Write-offs',   href: '/inventory/write-offs', icon: Trash2,    roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING'], keywords: ['WO', 'waste', 'spoiled'] },
       { label: 'End of Day',   href: '/inventory/end-of-day', icon: Moon,      roles: [] },
+      { label: 'Receive',      href: '/inventory/receive', icon: PackageCheck, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'], keywords: ['scan', 'QR', 'arriving', 'in transit', 'delivery', 'TRF', 'RTN'] },
       { label: 'Transfers',    href: '/inventory/transfers', icon: GitBranch, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'ACCOUNTING', 'BRANCH_MANAGER'], keywords: ['TRF', 'delivery', 'return'] },
       { label: 'Stock Requests', href: '/inventory/requests', icon: ClipboardList, roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'], keywords: ['outlet order'] },
       { label: 'Daily Sales', href: '/inventory/sales', icon: Receipt, roles: ['ADMIN', 'ACCOUNTING', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'], keywords: ['SLS', 'sold'] },

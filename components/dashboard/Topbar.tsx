@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { LogOut, ChevronDown } from 'lucide-react'
+import { LogOut, ChevronDown, Menu } from 'lucide-react'
 import { NotificationBell } from '@/components/dashboard/NotificationBell'
 import { requestJson } from '@/lib/http'
 
@@ -10,9 +10,11 @@ type Props = {
   name: string
   email: string
   role: string
+  /** Opens the sidebar drawer — the button shows only below `md`, where the sidebar is hidden. */
+  onOpenMenu: () => void
 }
 
-export function Topbar({ name, email, role }: Props) {
+export function Topbar({ name, email, role, onOpenMenu }: Props) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -48,11 +50,21 @@ export function Topbar({ name, email, role }: Props) {
   const roleLabel = role.replace(/_/g, ' ').toLowerCase()
 
   return (
-    <header className="flex items-center justify-between h-16 px-6 bg-white border-b border-gray-200">
-      {/* Greeting */}
-      <div className="leading-tight">
-        <p className="text-xs text-gray-400">Welcome back,</p>
-        <p className="text-sm font-semibold text-gray-800">{name}</p>
+    <header className="flex items-center justify-between h-16 px-4 md:px-6 bg-white border-b border-gray-200">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          aria-label="Open the menu"
+          className="-ml-2 rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 md:hidden"
+        >
+          <Menu size={20} />
+        </button>
+        {/* Greeting */}
+        <div className="min-w-0 leading-tight">
+          <p className="text-xs text-gray-400">Welcome back,</p>
+          <p className="truncate text-sm font-semibold text-gray-800">{name}</p>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

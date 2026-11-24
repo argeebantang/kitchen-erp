@@ -490,6 +490,22 @@ async function pendingPlan(transfer: StockTransferWithDetail, now: Date): Promis
   }
 }
 
+/** In-transit rows with when they left, what left at the lots' cost, and whether this viewer may count them. */
+async function toInTransit(rows: StockTransferWithDetail[], viewer: TransferViewer): Promise<InTransitTransferDto[]> {
+  const [receivable, dispatched] = await Promise.all([
+    Promise.all(rows.map(row => mayReceive(viewer, row))),
+    FinishedGoodStockRepository.dispatchedByTransfers(rows.map(row => row.id)),
+  ])
+  return rows.map((row, index) => {
+    const moved = dispatched.filter(m => m.referenceId === row.id)
+    let value: Prisma.Decimal | null = zero
+    for (const m of moved) value = value === null || m.unitCost === null ? null : value.add(m.quantity.abs().mul(m.unitCost))
+    // Every lot leaves in the approval's transaction, so they share one time.
+    const dispatchedAt = moved[0]?.createdAt.toISOString() ?? null
+    return { ...toSummary(row), dispatchedAt, value: value === null ? null : toDecimalString(value), canReceive: receivable[index] ?? false }
+  })
+}
+
 export const StockTransferService = {
   async getForm(): Promise<TransferFormDto> {
     const [branches, { rows: goods }] = await Promise.all([
@@ -779,6 +795,27 @@ export const StockTransferService = {
     return { success: true, data: { ...base, plan: await pendingPlan(transfer, now) } }
   },
 
+  /**
+   * What the box label prints (Week 12): only while the goods are in transit
+   * — before approval nothing has left, so lots and quantities may still
+   * change; once received the label has done its job. Seen through getById,
+   * so a branch manager it does not concern gets the same 404.
+   */
+  async getForLabel(id: string, viewer: TransferViewer): Promise<StockTransferResult<StockTransferDetailDto>> {
+    const result = await StockTransferService.getById(id, viewer)
+    if (!result.success) return result
+    if (result.data.status !== TransferStatus.APPROVED) {
+      return {
+        success: false,
+        error:   result.data.status === TransferStatus.PENDING_APPROVAL
+          ? 'Print the label once accounting approves the transfer — until then nothing has left and the lots may change'
+          : `This transfer is ${result.data.status.toLowerCase()} — a label is only for goods on their way`,
+        status:  409,
+      }
+    }
+    return result
+  },
+
   /** Pending transfers, oldest first, each planned against the sender now — the approvals inbox (R8). */
   async listPending(take = 100): Promise<PendingTransferDto[]> {
     const rows = await StockTransferRepository.findPending(take)
@@ -798,22 +835,53 @@ export const StockTransferService = {
   async openForBranch(branchId: string, viewer: TransferViewer): Promise<BranchTransfersDto> {
     // One more than shown, to know whether there are more.
     const open     = await StockTransferRepository.findOpenForBranch(branchId, OPEN_TRANSFER_LIMIT + 1)
-    const arriving = open.arriving.slice(0, OPEN_TRANSFER_LIMIT)
-    const receivable = await Promise.all(arriving.map(row => mayReceive(viewer, row)))
     const pending  = open.pending.slice(0, OPEN_TRANSFER_LIMIT)
-    const dispatched = await FinishedGoodStockRepository.dispatchedByTransfers(arriving.map(row => row.id))
 
     return {
-      arriving: arriving.map((row, index) => {
-        const rows = dispatched.filter(m => m.referenceId === row.id)
-        let value: Prisma.Decimal | null = zero
-        for (const m of rows) value = value === null || m.unitCost === null ? null : value.add(m.quantity.abs().mul(m.unitCost))
-        // Every lot leaves in the approval's transaction, so they share one time.
-        const dispatchedAt = rows[0]?.createdAt.toISOString() ?? null
-        return { ...toSummary(row), dispatchedAt, value: value === null ? null : toDecimalString(value), canReceive: receivable[index] ?? false }
-      }),
+      arriving:  await toInTransit(open.arriving.slice(0, OPEN_TRANSFER_LIMIT), viewer),
       pending:   pending.map(toSummary),
       truncated: open.arriving.length > OPEN_TRANSFER_LIMIT || open.pending.length > OPEN_TRANSFER_LIMIT,
+    }
+  },
+
+  /**
+   * The Receive screen (Week 12): what is in transit that this viewer may
+   * count, oldest first — the same rule as mayReceive, applied in the query.
+   * A branch manager: deliveries and returns to the branch they manage (none
+   * → `managesNoBranch`); production: returns, at any kitchen; an ADMIN:
+   * everything. Any other role gets nothing (the route guard keeps them out).
+   * `search` matches the transfer number.
+   */
+  async listReceivable(viewer: TransferViewer, search?: string): Promise<{
+    transfers: InTransitTransferDto[]
+    truncated: boolean
+    /** The branch a branch manager receives for; null for other roles. */
+    branch: { id: string; name: string } | null
+    managesNoBranch: boolean
+  }> {
+    let filters: { toBranchId?: string; kind?: TransferKind }
+    let branch: { id: string; name: string } | null = null
+    if (viewer.role === 'ADMIN') {
+      filters = {}
+    } else if (viewer.role === 'PRODUCTION_MANAGER') {
+      filters = { kind: TransferKind.RETURN }
+    } else if (viewer.role === 'BRANCH_MANAGER') {
+      const managed = await BranchRepository.findManagedBy(viewer.userId)
+      if (!managed) return { transfers: [], truncated: false, branch: null, managesNoBranch: true }
+      branch  = { id: managed.id, name: managed.name }
+      filters = { toBranchId: managed.id }
+    } else {
+      return { transfers: [], truncated: false, branch: null, managesNoBranch: false }
+    }
+
+    // One more than shown, to know whether there are more.
+    const rows = await StockTransferRepository.findInTransit({ ...filters, search }, OPEN_TRANSFER_LIMIT + 1)
+    const transfers = await toInTransit(rows.slice(0, OPEN_TRANSFER_LIMIT), viewer)
+    return {
+      transfers: transfers.filter(row => row.canReceive),
+      truncated: rows.length > OPEN_TRANSFER_LIMIT,
+      branch,
+      managesNoBranch: false,
     }
   },
 

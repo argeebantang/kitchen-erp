@@ -1,10 +1,13 @@
-'use client'
-
 /**
  * Shared form primitives for the master-data and BOM panels. These lived in
  * MaterialsPanel and were imported by the other panels, which made a feature
  * component the de facto home of shared UI — moved here so the dependency runs
  * panel → ui rather than panel → panel.
+ *
+ * Deliberately NOT 'use client': nothing here has hooks or state, and server
+ * pages and components/ui/states.tsx import the class strings. Through a
+ * 'use client' module a server import gets a client-reference stub instead of
+ * the string — EmptyState's button rendered `class="… function() { throw …"`.
  */
 
 /*
@@ -12,8 +15,10 @@
  * its colour from `body` renders invisible the moment anything changes the
  * inherited foreground — which is exactly how typed text turned white here.
  */
+// text-base on a phone: iOS zooms the page into any input under 16px when it
+// is tapped. From `sm` up it is text-sm as before.
 export const inputClass =
-  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 ' +
+  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-base sm:text-sm text-gray-900 ' +
   'placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-400'
 
 export const primaryButtonClass =

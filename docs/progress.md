@@ -751,6 +751,15 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
       server-side, in the URL (`?page=&q=&sort=&dir=`); Purchase Requests / Orders, Receiving, Stock Requests, BOMs and
       Master Data (Materials, Finished Goods) had none and stopped at 100 rows; the seven Newer / Older lists moved to
       the same bar with page numbers.
+- [x] QR transfer labels and phone receiving — **2026-11-24**, owner request (`docs/2026-11-24-qr-transfers.md`):
+      - **Print label** on an in-transit transfer: an A6 PDF with a QR of the transfer, from / to, and goods by lot
+      - **Inventory → Receive**: what is on its way to you, search by number, and **Scan a label** with the camera
+        (`qr-scanner`); the QR is optional
+      - phone layout: the sidebar becomes a drawer, the count form shows a card per lot, inputs are 16px
+      - sign-in returns to the page you came from (`?next=`, same-app paths only); `/` goes to the dashboard
+      - fixed on the way: every `EmptyState` button on a server page had a broken class; "for STR-…" on transfer rows;
+        no word hyphenation in PDFs
+      - supplier receiving unchanged (owner); next: lot labels and a scan-while-packing check
 - [ ] PWA setup
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for

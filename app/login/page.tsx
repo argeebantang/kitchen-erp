@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { requestJson } from '@/lib/http'
+import { safeNextPath } from '@/lib/safe-next'
 
 // Dev-only quick login. Matches prisma/seed.ts — every seeded account shares
 // this password. Never rendered outside development (see isDev below).
@@ -39,7 +40,10 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+    // Back to the page that sent them here (a scanned label, an emailed link),
+    // if it is one of ours. Read at submit, not with useSearchParams, which
+    // would need a Suspense boundary around this whole page.
+    router.push(safeNextPath(new URLSearchParams(window.location.search).get('next')) ?? '/dashboard')
   }
 
   function handleQuickLogin(devEmail: string) {

@@ -12,6 +12,9 @@ type Props = {
   role: string
   /** From the cookie, read by the protected layout — so the first paint is already the right width. */
   initialCollapsed: boolean
+  /** Open as a drawer over the page — only ever true below `md` (AppShell). */
+  mobileOpen: boolean
+  onMobileClose: () => void
 }
 
 const ONE_YEAR = 60 * 60 * 24 * 365
@@ -22,10 +25,13 @@ function isTyping(target: EventTarget | null): boolean {
     && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
 }
 
-export function Sidebar({ name, role, initialCollapsed }: Props) {
+export function Sidebar({ name, role, initialCollapsed, mobileOpen, onMobileClose }: Props) {
   const pathname = usePathname()
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(initialCollapsed)
+  // The narrow icon rail. Collapsing is a desktop choice (remembered in the
+  // cookie); the phone drawer always opens full width, labels and all.
+  const rail = collapsed && !mobileOpen
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   // Set when the collapsed rail's search button (or "/") opens the sidebar:
@@ -56,7 +62,7 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
   }
 
   function openSearch() {
-    if (collapsed) {
+    if (rail) {
       focusAfterExpand.current = true
       setCollapsedAndRemember(false)
     } else {
@@ -82,12 +88,23 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
+  // Escape closes the phone drawer, as it would a dialog.
+  useEffect(() => {
+    if (!mobileOpen) return
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onMobileClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileOpen, onMobileClose])
+
   function onSearchKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Enter' && firstMatch) {
       event.preventDefault()
       router.push(firstMatch.href)
       setQuery('')
       searchRef.current?.blur()
+      onMobileClose()
     } else if (event.key === 'Escape') {
       if (query) setQuery('')
       else searchRef.current?.blur()
@@ -95,31 +112,47 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
   }
 
   return (
+    <>
+    {/* Phone: dims the page behind the open drawer; a tap on it closes the drawer. */}
+    {mobileOpen && (
+      <div className="fixed inset-0 z-30 bg-gray-900/50 md:hidden" onClick={onMobileClose} aria-hidden="true" />
+    )}
+    {/* Below md a fixed drawer, off-screen until opened; from md up in the layout as before. */}
     <aside
-      className={`flex min-h-screen shrink-0 flex-col bg-gray-900 text-gray-100 transition-[width] duration-200 ${collapsed ? 'w-16' : 'w-64'}`}
+      className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-gray-900 text-gray-100 transition-transform duration-200 ${
+        mobileOpen ? 'translate-x-0' : '-translate-x-full'
+      } md:static md:z-auto md:min-h-screen md:translate-x-0 md:transition-[width] ${rail ? 'md:w-16' : 'md:w-64'}`}
     >
 
       {/* Logo */}
-      <div className={`flex items-center gap-2 border-b border-gray-700 py-5 ${collapsed ? 'justify-center px-2' : 'px-6'}`}>
+      <div className={`flex items-center gap-2 border-b border-gray-700 py-5 ${rail ? 'justify-center px-2' : 'px-6'}`}>
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-500">
           <span className="text-sm font-bold text-white">K</span>
         </div>
-        {!collapsed && (
+        {!rail && (
           <div className="min-w-0">
             <p className="text-sm font-bold leading-none text-white">KitchenERP</p>
             <p className="mt-0.5 truncate text-xs text-gray-400">Production & Inventory</p>
           </div>
         )}
+        <button
+          type="button"
+          onClick={onMobileClose}
+          aria-label="Close the menu"
+          className="ml-auto rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-800 hover:text-white md:hidden"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Navigation. The search sits inside the scrolling area, pinned to its top, so it has
           the menu's exact width — a scrollbar narrows both alike. */}
       <nav
-        className={`flex-1 overflow-y-auto pb-4 [scrollbar-color:var(--color-gray-700)_transparent] [scrollbar-width:thin] ${collapsed ? 'px-2' : 'px-3'}`}
+        className={`flex-1 overflow-y-auto pb-4 [scrollbar-color:var(--color-gray-700)_transparent] [scrollbar-width:thin] ${rail ? 'px-2' : 'px-3'}`}
       >
         {/* Search */}
         <div className="sticky top-0 z-10 bg-gray-900 pb-4 pt-4">
-          {collapsed ? (
+          {rail ? (
             <button
               type="button"
               onClick={openSearch}
@@ -164,7 +197,7 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
           )}
           {groups.map((group, groupIndex) => (
             <div key={group.group}>
-              {collapsed ? (
+              {rail ? (
                 groupIndex > 0 && <div className="mx-2 mb-3 border-t border-gray-800" aria-hidden="true" />
               ) : (
                 <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
@@ -184,11 +217,11 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        title={collapsed ? item.label : undefined}
-                        aria-label={collapsed ? item.label : undefined}
-                        onClick={() => setQuery('')}
+                        title={rail ? item.label : undefined}
+                        aria-label={rail ? item.label : undefined}
+                        onClick={() => { setQuery(''); onMobileClose() }}
                         className={`relative flex items-center gap-3 rounded-lg py-2 text-sm font-medium transition-colors duration-150 ${
-                          collapsed ? 'justify-center px-2' : 'px-3'
+                          rail ? 'justify-center px-2' : 'px-3'
                         } ${
                           isActive
                             ? 'bg-orange-500 text-white'
@@ -196,8 +229,8 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
                         }`}
                       >
                         <Icon size={16} className="shrink-0" />
-                        {!collapsed && item.label}
-                        <PendingSpinner className={collapsed ? 'absolute right-0.5 top-0.5' : 'ml-auto'} />
+                        {!rail && item.label}
+                        <PendingSpinner className={rail ? 'absolute right-0.5 top-0.5' : 'ml-auto'} />
                       </Link>
                     </li>
                   )
@@ -208,8 +241,8 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
         </div>
       </nav>
 
-      {/* Collapse */}
-      <div className={`border-t border-gray-800 py-2 ${collapsed ? 'px-2' : 'px-3'}`}>
+      {/* Collapse — a desktop choice; the phone drawer closes instead. */}
+      <div className={`hidden border-t border-gray-800 py-2 md:block ${collapsed ? 'px-2' : 'px-3'}`}>
         <button
           type="button"
           onClick={() => setCollapsedAndRemember(!collapsed)}
@@ -223,14 +256,14 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
       </div>
 
       {/* User info */}
-      <div className={`border-t border-gray-700 py-4 ${collapsed ? 'flex justify-center px-2' : 'px-4'}`}>
-        <div className="flex items-center gap-3" title={collapsed ? `${name} · ${role.replace(/_/g, ' ')}` : undefined}>
+      <div className={`border-t border-gray-700 py-4 ${rail ? 'flex justify-center px-2' : 'px-4'}`}>
+        <div className="flex items-center gap-3" title={rail ? `${name} · ${role.replace(/_/g, ' ')}` : undefined}>
           <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-orange-500">
             <span className="text-xs font-bold text-white">
               {name.charAt(0).toUpperCase()}
             </span>
           </div>
-          {!collapsed && (
+          {!rail && (
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white">{name}</p>
               <p className="truncate text-xs text-gray-400">{role.replace(/_/g, ' ')}</p>
@@ -239,5 +272,6 @@ export function Sidebar({ name, role, initialCollapsed }: Props) {
         </div>
       </div>
     </aside>
+    </>
   )
 }

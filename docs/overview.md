@@ -61,6 +61,7 @@ Planned (see the roadmap): raw-material write-offs and stock adjustments; the re
 * Database: PostgreSQL 16, accessed via Prisma ORM 5.22, with tracked migrations
 * Queue: BullMQ on Redis 7, consumed by a separate worker process (`npm run worker`)
 * PDF: `@react-pdf/renderer`, rendered in the request
+* QR: `qrcode` draws transfer labels (server); `qr-scanner` reads them with the phone camera (browser)
 * Validation: `zod`; auth: `jose` (JWT) + `bcryptjs`
 * AI: Claude API via `@anthropic-ai/sdk` (model Claude Sonnet 5.5), optional `ANTHROPIC_API_KEY`
 * Storage: not yet configured
