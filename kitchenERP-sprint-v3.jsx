@@ -263,6 +263,7 @@ const plan = {
             { t: "UI polish: loading states, empty states, error states on every screen — Task 1 (2026-11-23): loading skeletons, error screens with Try again, not-found pages; Task 2 (2026-11-24): readable form errors that never hang, filter-aware empty states with Clear filters, spinners on tabs and paging", done: true },
             { t: "Sidebar search and collapse (owner request, 2026-11-24): search the menu by name or abbreviation, Enter opens the best match; collapse to icons, remembered", done: true },
             { t: "Paging, search and sort on every list, on the server (owner request, 2026-11-24): page numbers, a search box across every page, click a column to sort", done: true },
+            { t: "QR transfer labels and phone receiving (owner request, 2026-11-24): print a QR label for the box; Receive screen with camera scan, search by number and phone-sized count form; sign-in returns to the scanned transfer", done: true },
             "PWA setup: installable on mobile with offline indicator",
             { t: "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
               partial: "Pulled forward to Week 10 Task 1: npm run seed:history generates 90 days at 3 kitchens and 3 outlets (purchasing, production, outlet orders, deliveries, sales, waste). Item names and prices are the seed's; tune the volumes for the demo here." },

@@ -1,6 +1,9 @@
-import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
+import { Document, Font, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import type { PurchaseOrderDetailDto } from '@/services/purchase-order.service'
 import { trimDecimal } from '@/lib/format'
+import { applyPdfDefaults } from '@/components/pdf/setup'
+
+applyPdfDefaults(Font)
 
 /**
  * The purchase order as a PDF document.

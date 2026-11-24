@@ -5,6 +5,7 @@ import { verifyToken, COOKIE_NAME } from '@/lib/jwt'
 // Type-only import — erased at compile time, so the Prisma client never enters
 // the Edge bundle either.
 import type { Role } from '@prisma/client'
+import { safeNextPath } from '@/lib/safe-next'
 
 // Paths that never require a token
 // /api/auth/register is deliberately absent: it lets the caller choose any
@@ -84,6 +85,9 @@ const ROLE_GUARDS: { path: string; roles: Role[]; methods?: string[] }[] = [
   // Returns (Week 9 Task 9): an outlet's manager sends unsold goods back to a
   // kitchen; StockTransferService checks it is their own outlet.
   { path: '/inventory/transfers/return', roles: ['ADMIN', 'BRANCH_MANAGER'] },
+  // Receive (Week 12): who may confirm a transfer arrived — an outlet's
+  // manager, production for returns, an admin. listReceivable narrows it.
+  { path: '/inventory/receive',          roles: ['ADMIN', 'PRODUCTION_MANAGER', 'BRANCH_MANAGER'] },
   // Stock requests (Week 9 Task 10): an outlet's manager asks a kitchen; the
   // kitchen plans or declines. StockRequestService scopes a branch manager to
   // their own outlet and checks who may do what.
@@ -136,7 +140,14 @@ function refuse(req: NextRequest, status: 401 | 403): NextResponse {
       { status },
     )
   }
-  return NextResponse.redirect(new URL(status === 401 ? '/login' : '/unauthorized', req.url))
+  if (status === 403) return NextResponse.redirect(new URL('/unauthorized', req.url))
+  // Signed out: remember the page, so a scanned label or an emailed link
+  // lands there after sign-in instead of on the dashboard (Week 12).
+  const login = new URL('/login', req.url)
+  const next  = safeNextPath(`${req.nextUrl.pathname}${req.nextUrl.search}`)
+  // Not for "/": it only leads to the dashboard, where sign-in goes anyway.
+  if (next && next !== '/' && req.method === 'GET') login.searchParams.set('next', next)
+  return NextResponse.redirect(login)
 }
 
 export async function middleware(req: NextRequest) {

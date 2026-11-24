@@ -366,6 +366,26 @@ export const StockTransferRepository = {
     return { arriving, pending }
   },
 
+  /**
+   * In transit (APPROVED), oldest first — the Receive screen (Week 12). The
+   * service narrows it to what the viewer may receive: one branch's
+   * deliveries and returns (`toBranchId`), or returns only (`kind`), or all.
+   * `search` matches the transfer number only — the screen asks for one.
+   */
+  async findInTransit(filters: { toBranchId?: string; kind?: TransferKind; search?: string }, take: number) {
+    return prisma.stockTransfer.findMany({
+      where: {
+        status:         TransferStatus.APPROVED,
+        toBranchId:     filters.toBranchId,
+        kind:           filters.kind,
+        transferNumber: filters.search ? containsText(filters.search) : undefined,
+      },
+      include: stockTransferInclude,
+      orderBy: { createdAt: 'asc' },
+      take,
+    })
+  },
+
   /** In transit (APPROVED, not yet received), per receiving branch — Branch Inventory's "arriving" (Week 8 Task 5). */
   async inTransitCountByBranch(): Promise<Map<string, number>> {
     const rows = await prisma.stockTransfer.groupBy({

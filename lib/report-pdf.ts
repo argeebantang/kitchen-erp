@@ -1,4 +1,5 @@
 import { reportDocument } from '@/components/pdf/ReportDocument'
+import { applyPdfDefaults } from '@/components/pdf/setup'
 import type { ReportDto } from '@/services/report.service'
 
 /**
@@ -13,5 +14,6 @@ import type { ReportDto } from '@/services/report.service'
  */
 export async function renderReportPdf(report: ReportDto): Promise<Buffer> {
   const pdf = await import('@react-pdf/renderer')
+  applyPdfDefaults(pdf.Font)
   return pdf.renderToBuffer(reportDocument(pdf, report))
 }
