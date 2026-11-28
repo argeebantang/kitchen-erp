@@ -63,8 +63,11 @@ describe('integration harness', () => {
     expect(await prisma.user.count()).toBe(0)
   })
 
-  it('queues jobs on Redis database 1, never the app’s database 0', async () => {
+  it('queues jobs on the test Redis database, never the app’s database 0', async () => {
     const client = await getNotificationQueue().client
-    expect(client.options.db).toBe(1)
+    // redis://host:6379/1 locally and in CI; any database but 0 is allowed (TEST_REDIS_URL).
+    const configured = Number(new URL(process.env.REDIS_URL!).pathname.slice(1))
+    expect(client.options.db).toBe(configured)
+    expect(client.options.db).toBeGreaterThan(0)
   })
 })

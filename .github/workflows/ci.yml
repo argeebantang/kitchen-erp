@@ -48,3 +48,60 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: ci-only-not-a-real-secret
           NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+  # Unit and integration tests (docs/2026-11-28-automated-testing-plan.md).
+  # A job of its own, in parallel with the one above: only it needs a
+  # database. The integration tests run the services against a real Postgres
+  # and Redis — the same images as docker-compose.yml — and their global setup
+  # rebuilds the test database from prisma/migrations (prisma migrate reset),
+  # so every migration is applied from scratch on each run too.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          # A throwaway container: nothing here is a secret. The superuser it
+          # creates can run the AI reader role migration (CREATE ROLE).
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: kitchen_erp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d kitchen_erp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Read by tests/helpers/test-env.ts. The name must end in _test and
+      # Redis must not be database 0, or the tests refuse to start.
+      TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/kitchen_erp_test?schema=public
+      TEST_REDIS_URL: redis://localhost:6379/1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit and integration tests
+        run: npm test

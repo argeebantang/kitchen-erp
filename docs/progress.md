@@ -770,7 +770,7 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
       the demo.
-- [ ] Automated tests — planned **2026-11-28** (`docs/2026-11-28-automated-testing-plan.md`), before CI/CD:
+- [x] Automated tests — **2026-11-28** (`docs/2026-11-28-automated-testing-plan.md`): 253 tests (166 unit, 87 integration), in CI. Playwright after deploy:
       - [x] Unit tests (Vitest) — **Subtask 1, 2026-11-28**: 8 files, 87 tests, `npm run test:unit` (no database):
         FEFO lot planning, Manila dates and ISO weeks, expiry flags, decimals, stock status and reorder alerts, BOM
         scaling, `?next=` redirects, assistant roles and tools, AI findings, report periods, late stock requests
@@ -810,9 +810,12 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
           transfer, receipt). One wins, the other gets 409, and stock moves once. A probe confirmed the database
           guards are what stop the second
         - conversion + transfer + write-off approved at once: the lot adds up to exactly 0, no deadlock
-      - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
+      - [x] Tests in CI — **Subtask 7, 2026-11-28**: a `test` job in `ci.yml` (Postgres 16 + Redis 7 service
+        containers, `npm test`), in parallel with typecheck, lint and build. Simulated against a brand-new database:
+        all 40 migrations applied, 253/253 pass. For it to block merges, require the `test` check on `main` in GitHub
+        (Settings → Branches)
       - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)
-- [ ] CI/CD to main
+- [~] CI/CD to main — CI runs typecheck, lint, build and (since 2026-11-28) unit + integration tests on every PR; deploy on merge comes with the deploy task
 - [ ] README + architecture diagram
 - [ ] Demo video + LinkedIn post

@@ -1,6 +1,6 @@
 # Automated testing — plan
 
-**Status: subtasks 1–6 built 2026-11-28 (unit tests, integration harness, procurement, middleware access, production / conversion / write-off, transfers and concurrency); subtask 7 (CI) planned. Subtask 5 found a real bug, fixed the same day (`docs/2026-11-28-pending-write-off-lots.md`).** Week 12 task, before the deploy's CI/CD step. The roadmap's
+**Status: all 7 subtasks built 2026-11-28 (unit tests, integration harness, procurement, middleware access, production / conversion / write-off, transfers and concurrency, tests in CI). Playwright stays a follow-up for after deploy. Subtask 5 found a real bug, fixed the same day (`docs/2026-11-28-pending-write-off-lots.md`).** Week 12 task, before the deploy's CI/CD step. The roadmap's
 "GitHub Actions CI/CD: test → build → deploy" needs a test step to exist first.
 
 ## Why
@@ -84,7 +84,7 @@ npm run test:watch        # re-runs on save
    - stock request and return
    - outlets hold no raw materials
    - **two approvals of the same document at once → exactly one succeeds, the other gets 409, and stock moves once**
-7. **CI.** Postgres 16 and Redis 7 service containers in `ci.yml`, then `prisma migrate deploy` and `npm test`, before
+7. **CI** — **built 2026-11-28.** Postgres 16 and Redis 7 service containers in `ci.yml`, then `prisma migrate deploy` and `npm test`, before
    the build step. A red test blocks the PR.
 
 Each subtask is handed over with the command to run. The owner runs it.
@@ -266,6 +266,29 @@ Reject it and record a fresh count." Nothing is wrong in the data, but the advic
 that report, so there is nothing to reject. In `ReceivingReportRepository.decide`, checking the report's status
 before the order's would give "decided by someone else just now" instead.
 
+### Subtask 7 — what was built
+
+`.github/workflows/ci.yml` has a second job, `test`, next to `typecheck-and-lint`. It runs in parallel, because only
+it needs a database:
+- Postgres 16 and Redis 7 service containers, the same images as `docker-compose.yml`, with health checks
+- `TEST_DATABASE_URL=postgresql://ci:ci@localhost:5432/kitchen_erp_test` and `TEST_REDIS_URL=redis://localhost:6379/1`
+- `npm ci`, then `npm test`
+- the global setup rebuilds the database with `prisma migrate reset`, so every CI run also applies all migrations
+  from scratch
+- a 15-minute timeout
+
+**Simulated locally (no `act` on this machine).** I set `TEST_DATABASE_URL` to a database that did not exist,
+`kitchen_erp_ci_test`, and Redis to database 2. `migrate reset` created it, applied all 40 migrations, and 253 of 253
+tests passed. The throwaway database was dropped afterwards. The lockfile's root dependencies match `package.json`, so
+`npm ci` will not refuse it.
+
+That run caught one test of the harness itself: it required Redis database 1 exactly. It now requires the
+configured test database (and never 0), so `TEST_REDIS_URL` can name another one.
+
+**To make a red test block a merge**, GitHub has to require the checks. Go to Settings → Branches → a rule (or
+ruleset) for `main` → "Require status checks to pass", and add `test` and `typecheck-and-lint`. Until then, a failing
+run shows on the PR but does not stop the merge button.
+
 ## Risks and assumptions
 
 - **Wiping the wrong database.** Covered by the `_test` name guard. It is checked before `migrate reset` and again
@@ -278,8 +301,8 @@ before the order's would give "decided by someone else just now" instead.
   Docker up; `npm run test:unit` does not.
 - **Time-dependent rules** (expiry, late requests, Manila day boundaries): tests pass `now` where the function takes
   it and use fake timers (`vi.setSystemTime`) where it does not.
-- **Slower CI.** Integration tests add roughly a minute (service containers + migrations). Still free on GitHub
-  Actions.
+- **Slower CI.** The `test` job takes about 2 minutes (install, service containers, migrations, about 50 s of tests).
+  It runs in parallel with typecheck, lint and build, and is still free on GitHub Actions.
 - **No refactors for testability** unless a service cannot be called without HTTP. Any such change gets its own
   note.
 
