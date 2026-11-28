@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:watch": "vitest",
     "worker": "tsx watch --env-file=.env worker/index.ts",
     "worker:start": "tsx --env-file=.env worker/index.ts",
     "job": "tsx --env-file=.env scripts/run-job.ts",
@@ -42,9 +45,14 @@
     "eslint-config-next": "15.3.4",
     "tailwindcss": "^4",
     "tsx": "^4.23.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "7.3.7",
+    "vitest": "4.1.12"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
+  },
+  "overrides": {
+    "vite": "$vite"
   }
 }

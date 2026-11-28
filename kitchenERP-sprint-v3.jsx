@@ -267,6 +267,9 @@ const plan = {
             { t: "PWA setup: installable on mobile with offline indicator — K icon, full screen, offline page and banner (2026-11-24)", done: true },
             { t: "Realistic seed data: 3 branches, 30 days of production history, real item names and prices",
               partial: "Pulled forward to Week 10 Task 1: npm run seed:history generates 90 days at 3 kitchens and 3 outlets (purchasing, production, outlet orders, deliveries, sales, waste). Item names and prices are the seed's; tune the volumes for the demo here." },
+            // Added 2026-11-28 (owner): no automated tests existed; CI/CD's "test" step needs them — docs/2026-11-28-automated-testing-plan.md
+            { t: "Automated tests: unit tests (Vitest) for pure logic, integration tests on a real test Postgres + Redis for the procurement, production, conversion, write-off and transfer flows (incl. two approvals at once → one 409), all run in CI; Playwright smoke tests after deploy",
+              partial: "Unit tests done 2026-11-28 (87 tests: FEFO, dates, decimals, stock rules, redirects, assistant roles, AI findings, periods). Integration tests and CI next." },
             "Deploy to AWS: EC2 for API, RDS for PostgreSQL, S3 for file storage",
             "GitHub Actions CI/CD: test → build → deploy on merge to main",
             "README: setup guide, architecture diagram, module overview, screenshots",

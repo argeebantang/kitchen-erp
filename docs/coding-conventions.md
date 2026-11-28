@@ -85,6 +85,19 @@
 * A link that changes only the URL's `?…` (tab, chip, paging) gets `<PendingSpinner />` inside it — it never shows the page skeleton.
 * Error screens show `ErrorState` (`components/ui/ErrorState.tsx`): a plain message, Try again, the digest as a reference. Never render `error.message` to the user.
 
+## Tests
+
+Plan and layers: `docs/2026-11-28-automated-testing-plan.md`. Vitest, configured in `vitest.config.ts`.
+
+* `npm test` runs everything; `npm run test:unit` needs nothing running; `npm run test:watch` re-runs on save.
+* Unit tests live in `tests/unit/<area>.test.ts` and cover pure functions only: no database, no Redis, no network. A function that touches Prisma belongs in the integration tests.
+* Test the rule, not the implementation: name each case after the business rule it pins ("skips a lot that expires exactly now"), and put boundaries on both sides (24 h exactly, 24 h + 1 ms).
+* Business dates are Manila. A test that depends on "today" fakes the clock (`vi.useFakeTimers({ toFake: ['Date'] })` + `vi.setSystemTime`), and includes a case near the UTC/Manila day change.
+* Decimals: build inputs with `new Prisma.Decimal('…')` from strings and compare `.toString()`. Never compare JS numbers.
+* `lib/config.ts` reads the environment once, at import. To test another setting, use `vi.stubEnv` + `vi.resetModules()` and then a dynamic `import()` (see `tests/unit/assistant-roles.test.ts`).
+* Vitest does not type-check; `npx tsc --noEmit` covers the test files too (tsconfig includes `**/*.ts`).
+* The test environment (`vitest.config.ts`) points at `kitchen_erp_test` and Redis database 1 and has no Claude, Resend or AI-reader keys. Never point tests at the dev database.
+
 ## Refactoring
 
 * Keep refactoring separate from feature work whenever possible — submit them as distinct changes.

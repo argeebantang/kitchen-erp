@@ -770,6 +770,16 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
       the demo.
+- [ ] Automated tests — planned **2026-11-28** (`docs/2026-11-28-automated-testing-plan.md`), before CI/CD:
+      - [x] Unit tests (Vitest) — **Subtask 1, 2026-11-28**: 8 files, 87 tests, `npm run test:unit` (no database):
+        FEFO lot planning, Manila dates and ISO weeks, expiry flags, decimals, stock status and reorder alerts, BOM
+        scaling, `?next=` redirects, assistant roles and tools, AI findings, report periods, late stock requests
+      - [ ] Integration test harness: `kitchen_erp_test` database (wiped only if its name ends in `_test`), Redis
+        database 1, fixtures
+      - [ ] Integration tests: procurement (PR → PO → RR → stock), production / conversion / write-off,
+        transfers, and two approvals at once → one 409
+      - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
+      - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)
 - [ ] CI/CD to main
 - [ ] README + architecture diagram
