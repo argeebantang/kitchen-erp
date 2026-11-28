@@ -6,7 +6,7 @@ import { ApprovalRepository } from '@/repositories/approval.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
 import { ConversionOrderRepository } from '@/repositories/conversion-order.repository'
 import { FinishedGoodRepository } from '@/repositories/finished-good.repository'
-import { FinishedGoodStockRepository, planFefoTakes, type LotOnHand } from '@/repositories/finished-good-stock.repository'
+import { FinishedGoodStockRepository, planFefoTakes, withoutClaims, type LotOnHand } from '@/repositories/finished-good-stock.repository'
 import {
   StockTransferRepository,
   StockTransferWithDetail,
@@ -301,12 +301,21 @@ export async function availabilityAt(
   branchId: string,
   now: Date,
   excludeTransferId: string | null,
-): Promise<{ levels: LotOnHand[]; unexpired: Prisma.Decimal; expired: Prisma.Decimal; claimed: Prisma.Decimal; available: Prisma.Decimal }> {
-  const [levels, conversions, writeOffs, transfers] = await Promise.all([
+): Promise<{
+  levels: LotOnHand[]
+  /** The lots a dispatch may take: less what pending write-offs claim on each (as in StockTransferRepository's dispatch). */
+  usable: LotOnHand[]
+  unexpired: Prisma.Decimal
+  expired: Prisma.Decimal
+  claimed: Prisma.Decimal
+  available: Prisma.Decimal
+}> {
+  const [levels, conversions, writeOffs, transfers, writeOffClaims] = await Promise.all([
     FinishedGoodStockRepository.lotsOnHand(finishedGoodId, branchId),
     ConversionOrderRepository.pendingSourceAtBranch(finishedGoodId, branchId, null),
     WriteOffRepository.pendingOnUnexpiredLots(finishedGoodId, branchId, now),
     StockTransferRepository.pendingFromBranch(finishedGoodId, branchId, excludeTransferId),
+    WriteOffRepository.pendingClaimsByLot(finishedGoodId, branchId),
   ])
   let unexpired = zero
   let expired   = zero
@@ -315,7 +324,7 @@ export async function availabilityAt(
     else unexpired = unexpired.add(level.quantity)
   }
   const claimed = conversions.add(writeOffs).add(transfers)
-  return { levels, unexpired, expired, claimed, available: unexpired.sub(claimed) }
+  return { levels, usable: withoutClaims(levels, writeOffClaims), unexpired, expired, claimed, available: unexpired.sub(claimed) }
 }
 
 type GoodRef = { id: string; name: string; unit: { abbreviation: string } }
@@ -341,7 +350,7 @@ async function planLine(
   excludeTransferId: string | null,
 ): Promise<TransferLinePlanDto> {
   const a    = await availabilityAt(good.id, branchId, now, excludeTransferId)
-  const plan = planFefoTakes(a.levels, required, now)
+  const plan = planFefoTakes(a.usable, required, now)
   const enough = required.lessThanOrEqualTo(a.available)
 
   let value: Prisma.Decimal | null = plan.short.greaterThan(0) ? null : zero

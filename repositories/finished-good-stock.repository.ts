@@ -78,6 +78,23 @@ export function planFefoTakes(lots: LotOnHand[], required: Prisma.Decimal, now: 
   return { takes, short: Prisma.Decimal.max(remaining, 0) }
 }
 
+/**
+ * Lots as a conversion or a transfer may use them: each lot less what pending
+ * write-offs claim on it (WriteOffRepository.pendingClaimsByLot), a lot fully
+ * claimed left out. A write-off names its lot — often found spoiled or
+ * damaged before it expired — so those kilos must not be cooked into another
+ * good or sent to an outlet while accounting decides (2026-11-28). Plan with
+ * planFefoTakes on the result.
+ */
+export function withoutClaims(levels: LotOnHand[], claims: Map<string, Prisma.Decimal>): LotOnHand[] {
+  return levels.flatMap(level => {
+    const claimed = claims.get(level.lot.id)
+    if (!claimed) return [level]
+    const usable = level.quantity.sub(claimed)
+    return usable.greaterThan(0) ? [{ ...level, quantity: usable }] : []
+  })
+}
+
 /** A named end-of-day flow (Week 7 Task 4, E1). */
 export type DayFlow = 'produced' | 'convertedIn' | 'convertedOut' | 'writtenOff' | 'sold' | 'distributed'
 

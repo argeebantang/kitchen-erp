@@ -770,7 +770,52 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
 - [~] Realistic seed data (3 branches, 30 days history) — **pulled forward to Week 10 Task 1** (`npm run seed:history`:
       3 kitchens + 3 outlets, 90 days). Real item names and prices are still the seed's; Week 12 can tune the volumes for
       the demo.
+- [x] Automated tests — **2026-11-28** (`docs/2026-11-28-automated-testing-plan.md`): 253 tests (166 unit, 87 integration), in CI. Playwright after deploy:
+      - [x] Unit tests (Vitest) — **Subtask 1, 2026-11-28**: 8 files, 87 tests, `npm run test:unit` (no database):
+        FEFO lot planning, Manila dates and ISO weeks, expiry flags, decimals, stock status and reorder alerts, BOM
+        scaling, `?next=` redirects, assistant roles and tools, AI findings, report periods, late stock requests
+      - [x] Integration test harness — **Subtask 2, 2026-11-28**: `npm run test:integration` (Docker up). The
+        `kitchen_erp_test` database is rebuilt from the migrations each run and emptied before every test; it is
+        wiped only if its name ends in `_test`, and Redis database 0 is refused. Fixtures: a kitchen, an outlet,
+        a user per role, a supplier, priced materials, Lechon with a recipe
+      - [x] Procurement integration tests — **Subtask 3, 2026-11-28**: 25 tests, PR → PO → RR → stock:
+        - stock and ledger only on approval
+        - supplier re-pricing
+        - partial deliveries and outstanding quantities
+        - received − rejected
+        - no self-approval (ADMIN included)
+        - a reason to reject
+        - a second decision → 409 with stock moved once
+        - roles, and outlets never receive
+      - [x] Middleware access tests — **Subtask 4, 2026-11-28**: 67 tests, no database:
+        - who reaches each URL, checked for all six roles (52 method + path pairs written out by hand)
+        - signed-out and wrong-role responses
+        - forged, expired and garbage tokens
+        - identity headers come from the token, never the caller
+
+        Added because the decision services do not check the role, so the `/api/approvals` guard was the only check
+        and no test passed through middleware
+      - [x] Production, conversion and write-off tests — **Subtask 5, 2026-11-28**: 30 integration tests:
+        - production: the recipe leaves stock and a costed lot arrives on sign-off
+        - conversion: FEFO, never an expired lot, costed from the lots
+        - write-off: WASTE at the lot's cost
+        - no self-approval, re-checks at approval
+      - [x] **Bug fixed, 2026-11-28** (`docs/2026-11-28-pending-write-off-lots.md`), found by those tests. A lot recorded
+        for write-off (spoiled, damaged) but not yet expired could be used by a conversion or sent out by a transfer
+        approved in the meantime. Conversions and transfers now leave the claimed kilos alone.
+      - [x] Transfers, stock requests and concurrency — **Subtask 6, 2026-11-28**:
+        - 16 transfer tests: delivery, short receipt with variance value, who may count, returns, stock requests
+          fulfilled or partly fulfilled
+        - 9 concurrency tests: two approvers on the same document at once (PR, RR, completion, conversion, write-off,
+          transfer, receipt). One wins, the other gets 409, and stock moves once. A probe confirmed the database
+          guards are what stop the second
+        - conversion + transfer + write-off approved at once: the lot adds up to exactly 0, no deadlock
+      - [x] Tests in CI — **Subtask 7, 2026-11-28**: a `test` job in `ci.yml` (Postgres 16 + Redis 7 service
+        containers, `npm test`), in parallel with typecheck, lint and build. Simulated against a brand-new database:
+        all 40 migrations applied, 253/253 pass. For it to block merges, require the `test` check on `main` in GitHub
+        (Settings → Branches)
+      - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)
-- [ ] CI/CD to main
+- [~] CI/CD to main — CI runs typecheck, lint, build and (since 2026-11-28) unit + integration tests on every PR; deploy on merge comes with the deploy task
 - [ ] README + architecture diagram
 - [ ] Demo video + LinkedIn post

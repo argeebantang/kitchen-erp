@@ -11,7 +11,7 @@ import {
 import { signalInventoryChanged } from '@/lib/realtime'
 import { BomRepository, BomWithDetail } from '@/repositories/bom.repository'
 import { BranchRepository } from '@/repositories/branch.repository'
-import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { FinishedGoodStockRepository, planFefoTakes, withoutClaims } from '@/repositories/finished-good-stock.repository'
 import { ItemPriceRepository } from '@/repositories/item-price.repository'
 import { ApprovalRepository } from '@/repositories/approval.repository'
 import { WriteOffRepository } from '@/repositories/write-off.repository'
@@ -362,15 +362,17 @@ async function sourceAt(
   cost: Prisma.Decimal | null
 }> {
   const zero = new Prisma.Decimal(0)
-  const [levels, pendingConversions, pendingWriteOffs, pendingTransfers] = await Promise.all([
+  const [levels, pendingConversions, pendingWriteOffs, pendingTransfers, writeOffClaims] = await Promise.all([
     FinishedGoodStockRepository.lotsOnHand(sourceFinishedGoodId, branchId),
     ConversionOrderRepository.pendingSourceAtBranch(sourceFinishedGoodId, branchId, excludeOrderId),
     WriteOffRepository.pendingOnUnexpiredLots(sourceFinishedGoodId, branchId, now),
     // Lechon promised to a branch cannot also be converted (T8).
     StockTransferRepository.pendingFromBranch(sourceFinishedGoodId, branchId, null),
+    WriteOffRepository.pendingClaimsByLot(sourceFinishedGoodId, branchId),
   ])
   const pending = pendingConversions.add(pendingWriteOffs).add(pendingTransfers)
-  const plan  = planFefoTakes(levels, required ?? zero, now)
+  // The lots approval would take: never kilos a pending write-off claims (as in ConversionOrderRepository.decide).
+  const plan  = planFefoTakes(withoutClaims(levels, writeOffClaims), required ?? zero, now)
   const taken = new Map(plan.takes.map(take => [take.lot.id, take.quantity]))
 
   let unexpired = zero

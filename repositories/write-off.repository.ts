@@ -264,6 +264,25 @@ export const WriteOffRepository = {
   },
 
   /**
+   * What pending write-offs claim on each lot of one finished good at a
+   * branch, by lot id — the kilos a conversion or transfer must leave alone
+   * (withoutClaims). Takes the caller's transaction so an approval reads it
+   * alongside the lots it has just locked.
+   */
+  async pendingClaimsByLot(
+    finishedGoodId: string,
+    branchId: string,
+    db: Prisma.TransactionClient = prisma,
+  ): Promise<Map<string, Prisma.Decimal>> {
+    const groups = await db.writeOff.groupBy({
+      by:    ['lotId'],
+      where: { status: WriteOffStatus.PENDING_APPROVAL, branchId, lot: { finishedGoodId } },
+      _sum:  { quantity: true },
+    })
+    return new Map(groups.map(group => [group.lotId, group._sum.quantity ?? new Prisma.Decimal(0)]))
+  },
+
+  /**
    * How much of one finished good's UNEXPIRED lots at a branch pending
    * write-offs have claimed — what a conversion cannot count as available
    * (W5). Expired lots are left out: conversions never take them anyway.

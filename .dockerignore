@@ -1,0 +1,31 @@
+# What the Docker build never sees (Dockerfile). Rebuilt 2026-11-28 from what
+# the lost original kept out of kitchen-erp:local's /app.
+
+# Built inside the image, never copied from this machine
+node_modules
+.next
+*.tsbuildinfo
+
+# Secrets: configuration comes at run time only
+.env
+.env.*
+
+# Not needed to run the app
+.git
+.github
+docs
+README.md
+*.xlsx
+docker-compose.yml
+Dockerfile
+.dockerignore
+.rederive
+.claude
+.vscode
+npm-debug.log*
+coverage
+
+# Tests run in CI, not in the image. vitest.config.ts goes with them: it imports
+# from tests/, and next build typechecks every .ts file it can see.
+tests
+vitest.config.ts

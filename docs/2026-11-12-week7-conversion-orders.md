@@ -196,7 +196,8 @@ lot made to look expired) and the conversions built on them.
 - No stock adjustment or approval reversal, so an approved conversion with a wrong figure cannot be
   corrected yet.
 - Source claims by pending conversions are checked at submit only. Approval takes whatever is
-  unexpired then, first approved first served, and refuses if short.
+  unexpired then, first approved first served, and refuses if short. *Since 2026-11-28 it never takes the kilos a
+  pending write-off claims on a lot (`docs/2026-11-28-pending-write-off-lots.md`).*
 - The output's expiry counts from when the conversion was recorded, not when it was cooked: the
   record is made right after cooking (D4).
 - The preview's cost can differ from what approval records if lots are used or expire in between.

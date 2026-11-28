@@ -85,6 +85,23 @@
 * A link that changes only the URL's `?…` (tab, chip, paging) gets `<PendingSpinner />` inside it — it never shows the page skeleton.
 * Error screens show `ErrorState` (`components/ui/ErrorState.tsx`): a plain message, Try again, the digest as a reference. Never render `error.message` to the user.
 
+## Tests
+
+Plan and layers: `docs/2026-11-28-automated-testing-plan.md`. Vitest, configured in `vitest.config.ts`.
+
+* `npm test` runs everything (needs `docker compose up`); `npm run test:unit` needs nothing running; `npm run test:integration` only the database tests; `npm run test:watch` re-runs on save.
+* Unit tests live in `tests/unit/<area>.test.ts` and cover pure functions only: no database, no Redis, no network. A function that touches Prisma belongs in the integration tests.
+* Integration tests live in `tests/integration/<flow>.test.ts` and run against `kitchen_erp_test`, rebuilt from the migrations at the start of each run and emptied before every test. Each test starts with `const world = await createWorld()` (`tests/helpers/fixtures.ts`) and adds anything else it needs (stock on hand, a second kitchen) itself, so what it depends on is visible in the test.
+* Integration tests drive workflows **through the services** and assert on their results (`{ success: false, status: 409 }`) and on the rows they wrote. Use Prisma directly only to set up givens or read back what a service wrote. Never mock Prisma: the locks, status guards and transactions are what is being tested.
+* Test helpers (`tests/helpers/`) are the one exception to "only repositories import `lib/prisma`".
+* **A new or changed entry in `ROLE_GUARDS` (middleware.ts) gets a row in the `ACCESS` table in `tests/unit/middleware.test.ts`**, with the roles written out by hand. Never build that table from `ROLE_GUARDS`: the test would then agree with any mistake made there.
+* Test the rule, not the implementation: name each case after the business rule it pins ("skips a lot that expires exactly now"), and put boundaries on both sides (24 h exactly, 24 h + 1 ms).
+* Business dates are Manila. A test that depends on "today" fakes the clock (`vi.useFakeTimers({ toFake: ['Date'] })` + `vi.setSystemTime`), and includes a case near the UTC/Manila day change.
+* Decimals: build inputs with `new Prisma.Decimal('…')` from strings and compare `.toString()`. Never compare JS numbers.
+* `lib/config.ts` reads the environment once, at import. To test another setting, use `vi.stubEnv` + `vi.resetModules()` and then a dynamic `import()` (see `tests/unit/assistant-roles.test.ts`).
+* Vitest does not type-check; `npx tsc --noEmit` covers the test files too (tsconfig includes `**/*.ts`).
+* The test environment (`vitest.config.ts`) points at `kitchen_erp_test` and Redis database 1 and has no Claude, Resend or AI-reader keys. Never point tests at the dev database.
+
 ## Refactoring
 
 * Keep refactoring separate from feature work whenever possible — submit them as distinct changes.
