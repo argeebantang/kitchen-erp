@@ -1,6 +1,6 @@
 # Automated testing — plan
 
-**Status: subtasks 1 (unit tests), 2 (integration harness) and 3 (procurement flow) built 2026-11-28; subtasks 4–6 planned.** Week 12 task, before the deploy's CI/CD step. The roadmap's
+**Status: subtasks 1 (unit tests), 2 (integration harness), 3 (procurement flow) and 4 (middleware access) built 2026-11-28; subtasks 5–7 planned.** Week 12 task, before the deploy's CI/CD step. The roadmap's
 "GitHub Actions CI/CD: test → build → deploy" needs a test step to exist first.
 
 ## Why
@@ -9,12 +9,13 @@ CI today ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs typechec
 production build. None of these runs the code, so a wrong stock figure, a broken approval rule or a lost row lock
 reaches `main` unnoticed. Every check so far has been by hand, per task.
 
-## The three layers
+## The layers
 
 | Layer | What it tests | Tool | Needs | When |
 |---|---|---|---|---|
 | **Unit** | Pure functions: FEFO lot planning, variance, dates, decimals, role checks, redirects | Vitest | Nothing | Subtask 1 |
-| **Integration** | Services against a real Postgres + Redis: workflows, approvals, stock, locks | Vitest | Test DB, Redis | Subtasks 2–5 |
+| **Middleware** | `middleware()` called with a real signed JWT per role: who reaches which URL, how refusals look, which identity reaches the routes | Vitest (in the unit project) | Nothing | Subtask 4 |
+| **Integration** | Services against a real Postgres + Redis: workflows, approvals, stock, locks | Vitest | Test DB, Redis | Subtasks 2, 3, 5, 6 |
 | **End-to-end** | A browser clicking through the app | Playwright | Running app | Later, after deploy (not in this task) |
 
 The integration layer matters most here. The rules that can lose money or stock live in services and repositories,
@@ -34,7 +35,7 @@ not in pure functions.
 | Worker | Not run in tests | Tests check that a job was queued, not that an email arrived. Email and job tests come later if needed. |
 | Claude API | Never called. `ANTHROPIC_API_KEY` is empty in tests | AI features return "not set up". No cost and no flaky network calls. |
 | Test env vars | `tests/helpers/test-env.ts`, used by `vitest.config.ts` and the global setup; no `.env.test` file | `.gitignore` ignores `.env*`, and the values are not secrets. Database and Redis: `TEST_DATABASE_URL` / `TEST_REDIS_URL` if set (CI), else your `.env`'s `DATABASE_URL` with `_test` appended to the name and `REDIS_URL` on database 1, else the docker-compose defaults. Only those two variables are read from `.env`, never its API keys. |
-| What a test calls | **Service functions directly**, not HTTP routes | Services return `{ success, data } \| { success, error, status }`, so a test can check a 409 or 403 without HTTP. Route handlers are thin zod + header mapping. |
+| What a test calls | **Service functions directly**, not HTTP routes; **`middleware()` directly** for access (subtask 4) | Services return `{ success, data } \| { success, error, status }`, so a test can check a 409 or 403 without HTTP. Route handlers are thin zod + header mapping. Middleware was added after subtask 3 showed the gap: the decision services do not check the role ("No role check here" in `PurchaseRequestService.applyDecision`), so `/api/approvals` in `ROLE_GUARDS` was the only thing keeping a VIEWER from approving, and no test passed through it. |
 | Isolation | Every table except `_prisma_migrations` truncated before each test; test files run one at a time | One shared database. Running files in parallel would let tests see each other's rows. |
 | Fixtures | `tests/helpers/fixtures.ts`: a kitchen, an outlet, one user per role, a supplier, a few materials and a finished good with a BOM | Every workflow test needs the same starting world. The full seed is too big and changes with the demo. |
 | Layout | `tests/unit/**`, `tests/integration/**`, `tests/helpers/**` | Keeps tests out of `app/`. Vitest projects split unit (no setup) from integration (database setup). |
@@ -71,17 +72,19 @@ npm run test:watch        # re-runs on save
    - no self-approval, ADMIN included
    - rejecting needs a reason
    - deciding twice → 409
-4. **Production, conversion and write-off.** Checks:
+4. **Middleware access** — **built 2026-11-28: 67 tests, no database, under a second.** Added after subtask 3
+   (see Decisions, "What a test calls"). Who reaches which URL, per role; refusals; tokens; forwarded identity.
+5. **Production, conversion and write-off.** Checks:
    - approval and stock sufficiency
    - completion consumes materials and receives finished-good lots
    - costing
    - conversion and write-off take lots FEFO
-5. **Transfers and concurrency.** Checks:
+6. **Transfers and concurrency.** Checks:
    - transfer → receive with variance
    - stock request and return
    - outlets hold no raw materials
    - **two approvals of the same document at once → exactly one succeeds, the other gets 409, and stock moves once**
-6. **CI.** Postgres 16 and Redis 7 service containers in `ci.yml`, then `prisma migrate deploy` and `npm test`, before
+7. **CI.** Postgres 16 and Redis 7 service containers in `ci.yml`, then `prisma migrate deploy` and `npm test`, before
    the build step. A red test blocks the PR.
 
 Each subtask is handed over with the command to run. The owner runs it.
@@ -159,6 +162,33 @@ fixtures now use reference prices.
 
 Not covered here, by design: two approvals of the same report at once. The `WHERE status` guard and the
 `FOR UPDATE` lock only matter under concurrency, which is subtask 5.
+
+### Subtask 4 — what was built
+
+`tests/unit/middleware.test.ts` calls `middleware()` with a `NextRequest` carrying a real JWT (`signToken`, the test
+`JWT_SECRET`) and reads the response. An allowed request carries `x-middleware-next: 1`, and the identity Next hands
+to the route arrives as `x-middleware-request-x-user-*`. A refusal is a 307 to `/login` or `/unauthorized`, or JSON
+401/403.
+
+| Area | Pins |
+|---|---|
+| Who may reach what | An `ACCESS` table of 52 method + path pairs and the roles allowed through, checked for all six roles. It covers approvals, procurement, production, inventory, item-master writes vs reads (`methods`), the ADMIN-only reads (suppliers, holidays), AI and admin endpoints, and overlapping guards AND-ed (`/inventory/transfers/return` → ADMIN and BRANCH_MANAGER only). A failure lists every wrong role at once |
+| Assistant | The `/api/ai/assistant` guard admits exactly `ASSISTANT_ROLES`, so the two lists cannot drift apart |
+| Signed out | A page → `/login?next=…` with the path and query; no `next` for `/` or a POST; an API call from code → 401 JSON (not a redirect a form would take for success); a download link opened by the browser → sign-in; `/login` and `/api/auth/login` pass |
+| Untrusted tokens | Garbage, another secret, expired, and a VIEWER token with its payload edited to ADMIN → 401, cookie cleared |
+| Wrong role | API → 403 JSON "Your role cannot do this."; page → `/unauthorized` |
+| Identity | `x-user-id/role/email` come from the token. The same headers sent by the caller are overwritten, and a spoofed `x-user-role: ADMIN` with a VIEWER token is still refused |
+
+**The `ACCESS` table is written by hand on purpose.** If it were built from `ROLE_GUARDS`, it would agree with any
+mistake made there. A new guard needs a row here (docs/coding-conventions.md, "Tests").
+
+Checked by planting bugs in `middleware.ts`, one at a time:
+- deleting the `/api/approvals` guard failed 3 tests
+- dropping `DELETE` from `WRITE_METHODS` failed 1
+- checking only the first matching guard failed 13
+
+Noticed, not changed: public paths match by prefix (`pathname.startsWith('/login')`), so any future route starting
+with `/login` or `/api/auth/login` would skip authentication too. No such route exists today.
 
 ## Risks and assumptions
 

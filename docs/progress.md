@@ -787,6 +787,14 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
         - a reason to reject
         - a second decision → 409 with stock moved once
         - roles, and outlets never receive
+      - [x] Middleware access tests — **Subtask 4, 2026-11-28**: 67 tests, no database:
+        - who reaches each URL, checked for all six roles (52 method + path pairs written out by hand)
+        - signed-out and wrong-role responses
+        - forged, expired and garbage tokens
+        - identity headers come from the token, never the caller
+
+        Added because the decision services do not check the role, so the `/api/approvals` guard was the only check
+        and no test passed through middleware
       - [ ] Integration tests: production / conversion / write-off, transfers, and two approvals at once → one 409
       - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
       - Later: Playwright smoke tests against the deployed app
