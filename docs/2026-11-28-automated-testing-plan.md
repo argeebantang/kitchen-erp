@@ -1,6 +1,6 @@
 # Automated testing — plan
 
-**Status: subtasks 1 (unit tests), 2 (integration harness), 3 (procurement flow) and 4 (middleware access) built 2026-11-28; subtasks 5–7 planned.** Week 12 task, before the deploy's CI/CD step. The roadmap's
+**Status: subtasks 1–5 built 2026-11-28 (unit tests, integration harness, procurement, middleware access, production / conversion / write-off); subtasks 6–7 planned. Subtask 5 found a real bug, fixed the same day (`docs/2026-11-28-pending-write-off-lots.md`).** Week 12 task, before the deploy's CI/CD step. The roadmap's
 "GitHub Actions CI/CD: test → build → deploy" needs a test step to exist first.
 
 ## Why
@@ -74,7 +74,7 @@ npm run test:watch        # re-runs on save
    - deciding twice → 409
 4. **Middleware access** — **built 2026-11-28: 67 tests, no database, under a second.** Added after subtask 3
    (see Decisions, "What a test calls"). Who reaches which URL, per role; refusals; tokens; forwarded identity.
-5. **Production, conversion and write-off.** Checks:
+5. **Production, conversion and write-off** — **built 2026-11-28: 30 integration tests + 4 unit tests, about 15 s.** Found a real bug (below). Checks:
    - approval and stock sufficiency
    - completion consumes materials and receives finished-good lots
    - costing
@@ -189,6 +189,39 @@ Checked by planting bugs in `middleware.ts`, one at a time:
 
 Noticed, not changed: public paths match by prefix (`pathname.startsWith('/login')`), so any future route starting
 with `/login` or `/api/auth/login` would skip authentication too. No such route exists today.
+
+### Subtask 5 — what was built
+
+`tests/helpers/production.ts` provides these steps:
+- `stockMaterials`: raw materials on the kitchen's shelf
+- `submittedRun`, `reportedRun`, `completedRun`: a Lechon order of N × 10 kg through the real service
+- `lechonLot(world, yield, expiresInHours)`: a lot cooked through the real flow, then aged by moving its expiry. Lots
+  can only come from a production order or conversion (a CHECK constraint), so tests cook them.
+- `lotQuantity`
+
+The fixtures gained Lechon Paksiw (24 h shelf life) and its conversion recipe: 5 kg Lechon + 0.25 kg salt make 6 kg.
+
+`tests/integration/production.test.ts` (30 tests):
+
+| Area | Pins |
+|---|---|
+| Production run | On sign-off, the recipe at the **planned** quantity leaves stock (`OUT` −24 kg pork at ₱250, −1 kg salt at ₱40), and the yield arrives as one lot numbered after the order, expiring 48 h after the kitchen reported it. Costs: planned and actual ₱6,040, ₱335.5556/kg, variance ₱604. Nothing moves before sign-off. Stock may go negative (D3). The KitchenAI cost explanation is queued on the AI queue. A rejected completion goes back to `IN_PROGRESS` with nothing moved and can be reported again. Signing off twice → 409. No shelf life or a missing price → 409, nothing moved |
+| Planning | Refused: an outlet, a past date, 0 or 101 batches, zero batch weight, roles other than production. Yield must be > 0 and ≤ 2 × planned |
+| Own work | The submitter cannot decide the order; whoever reported it done cannot sign it off (ADMIN included) |
+| Conversion | Takes soonest-expiry first and never an expired lot (3 kg + 2 kg; the expired 4 kg untouched). Salt goes out. Costs come from the lots' own costs + salt (₱3,624 + ₱10, ₱660.7273/kg). The Paksiw lot expires 24 h after recording. Only unexpired Lechon counts as available; pending conversions' claims count; output ≤ 2 × the recipe; kitchens and production only; never your own. Lots that expire between recording and approval → 409, nothing moved |
+| Write-off | `WASTE` at the lot's cost (−4 kg at ₱755 = ₱3,020). Cannot exceed what is left after pending write-offs. Other needs notes. Never your own; a reason to reject; a rejection frees the lot; production only |
+| Lot waiting to be written off | Not used by a conversion; not sent by a transfer; the unclaimed part of a lot is still used |
+
+Checked by planting bugs, one at a time, each caught:
+- lot expiry counted from approval instead of from the kitchen's report
+- conversions taking expired lots
+- a write-off approved by whoever recorded it
+
+**Bug found:** a lot recorded for write-off (spoiled, damaged) but not yet expired was consumed by a conversion or
+sent by a transfer approved meanwhile. The write-off could then never be approved. Confirmed (3 kg spoiled Lechon
+became Paksiw lot CNV-000001), then fixed with the owner's go-ahead: see
+`docs/2026-11-28-pending-write-off-lots.md`. Making the fix a no-op fails the 3 integration and 3 `withoutClaims`
+unit tests.
 
 ## Risks and assumptions
 

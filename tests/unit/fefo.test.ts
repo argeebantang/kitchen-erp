@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { describe, expect, it } from 'vitest'
-import { planFefoTakes, type LotOnHand } from '@/repositories/finished-good-stock.repository'
+import { planFefoTakes, withoutClaims, type LotOnHand } from '@/repositories/finished-good-stock.repository'
 
 /**
  * planFefoTakes decides which finished-good lots a conversion or write-off
@@ -68,5 +68,34 @@ describe('planFefoTakes', () => {
   it('keeps decimal quantities exact (0.1 + 0.2 covers 0.3)', () => {
     const lots = [lot('A', '0.1', null), lot('B', '0.2', null)]
     expect(plan(lots, '0.3')).toEqual({ takes: [['A', '0.1'], ['B', '0.2']], short: '0' })
+  })
+})
+
+/**
+ * withoutClaims: what a conversion or transfer may take once pending
+ * write-offs keep their kilos — a lot found spoiled must not be cooked into
+ * another good or sent to an outlet while accounting decides.
+ */
+describe('withoutClaims', () => {
+  const claims = (entries: [string, string][]) => new Map(entries.map(([id, q]) => [id, new Prisma.Decimal(q)]))
+  const usable = (lots: LotOnHand[], entries: [string, string][]) =>
+    withoutClaims(lots, claims(entries)).map(level => [level.lot.id, level.quantity.toString()])
+
+  it('leaves unclaimed lots as they are', () => {
+    expect(usable([lot('A', '3', null), lot('B', '4', null)], [])).toEqual([['A', '3'], ['B', '4']])
+  })
+
+  it('takes a part claim off the lot', () => {
+    expect(usable([lot('A', '3', null), lot('B', '4', null)], [['A', '1.5']])).toEqual([['A', '1.5'], ['B', '4']])
+  })
+
+  it('leaves a fully claimed lot out, keeping the others in order', () => {
+    expect(usable([lot('A', '3', null), lot('B', '4', null), lot('C', '1', null)], [['A', '3'], ['C', '5']])).toEqual([['B', '4']])
+  })
+
+  it('makes the FEFO plan skip the claimed lot', () => {
+    const lots = [lot('spoiled', '3', new Date(NOW.getTime() + HOUR)), lot('good', '10', new Date(NOW.getTime() + 40 * HOUR))]
+    const result = planFefoTakes(withoutClaims(lots, claims([['spoiled', '3']])), new Prisma.Decimal('5'), NOW)
+    expect(result.takes.map(take => [take.lot.id, take.quantity.toString()])).toEqual([['good', '5']])
   })
 })

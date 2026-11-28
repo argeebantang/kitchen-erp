@@ -795,7 +795,15 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
 
         Added because the decision services do not check the role, so the `/api/approvals` guard was the only check
         and no test passed through middleware
-      - [ ] Integration tests: production / conversion / write-off, transfers, and two approvals at once → one 409
+      - [x] Production, conversion and write-off tests — **Subtask 5, 2026-11-28**: 30 integration tests:
+        - production: the recipe leaves stock and a costed lot arrives on sign-off
+        - conversion: FEFO, never an expired lot, costed from the lots
+        - write-off: WASTE at the lot's cost
+        - no self-approval, re-checks at approval
+      - [x] **Bug fixed, 2026-11-28** (`docs/2026-11-28-pending-write-off-lots.md`), found by those tests. A lot recorded
+        for write-off (spoiled, damaged) but not yet expired could be used by a conversion or sent out by a transfer
+        approved in the meantime. Conversions and transfers now leave the claimed kilos alone.
+      - [ ] Integration tests: transfers and stock requests, and two approvals at once → one 409
       - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
       - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)

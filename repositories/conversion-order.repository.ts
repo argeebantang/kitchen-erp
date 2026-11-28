@@ -1,7 +1,8 @@
 import { ConversionStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { InventoryRepository } from '@/repositories/inventory.repository'
-import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { FinishedGoodStockRepository, planFefoTakes, withoutClaims } from '@/repositories/finished-good-stock.repository'
+import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { containsText, type ListSort } from '@/lib/list-query'
 
 export type CreateConversionOrderInput = {
@@ -187,12 +188,16 @@ export const ConversionOrderRepository = {
 
         // 1. The source, re-planned under lock.
         await FinishedGoodStockRepository.lockLots(tx, approval.sourceFinishedGoodId, approval.branchId)
-        const lots = await FinishedGoodStockRepository.lotsOnHand(approval.sourceFinishedGoodId, approval.branchId, tx)
+        // Never a lot's kilos a pending write-off claims: spoiled food is not an ingredient (2026-11-28).
+        const lots = withoutClaims(
+          await FinishedGoodStockRepository.lotsOnHand(approval.sourceFinishedGoodId, approval.branchId, tx),
+          await WriteOffRepository.pendingClaimsByLot(approval.sourceFinishedGoodId, approval.branchId, tx),
+        )
         const plan = planFefoTakes(lots, approval.sourceQty, approval.now)
         if (plan.short.greaterThan(0)) {
           const { name, unitAbbreviation: unit } = approval.sourceLabel
           const available = approval.sourceQty.sub(plan.short)
-          throw new ConversionConflict(`Only ${available.toString()} ${unit} of the ${approval.sourceQty.toString()} ${unit} ${name} needed is still on hand and unexpired at the branch — lots expired or were used since this was submitted. Reject it, and production records what can still be converted`)
+          throw new ConversionConflict(`Only ${available.toString()} ${unit} of the ${approval.sourceQty.toString()} ${unit} ${name} needed is still on hand, unexpired and not claimed by a pending write-off at the branch — lots expired, were used or were written off since this was submitted. Reject it, and production records what can still be converted`)
         }
 
         // 2. Out of the lots, at their recorded cost.

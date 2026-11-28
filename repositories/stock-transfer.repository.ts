@@ -1,6 +1,7 @@
 import { MovementType, Prisma, TransferKind, TransferStatus, TransferVarianceReason } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { FinishedGoodStockRepository, planFefoTakes } from '@/repositories/finished-good-stock.repository'
+import { FinishedGoodStockRepository, planFefoTakes, withoutClaims } from '@/repositories/finished-good-stock.repository'
+import { WriteOffRepository } from '@/repositories/write-off.repository'
 import { containsText, type ListSort } from '@/lib/list-query'
 
 /**
@@ -104,10 +105,14 @@ async function dispatch(tx: Prisma.TransactionClient, input: DispatchInput, shor
   const shortfalls: string[] = []
   for (const line of lines) {
     await FinishedGoodStockRepository.lockLots(tx, line.finishedGoodId, input.fromBranchId)
-    const lots = await FinishedGoodStockRepository.lotsOnHand(line.finishedGoodId, input.fromBranchId, tx)
+    // Never a lot's kilos a pending write-off claims: spoiled food is not sent out (2026-11-28).
+    const lots = withoutClaims(
+      await FinishedGoodStockRepository.lotsOnHand(line.finishedGoodId, input.fromBranchId, tx),
+      await WriteOffRepository.pendingClaimsByLot(line.finishedGoodId, input.fromBranchId, tx),
+    )
     const plan = planFefoTakes(lots, line.quantity, now)
     if (plan.short.greaterThan(0)) {
-      shortfalls.push(`${line.name} — ${line.quantity.toString()} ${line.unitAbbreviation} to send, ${line.quantity.sub(plan.short).toString()} ${line.unitAbbreviation} unexpired on hand`)
+      shortfalls.push(`${line.name} — ${line.quantity.toString()} ${line.unitAbbreviation} to send, ${line.quantity.sub(plan.short).toString()} ${line.unitAbbreviation} unexpired on hand and not claimed by a pending write-off`)
     }
     plans.push(plan)
   }

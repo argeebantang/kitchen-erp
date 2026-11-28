@@ -149,7 +149,8 @@ PRD-000006 6 kg with its expiry moved to yesterday).
   4's reconciliation may want it).
 - An approved write-off cannot be reversed (no approval reversal anywhere yet).
 - Pending write-offs claim stock only through the checks at submit. Approval takes whatever the lot
-  holds then, and refuses if short.
+  holds then, and refuses if short. *Fixed 2026-11-28 for conversions and transfers: they no longer take the kilos
+  a pending write-off claims (`docs/2026-11-28-pending-write-off-lots.md`).*
 - Runs abandoned mid-cooking or with zero yield are still not covered.
 - There is no finished-goods ledger page; the write-off's Stock moved card and Finished Goods show the
   movement.

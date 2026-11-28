@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma'
  * The starting world a workflow test needs, built fresh after resetDatabase():
  * one central kitchen and one outlet (outlets never cook and hold no raw
  * materials — docs/overview.md), one user per role, a supplier, two priced
- * materials, and Lechon with a production recipe.
+ * materials, Lechon with a production recipe, and Lechon Paksiw with a
+ * conversion recipe from leftover Lechon.
  *
  * Kept small and fixed on purpose — not the demo seed, which changes with the
  * demo. A test that needs more (stock on hand, a second kitchen) adds it
@@ -89,6 +90,23 @@ export async function createWorld() {
     },
   })
 
+  // A conversion recipe (Week 7): leftover Lechon cooked into Paksiw. Per
+  // batch, 5 kg Lechon + 0.25 kg salt make 6 kg Paksiw.
+  const paksiw = await prisma.finishedGood.create({
+    data: { code: 'FG-PAKSIW', name: 'Lechon Paksiw', categoryId: roasts.id, unitId: kg.id, sellingPrice: d('450'), shelfLifeHours: 24 },
+  })
+  const paksiwBom = await prisma.bOM.create({
+    data: {
+      finishedGoodId:       paksiw.id,
+      kind:                 BomKind.CONVERSION,
+      batchSize:            d('6'),
+      batchUnitId:          kg.id,
+      sourceFinishedGoodId: lechon.id,
+      sourceQuantity:       d('5'),
+      items: { create: [{ materialId: materials.salt.id, quantity: d('0.25'), unitId: kg.id }] },
+    },
+  })
+
   return {
     units: { kg, pc },
     categories: { meat, spices, roasts },
@@ -96,7 +114,7 @@ export async function createWorld() {
     users,
     supplier,
     materials,
-    finishedGoods: { lechon },
-    boms: { lechon: lechonBom },
+    finishedGoods: { lechon, paksiw },
+    boms: { lechon: lechonBom, paksiw: paksiwBom },
   }
 }
