@@ -1,6 +1,6 @@
 # Automated testing — plan
 
-**Status: subtasks 1–5 built 2026-11-28 (unit tests, integration harness, procurement, middleware access, production / conversion / write-off); subtasks 6–7 planned. Subtask 5 found a real bug, fixed the same day (`docs/2026-11-28-pending-write-off-lots.md`).** Week 12 task, before the deploy's CI/CD step. The roadmap's
+**Status: subtasks 1–6 built 2026-11-28 (unit tests, integration harness, procurement, middleware access, production / conversion / write-off, transfers and concurrency); subtask 7 (CI) planned. Subtask 5 found a real bug, fixed the same day (`docs/2026-11-28-pending-write-off-lots.md`).** Week 12 task, before the deploy's CI/CD step. The roadmap's
 "GitHub Actions CI/CD: test → build → deploy" needs a test step to exist first.
 
 ## Why
@@ -79,7 +79,7 @@ npm run test:watch        # re-runs on save
    - completion consumes materials and receives finished-good lots
    - costing
    - conversion and write-off take lots FEFO
-6. **Transfers and concurrency.** Checks:
+6. **Transfers and concurrency** — **built 2026-11-28: 16 transfer + 9 concurrency integration tests, about 20 s.** Checks:
    - transfer → receive with variance
    - stock request and return
    - outlets hold no raw materials
@@ -222,6 +222,49 @@ sent by a transfer approved meanwhile. The write-off could then never be approve
 became Paksiw lot CNV-000001), then fixed with the owner's go-ahead: see
 `docs/2026-11-28-pending-write-off-lots.md`. Making the fix a no-op fails the 3 integration and 3 `withoutClaims`
 unit tests.
+
+### Subtask 6 — what was built
+
+The fixtures now set the outlet's `managerId` to the branch manager, because who runs an outlet is read from the
+branch, not from the login.
+
+`tests/integration/transfers.test.ts` (16 tests):
+
+| Area | Pins |
+|---|---|
+| Delivery | Nothing moves before approval. On approval, the lot leaves the kitchen (`TRANSFER` −6 at ₱302); in transit the outlet has none. When counted, the same lot joins the outlet (+6), variance ₱0 |
+| Short receipt | Needs a reason. The variance value is short × the lot's cost (1 kg → ₱302). Reason and notes are stored |
+| Receipt rules | Refused: more than sent, Other without a note, a lot left uncounted. Counted by that outlet's manager or an admin; production → 403; another outlet's manager → 404 (cannot see it). Not before approval, not twice |
+| Sending | From a kitchen only. Within what it has (409 "Not enough at Main Kitchen"). Pending transfers' promises count. Never decided by the recorder; a reason to reject; a rejection moves nothing |
+| Return | Leaves the outlet at once with no approval (shown as in transit). Accounting cannot decide it. Production counts it back into the kitchen. Only the outlet's manager sends one, from an outlet, to a kitchen |
+| Stock request | Planned → sent → counted in full = `FULFILLED`; short = `PARTLY_FULFILLED`. Only a planned request is sent, on one delivery at a time. Asked by the outlet's own manager. The kitchen plans or declines, and a decline needs a reason. Cannot plan more than asked |
+
+`tests/integration/concurrency.test.ts` (9 tests) fires two decisions on the same document at the same moment
+(`Promise.all`, two accountants). Exactly one succeeds, the other gets 409, and stock moves once. Covered:
+- purchase request (approve + approve, and approve + reject)
+- receiving report
+- production completion
+- conversion
+- write-off
+- transfer approval
+- transfer receipt
+
+One more test approves a conversion, a transfer and a write-off of the same 10 kg Lechon lot at once. All three go
+through, the lot ends at exactly 0, and nothing deadlocks.
+
+**The races really reach the database.** A probe logged the losing call's message over 3 runs. Every time, it was
+the database guard's ("decided by someone else just now", "decided meanwhile", "just received by someone else"),
+never the service's earlier status check.
+
+Checked by planting bugs, one at a time:
+- removing the status from the purchase request decision's `WHERE` → two purchase orders; 2 tests fail
+- removing it from the transfer receipt's `WHERE` → the outlet stocked twice; 1 test fails
+
+**Noticed, not changed:** in the receiving-report race, the loser waits on the purchase order lock. Once in, it sees
+the order already `FULLY_RECEIVED` and answers "The order can no longer take a delivery — nothing was changed.
+Reject it and record a fresh count." Nothing is wrong in the data, but the advice is: a colleague has just approved
+that report, so there is nothing to reject. In `ReceivingReportRepository.decide`, checking the report's status
+before the order's would give "decided by someone else just now" instead.
 
 ## Risks and assumptions
 

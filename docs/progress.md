@@ -803,7 +803,13 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
       - [x] **Bug fixed, 2026-11-28** (`docs/2026-11-28-pending-write-off-lots.md`), found by those tests. A lot recorded
         for write-off (spoiled, damaged) but not yet expired could be used by a conversion or sent out by a transfer
         approved in the meantime. Conversions and transfers now leave the claimed kilos alone.
-      - [ ] Integration tests: transfers and stock requests, and two approvals at once → one 409
+      - [x] Transfers, stock requests and concurrency — **Subtask 6, 2026-11-28**:
+        - 16 transfer tests: delivery, short receipt with variance value, who may count, returns, stock requests
+          fulfilled or partly fulfilled
+        - 9 concurrency tests: two approvers on the same document at once (PR, RR, completion, conversion, write-off,
+          transfer, receipt). One wins, the other gets 409, and stock moves once. A probe confirmed the database
+          guards are what stop the second
+        - conversion + transfer + write-off approved at once: the lot adds up to exactly 0, no deadlock
       - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
       - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)

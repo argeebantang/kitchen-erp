@@ -47,6 +47,8 @@ export async function createWorld() {
     branchManager: await user(Role.BRANCH_MANAGER, 'branch-manager', outlet.id),
     viewer:        await user(Role.VIEWER, 'viewer'),
   }
+  // Who runs the outlet is read from Branch.managerId, never the login (receiving, requests, returns).
+  await prisma.branch.update({ where: { id: outlet.id }, data: { managerId: users.branchManager.id } })
 
   const supplier = await prisma.supplier.create({ data: { name: 'Test Meat Supply', leadTimeDays: 2 } })
 
