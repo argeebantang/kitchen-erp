@@ -1,6 +1,6 @@
 # Automated testing — plan
 
-**Status: subtask 1 (unit tests) built 2026-11-28; subtasks 2–6 planned.** Week 12 task, before the deploy's CI/CD step. The roadmap's
+**Status: subtasks 1 (unit tests), 2 (integration harness) and 3 (procurement flow) built 2026-11-28; subtasks 4–6 planned.** Week 12 task, before the deploy's CI/CD step. The roadmap's
 "GitHub Actions CI/CD: test → build → deploy" needs a test step to exist first.
 
 ## Why
@@ -33,7 +33,7 @@ not in pure functions.
 | Redis in tests | Same Redis container, **database 1** (`redis://localhost:6379/1`) | Services enqueue BullMQ jobs (`lib/queue.ts`) and publish live updates (`lib/realtime.ts`). On database 0, a running `npm run worker` would pick up test jobs and send real notifications and emails. |
 | Worker | Not run in tests | Tests check that a job was queued, not that an email arrived. Email and job tests come later if needed. |
 | Claude API | Never called. `ANTHROPIC_API_KEY` is empty in tests | AI features return "not set up". No cost and no flaky network calls. |
-| Test env vars | Set in `vitest.config.ts`, no `.env.test` file | `.gitignore` ignores `.env*`, and the values are not secrets. `TEST_DATABASE_URL` / `TEST_REDIS_URL` override them. |
+| Test env vars | `tests/helpers/test-env.ts`, used by `vitest.config.ts` and the global setup; no `.env.test` file | `.gitignore` ignores `.env*`, and the values are not secrets. Database and Redis: `TEST_DATABASE_URL` / `TEST_REDIS_URL` if set (CI), else your `.env`'s `DATABASE_URL` with `_test` appended to the name and `REDIS_URL` on database 1, else the docker-compose defaults. Only those two variables are read from `.env`, never its API keys. |
 | What a test calls | **Service functions directly**, not HTTP routes | Services return `{ success, data } \| { success, error, status }`, so a test can check a 409 or 403 without HTTP. Route handlers are thin zod + header mapping. |
 | Isolation | Every table except `_prisma_migrations` truncated before each test; test files run one at a time | One shared database. Running files in parallel would let tests see each other's rows. |
 | Fixtures | `tests/helpers/fixtures.ts`: a kitchen, an outlet, one user per role, a supplier, a few materials and a finished good with a BOM | Every workflow test needs the same starting world. The full seed is too big and changes with the demo. |
@@ -41,12 +41,12 @@ not in pure functions.
 | Prisma import | Test helpers may import `lib/prisma` (truncate, fixtures, assertions) | Exception to "only repositories import Prisma", for tests only. Services stay unchanged. |
 | Coverage | No percentage target | Aim at the risky flows. A number invites tests of getters. |
 
-## Commands (once built)
+## Commands
 
 ```bash
-npm test                  # unit + integration
+npm test                  # unit + integration (needs docker compose up)
 npm run test:unit         # no database needed, a few seconds
-npm run test:integration  # needs docker compose up (Postgres + Redis) — subtask 2
+npm run test:integration  # needs docker compose up (Postgres + Redis)
 npm run test:watch        # re-runs on save
 ```
 
@@ -61,10 +61,11 @@ npm run test:watch        # re-runs on save
    - `stockStatus`, `reorderAlerts`, `scaleBomQuantities`, `isLate`, `presetPeriod`, `periodDays`
    - security helpers: `safeNextPath` (no open redirect), `toolsFor(role)`, `canDraft`, `canUseAssistant`
    - `parseFindings`, `keepKnownFindings` (AI output never invents figure ids)
-2. **Integration harness.** Vitest integration project, global setup (`_test` guard, `prisma migrate reset --force
-   --skip-seed`), Redis database 1, a truncate before each test, fixtures. One smoke test: create a material through
-   its service and read it back.
-3. **Procurement flow.** PR → approve → PO → send → RR → approve. Checks:
+2. **Integration harness** — **built 2026-11-28: 7 integration tests + 9 guard unit tests, about 5 s including the
+   database rebuild.** Vitest integration project, global setup (`_test` guard, `prisma migrate reset --force
+   --skip-seed`), Redis database 1, a truncate before each test, fixtures. Smoke test: create a material through its
+   service and read it back.
+3. **Procurement flow** — **built 2026-11-28: 25 integration tests, about 10 s.** PR → approve → PO → send → RR → approve. Checks:
    - stock in with the ledger row
    - accepted ≤ ordered per PO line
    - no self-approval, ADMIN included
@@ -107,13 +108,68 @@ Noticed, not changed: `isLate(neededOn, now, cutoff)` takes "today" from the sys
 `now`. Both callers pass `new Date()`, so they agree. A caller passing another moment would get mixed results. The
 test fakes the clock to keep them one moment.
 
+### Subtask 2 — what was built
+
+| File | What it does |
+|---|---|
+| `tests/helpers/test-env.ts` | The test environment (see Decisions), plus `assertTestDatabase` (name must end in `_test`) and `assertTestRedis` (database 1 or above) |
+| `tests/helpers/global-setup.ts` | Once per run: both guards, Redis reachable (clear message if not), flush Redis db 1, `prisma migrate reset --force --skip-seed --skip-generate` on the test database (creates it if missing) |
+| `tests/helpers/database.ts` | `resetDatabase()`: checks `current_database()` really ends in `_test`, then truncates every table but `_prisma_migrations` in one statement (`RESTART IDENTITY CASCADE`) and flushes Redis db 1. `closeConnections()`: queues, realtime publisher, Prisma |
+| `tests/helpers/integration-setup.ts` | `resetDatabase()` before each test, `closeConnections()` after each file |
+| `tests/helpers/fixtures.ts` | `createWorld()`: kg/pc units; Meat, Spices, Roasts categories; Main Kitchen (COMMISSARY) and Cubao Outlet (OUTLET); one user per role plus a second accountant (for self-approval and two-at-once tests); a supplier; Whole Pig (₱250) and Rock Salt (₱40) with reference prices (no supplier) since yesterday — a purchase request has no supplier, so only a reference price can cost it; Lechon (48 h shelf life) with a 10 kg recipe of 12 kg pork + 0.5 kg salt |
+| `tests/integration/harness.test.ts` | Connected to `*_test`; every migration applied; fixtures build; service create + read back; a refusal comes back as `{ success: false, status: 409 }`; every test starts empty; queues use Redis db 1 |
+| `tests/unit/test-env.test.ts` | The guards refuse `kitchen_erp`, `kitchen_erp_test_backup`, no name, Redis 0 / none / non-numeric |
+
+Integration files run one at a time: a project with `fileParallelism: false` gets `maxWorkers = 1`, and Vitest puts
+its files in a sequential group (checked in Vitest 4.1.12's source). Unit files stay parallel.
+
+Checked against the real services: with `TEST_DATABASE_URL` set to the dev database the run stops with "Refusing to
+use database "kitchen_erp"" before connecting; with `TEST_REDIS_URL=redis://localhost:6379/0` it stops with
+"Refusing Redis database 0". After both, the dev database still had its 571 production orders and Redis db 0 its 500
+keys.
+
+### Subtask 3 — what was built
+
+`tests/helpers/procurement.ts` holds the workflow as steps, each through the real service as the API routes call it:
+`submittedRequest`, `approveRequest`, `sentOrder`, `orderReadyToReceive`, `countInput`, `submittedReceipt`, and
+`stockOf` (a stock level as a string). `ok(result)` unwraps a step that must succeed and otherwise fails with the
+service's own message. `as(user)` builds the `{ userId, role }` viewer the services take. Subtask 5 reuses them.
+
+`tests/integration/procurement.test.ts` (25 tests):
+
+| Area | Pins |
+|---|---|
+| Whole flow | Request approved → `CONVERTED_TO_PO` and a draft order at the reference prices. No stock before the delivery is approved, then: stock levels, one `IN` ledger row per line at the order's cost pointing at the report, the order `FULLY_RECEIVED`, and three approvals on record |
+| Supplier pricing | Choosing a supplier re-prices the order: the supplier's own price where there is one (pork ₱240), the reference price otherwise (salt ₱40), and the total |
+| Notifications | Submitting a request queues `pr-submitted` on Redis db 1 |
+| Several deliveries | Each approved delivery adds to stock. `PARTIALLY_RECEIVED` until complete. The second count is measured against what is still outstanding ("only 40 kg"). One open report per order (409) |
+| The count | Stocks received − rejected. Refuses: more than outstanding, rejected > received, a rejection without a note, a missing line, an outlet as the receiving branch, a future date. Nothing is created when refused |
+| Rejected delivery | No stock, no ledger rows, the order stays `SENT`, a fresh count can be recorded |
+| Own work, ADMIN included | 403 for deciding your own request, an order you submitted, or a delivery you counted. Nothing moves |
+| Decisions | Rejecting needs a reason (null, empty, spaces → 400) and creates no order. A second decision → 409, with still one order and stock moved once. A request with an unpriced line cannot be approved |
+| Roles | Accounting cannot edit or submit an order. No submitting without a supplier. Only procurement records deliveries. No receiving against an order never sent. A request cannot deliver to an outlet |
+
+Checked by planting bugs in the receiving code, one at a time, each caught by its own test: letting the counter
+approve their own delivery; stocking received instead of received − rejected; marking an order fully received after
+a partial delivery.
+
+Found while writing it: the first fixtures gave the materials a supplier's price, and every approval failed with
+"has no price on record". That is correct behaviour: a request has no supplier, so only a reference price counts. The
+fixtures now use reference prices.
+
+Not covered here, by design: two approvals of the same report at once. The `WHERE status` guard and the
+`FOR UPDATE` lock only matter under concurrency, which is subtask 5.
+
 ## Risks and assumptions
 
 - **Wiping the wrong database.** Covered by the `_test` name guard. It is checked before `migrate reset` and again
   before each truncate.
 - **Shared Redis.** Database 1 keeps test jobs away from the dev worker. Assumes nobody runs a worker against
   database 1.
-- **`lib/config.ts` throws at import** on a missing variable. The Vitest config sets all four required ones.
+- **`lib/config.ts` throws at import** on a missing variable. `tests/helpers/test-env.ts` sets all four required ones.
+- **The test database lives on the dev Postgres server.** It needs the same migration rights as the dev database
+  (CREATEROLE for the AI reader role, which already exists there, so `IF NOT EXISTS` skips it). `npm test` now needs
+  Docker up; `npm run test:unit` does not.
 - **Time-dependent rules** (expiry, late requests, Manila day boundaries): tests pass `now` where the function takes
   it and use fake timers (`vi.setSystemTime`) where it does not.
 - **Slower CI.** Integration tests add roughly a minute (service containers + migrations). Still free on GitHub

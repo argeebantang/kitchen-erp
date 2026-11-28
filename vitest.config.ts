@@ -1,29 +1,17 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
+import { testEnv } from './tests/helpers/test-env'
 
 /**
- * Tests (docs/2026-11-28-automated-testing-plan.md). One file for every test
- * project: `unit` needs nothing running; `integration` (subtask 2) will add
- * the test database.
+ * Tests (docs/2026-11-28-automated-testing-plan.md), two projects:
+ *   unit        — pure functions, nothing running
+ *   integration — services against a real Postgres + Redis (docker compose up)
  *
- * The environment below is test-only and holds no secret, so it lives here
- * rather than in a .env file (.gitignore ignores .env*). lib/config.ts throws
- * at import on a missing required variable, and modules under test reach it
- * through lib/prisma — a unit test never connects. The URLs point at the test
- * database and Redis database 1, never the dev ones, so a test that does
- * connect by mistake cannot touch dev data or feed jobs to `npm run worker`.
- * No Claude, Resend or AI-reader credentials: those features stay "not set up".
+ * The environment (tests/helpers/test-env.ts) is test-only and holds no
+ * secret: the test database (*_test) and Redis database 1, never the dev
+ * ones, and no Claude, Resend or AI-reader keys. lib/config.ts throws at
+ * import on a missing required variable, so unit tests get it too.
  */
-const testEnv = {
-  DATABASE_URL:        process.env.TEST_DATABASE_URL ?? 'postgresql://kitchen:kitchen@localhost:5432/kitchen_erp_test?schema=public',
-  REDIS_URL:           process.env.TEST_REDIS_URL ?? 'redis://localhost:6379/1',
-  JWT_SECRET:          'test-only-not-a-real-secret',
-  NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
-  ANTHROPIC_API_KEY:   '',
-  AI_DATABASE_URL:     '',
-  RESEND_API_KEY:      '',
-}
-
 export default defineConfig({
   // The tsconfig "@/*" path: '@' matches only "@/…", never "@prisma/client".
   resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)) } },
@@ -34,6 +22,21 @@ export default defineConfig({
       {
         extends: true,
         test: { name: 'unit', include: ['tests/unit/**/*.test.ts'] },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['tests/integration/**/*.test.ts'],
+          globalSetup: ['tests/helpers/global-setup.ts'],
+          setupFiles: ['tests/helpers/integration-setup.ts'],
+          // One database for all files: run them one at a time, or one file's
+          // truncate would wipe another's rows mid-test.
+          fileParallelism: false,
+          // Transactions with row locks are slower than pure functions.
+          testTimeout: 20_000,
+          hookTimeout: 60_000,
+        },
       },
     ],
   },

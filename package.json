@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
     "test:watch": "vitest",
     "worker": "tsx watch --env-file=.env worker/index.ts",
     "worker:start": "tsx --env-file=.env worker/index.ts",

@@ -774,10 +774,20 @@ demo data, AWS deploy + CI/CD, then README / video / LinkedIn (they need the liv
       - [x] Unit tests (Vitest) — **Subtask 1, 2026-11-28**: 8 files, 87 tests, `npm run test:unit` (no database):
         FEFO lot planning, Manila dates and ISO weeks, expiry flags, decimals, stock status and reorder alerts, BOM
         scaling, `?next=` redirects, assistant roles and tools, AI findings, report periods, late stock requests
-      - [ ] Integration test harness: `kitchen_erp_test` database (wiped only if its name ends in `_test`), Redis
-        database 1, fixtures
-      - [ ] Integration tests: procurement (PR → PO → RR → stock), production / conversion / write-off,
-        transfers, and two approvals at once → one 409
+      - [x] Integration test harness — **Subtask 2, 2026-11-28**: `npm run test:integration` (Docker up). The
+        `kitchen_erp_test` database is rebuilt from the migrations each run and emptied before every test; it is
+        wiped only if its name ends in `_test`, and Redis database 0 is refused. Fixtures: a kitchen, an outlet,
+        a user per role, a supplier, priced materials, Lechon with a recipe
+      - [x] Procurement integration tests — **Subtask 3, 2026-11-28**: 25 tests, PR → PO → RR → stock:
+        - stock and ledger only on approval
+        - supplier re-pricing
+        - partial deliveries and outstanding quantities
+        - received − rejected
+        - no self-approval (ADMIN included)
+        - a reason to reject
+        - a second decision → 409 with stock moved once
+        - roles, and outlets never receive
+      - [ ] Integration tests: production / conversion / write-off, transfers, and two approvals at once → one 409
       - [ ] Tests in CI: Postgres + Redis service containers; a red test blocks the PR
       - Later: Playwright smoke tests against the deployed app
 - [ ] AWS deploy (EC2, RDS, S3)
